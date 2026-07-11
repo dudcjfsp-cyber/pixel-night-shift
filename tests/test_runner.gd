@@ -1,0 +1,506 @@
+extends SceneTree
+
+const GameSessionScript := preload("res://game/app/game_session.gd")
+const ProgressionRules := preload("res://game/domain/progression_rules.gd")
+const ContentLoaderScript := preload("res://game/content/content_loader.gd")
+const PresentationAssetsScript := preload("res://game/presentation/presentation_assets.gd")
+
+const OPERATOR_IDS: Array[StringName] = [
+	&"debugger", &"build_engineer", &"sprite_artist", &"qa_imp",
+]
+const PATCH_IDS: Array[StringName] = [
+	&"frame_skip", &"unsafe_build", &"reward_bypass", &"rollback_lock", &"safe_mode",
+]
+const STEP_SECONDS := 0.25
+
+var _passed_tests := 0
+var _failed_tests := 0
+var _assertion_failures := 0
+
+
+func _init() -> void:
+	call_deferred("_run_all")
+
+
+func _run_all() -> void:
+	print("Pixel Night Shift headless tests")
+	print("================================")
+	_run_test("monotonic progression rules", _test_monotonic_progression_rules)
+	_run_test("deterministic GameSession ticks", _test_deterministic_ticks)
+	_run_test("tick partition invariance", _test_tick_partition_invariance)
+	_run_test("patch benefits have drawbacks", _test_patch_tradeoffs)
+	_run_test("patch removal cannot bypass replacement cost", _test_patch_removal_cost)
+	_run_test("boss failure recovers without a soft lock", _test_boss_failure_recovery)
+	_run_test("prestige resets run state and preserves meta state", _test_prestige_reset_and_preservation)
+	_run_test("content availability and validation", _test_content_validation)
+	_run_test("presentation assets are complete", _test_presentation_assets)
+	await _run_main_scene_smoke_test()
+
+	print("================================")
+	print(
+		"RESULT: %d passed, %d failed, %d assertion failures"
+		% [_passed_tests, _failed_tests, _assertion_failures]
+	)
+	quit(0 if _failed_tests == 0 else 1)
+
+
+func _run_test(test_name: String, test_method: Callable) -> void:
+	var failures_before := _assertion_failures
+	test_method.call()
+	_finish_test(test_name, failures_before)
+
+
+func _finish_test(test_name: String, failures_before: int) -> void:
+	if _assertion_failures == failures_before:
+		_passed_tests += 1
+		print("PASS  %s" % test_name)
+		return
+	_failed_tests += 1
+	print("FAIL  %s" % test_name)
+
+
+func _check(condition: bool, message: String) -> void:
+	if condition:
+		return
+	_assertion_failures += 1
+	print("      - %s" % message)
+
+
+func _test_monotonic_progression_rules() -> void:
+	var load_result := ContentLoaderScript.load_default()
+	_check(load_result.is_valid(), "default content must load before progression checks")
+	if not load_result.is_valid():
+		return
+	var catalog: ContentCatalog = load_result.catalog
+	var balance: BalanceDefinition = catalog.balance
+	var previous_health := ProgressionRules.enemy_max_hp(1, false, balance)
+	for stage: int in range(2, 21):
+		var current_health := ProgressionRules.enemy_max_hp(stage, false, balance)
+		_check(
+			current_health > previous_health,
+			"normal enemy health must increase from stage %d to %d" % [stage - 1, stage]
+		)
+		previous_health = current_health
+
+	_check(
+		ProgressionRules.enemy_max_hp(20, true, balance)
+			> ProgressionRules.enemy_max_hp(10, true, balance),
+		"the stage 20 boss must have more health than the stage 10 boss"
+	)
+
+	for definition: OperatorDefinition in catalog.operators:
+		var previous_cost := ProgressionRules.operator_upgrade_cost(
+			1, definition.base_cost, definition.cost_growth
+		)
+		for level: int in range(2, 51):
+			var current_cost := ProgressionRules.operator_upgrade_cost(
+				level, definition.base_cost, definition.cost_growth
+			)
+			_check(
+				current_cost > previous_cost,
+				"%s cost must increase from level %d to %d"
+				% [definition.id, level - 1, level]
+			)
+			previous_cost = current_cost
+
+
+func _test_deterministic_ticks() -> void:
+	var first := GameSessionScript.new()
+	var second := GameSessionScript.new()
+	var deltas: Array[float] = [0.25, 0.5, 0.125, 1.0, 0.75, 0.375]
+
+	for cycle: int in range(80):
+		var delta: float = deltas[cycle % deltas.size()]
+		first.tick(delta)
+		second.tick(delta)
+		if cycle % 8 == 0:
+			_check(
+				first.upgrade_operator(&"debugger") == second.upgrade_operator(&"debugger"),
+				"matching upgrade commands must return the same result"
+			)
+		if cycle == 40:
+			_check(
+				first.equip_patch(0, &"frame_skip") == second.equip_patch(0, &"frame_skip"),
+				"matching patch commands must return the same result"
+			)
+
+	_check(
+		first.snapshot() == second.snapshot(),
+		"same commands and elapsed time must produce identical snapshots"
+	)
+	_check(
+		first.get_diagnosis() == second.get_diagnosis(),
+		"diagnosis must be deterministic for identical state"
+	)
+
+
+func _test_tick_partition_invariance() -> void:
+	var single_tick := GameSessionScript.new()
+	var partitioned_ticks := GameSessionScript.new()
+	single_tick.tick(30.0)
+	for _step: int in range(120):
+		partitioned_ticks.tick(0.25)
+	var single_snapshot: Dictionary = single_tick.snapshot()
+	var partitioned_snapshot: Dictionary = partitioned_ticks.snapshot()
+	var single_enemy: Dictionary = single_snapshot.get("enemy", {}) as Dictionary
+	var partitioned_enemy: Dictionary = partitioned_snapshot.get("enemy", {}) as Dictionary
+	_check(
+		int(single_snapshot.get("stage", 0)) == int(partitioned_snapshot.get("stage", -1))
+		and int(single_snapshot.get("stage_enemy_index", 0))
+			== int(partitioned_snapshot.get("stage_enemy_index", -1))
+		and String(single_snapshot.get("mode", "")) == String(partitioned_snapshot.get("mode", "?"))
+		and is_equal_approx(
+			float(single_snapshot.get("bits", 0.0)),
+			float(partitioned_snapshot.get("bits", -1.0))
+		)
+		and is_equal_approx(
+			float(single_enemy.get("hp", 0.0)), float(partitioned_enemy.get("hp", -1.0))
+		),
+		"one 30-second tick and 120 quarter-second ticks must produce equivalent progression"
+	)
+
+	var before_invalid: Dictionary = single_tick.snapshot()
+	single_tick.tick(-1.0)
+	var after_invalid: Dictionary = single_tick.snapshot()
+	_check(
+		int(after_invalid.get("stage", 0)) == int(before_invalid.get("stage", -1))
+		and is_equal_approx(
+			float(after_invalid.get("bits", 0.0)), float(before_invalid.get("bits", -1.0))
+		),
+		"negative elapsed time must not advance progression"
+	)
+	_check(
+		not String(after_invalid.get("last_error", "")).is_empty(),
+		"negative elapsed time must report an explicit boundary error"
+	)
+
+
+func _test_patch_tradeoffs() -> void:
+	var session := GameSessionScript.new()
+	var frame_preview: Dictionary = session.get_patch_preview(0, &"frame_skip")
+	var reward_preview: Dictionary = session.get_patch_preview(0, &"reward_bypass")
+
+	_check(not frame_preview.is_empty(), "frame_skip must expose a preview even before it can be equipped")
+	_check(not reward_preview.is_empty(), "reward_bypass must expose a preview even before it can be equipped")
+	if not frame_preview.is_empty():
+		_check(
+			_float_field(frame_preview, "after_ttk") < _float_field(frame_preview, "before_ttk"),
+			"frame_skip must shorten expected time to kill"
+		)
+		_check(
+			_float_field(frame_preview, "after_bits_multiplier")
+				< _float_field(frame_preview, "before_bits_multiplier"),
+			"frame_skip must reduce bit income"
+		)
+	if not reward_preview.is_empty():
+		_check(
+			_float_field(reward_preview, "after_bits_multiplier")
+				> _float_field(reward_preview, "before_bits_multiplier"),
+			"reward_bypass must increase bit income"
+		)
+		_check(
+			_float_field(reward_preview, "after_ttk") > _float_field(reward_preview, "before_ttk"),
+			"reward_bypass must lengthen expected time to kill"
+		)
+
+	var boss_session := GameSessionScript.new()
+	_check(
+		_advance_without_upgrades(boss_session, 10, 600.0),
+		"boss preview test must reach stage 10"
+	)
+	var rollback_preview: Dictionary = boss_session.get_patch_preview(0, &"rollback_lock")
+	_check(bool(rollback_preview.get("can_equip", false)), "rollback_lock must be available at stage 10")
+	_check(
+		_float_field(rollback_preview, "after_ttk")
+			< _float_field(rollback_preview, "before_ttk"),
+		"rollback_lock preview must include its reduction of boss recovery"
+	)
+
+
+func _test_patch_removal_cost() -> void:
+	var session := GameSessionScript.new()
+	while int(session.snapshot().get("stage", 0)) < 3:
+		session.tick(STEP_SECONDS)
+	_check(
+		session.equip_patch(0, &"frame_skip"),
+		"first installation into an empty slot must be free"
+	)
+	var before_remove: Dictionary = session.snapshot()
+	var removed: bool = session.remove_patch(0)
+	var after_remove: Dictionary = session.snapshot()
+	_check(removed, "an equipped patch must be removable when the swap cost is affordable")
+	_check(
+		float(after_remove.get("bits", 0.0)) < float(before_remove.get("bits", 0.0)),
+		"removing a patch must charge the change cost so remove-then-equip cannot bypass it"
+	)
+
+
+func _test_boss_failure_recovery() -> void:
+	var session := GameSessionScript.new()
+	var reached_boss := _advance_without_upgrades(session, 10, 600.0)
+	_check(reached_boss, "an unupgraded session must eventually reach the first boss")
+	if not reached_boss:
+		return
+
+	var saw_maintenance := false
+	var steps_to_failure := int(45.0 / STEP_SECONDS)
+	for _step: int in range(steps_to_failure):
+		session.tick(STEP_SECONDS)
+		if _mode(session.snapshot()) == "maintenance":
+			saw_maintenance = true
+			break
+	_check(saw_maintenance, "the underpowered first boss attempt must enter maintenance")
+	if not saw_maintenance:
+		return
+
+	var maintenance_snapshot: Dictionary = session.snapshot()
+	var bits_at_maintenance := float(maintenance_snapshot.get("bits", 0.0))
+	_check(
+		float(maintenance_snapshot.get("maintenance_time_left", 0.0)) > 0.0,
+		"maintenance must expose remaining automatic recovery work"
+	)
+
+	var earned_bits := false
+	var retried_automatically := false
+	var recovery_steps := int(120.0 / STEP_SECONDS)
+	for _step: int in range(recovery_steps):
+		session.tick(STEP_SECONDS)
+		var current: Dictionary = session.snapshot()
+		earned_bits = earned_bits or float(current.get("bits", 0.0)) > bits_at_maintenance
+		if _mode(current) == "boss" and int(current.get("stage", 0)) == 10:
+			retried_automatically = true
+			break
+	_check(earned_bits, "maintenance must earn bits so the player can change the failed build")
+	_check(retried_automatically, "maintenance must retry the boss without a manual retry command")
+
+
+func _test_prestige_reset_and_preservation() -> void:
+	var session := GameSessionScript.new()
+	var reached_prestige := _drive_to_prestige(session, 20000.0)
+	_check(reached_prestige, "automated combat plus public upgrades must reach prestige")
+	if not reached_prestige:
+		return
+
+	var before: Dictionary = session.snapshot()
+	var patch_notes_before := int(before.get("patch_notes", 0))
+	var run_count_before := int(before.get("run_count", 0))
+	var unlocked_slots_before := int(before.get("unlocked_patch_slots", 0))
+	var discovered_operators_before := _availability_by_id(before.get("operators", []) as Array)
+	var discovered_patches_before := _availability_by_id(before.get("patches", []) as Array)
+
+	_check(bool(before.get("prestige_available", false)), "stage 20 clear must offer prestige")
+	_check(session.prestige(), "prestige command must succeed after stage 20 clear")
+
+	var after: Dictionary = session.snapshot()
+	_check(int(after.get("stage", 0)) == 1, "prestige must reset the run to stage 1")
+	_check(is_zero_approx(float(after.get("bits", -1.0))), "prestige must reset bits")
+	_check(
+		int(after.get("patch_notes", 0)) == patch_notes_before + 1,
+		"prestige must grant exactly one patch note"
+	)
+	_check(
+		int(after.get("run_count", 0)) == run_count_before + 1,
+		"prestige must increment run count"
+	)
+	_check(
+		int(after.get("unlocked_patch_slots", 0)) == unlocked_slots_before,
+		"prestige must preserve unlocked patch slots"
+	)
+	_check(_all_slots_empty(after), "prestige must remove equipped run patches")
+	_check(
+		_availability_by_id(after.get("operators", []) as Array) == discovered_operators_before,
+		"prestige must preserve discovered operators"
+	)
+	_check(
+		_availability_by_id(after.get("patches", []) as Array) == discovered_patches_before,
+		"prestige must preserve discovered patches"
+	)
+	for operator_value: Variant in after.get("operators", []) as Array:
+		var operator_data: Dictionary = operator_value as Dictionary
+		_check(
+			bool(operator_data.get("unlocked", false)) and int(operator_data.get("level", 0)) >= 1,
+			"all discovered operators must restart at level 1 after prestige"
+		)
+
+	var cache_level_before := int(after.get("legacy_cache_level", 0))
+	var cache_cost := int(after.get("legacy_cache_cost", 0))
+	var notes_before_cache := int(after.get("patch_notes", 0))
+	_check(session.buy_legacy_cache(), "the earned patch note must buy the first legacy cache level")
+	var cached: Dictionary = session.snapshot()
+	_check(
+		int(cached.get("legacy_cache_level", 0)) == cache_level_before + 1,
+		"legacy cache purchase must increase its persistent level"
+	)
+	_check(
+		int(cached.get("patch_notes", 0)) == notes_before_cache - cache_cost,
+		"legacy cache purchase must spend its documented patch-note cost"
+	)
+
+
+func _test_content_validation() -> void:
+	var valid_result := ContentLoaderScript.load_default()
+	_check(valid_result.is_valid(), "repository content must pass boundary validation")
+	if valid_result.is_valid():
+		_check(valid_result.catalog.operators.size() == 4, "default content must contain four operators")
+		_check(valid_result.catalog.patches.size() == 5, "default content must contain five patches")
+		for operator_id: StringName in OPERATOR_IDS:
+			_check(
+				valid_result.catalog.has_operator(operator_id),
+				"default content is missing operator '%s'" % operator_id
+			)
+		for patch_id: StringName in PATCH_IDS:
+			_check(
+				valid_result.catalog.has_patch(patch_id),
+				"default content is missing patch '%s'" % patch_id
+			)
+
+	var malformed_result := ContentLoaderScript.load_from_json("{", "[]", "{}")
+	_check(not malformed_result.is_valid(), "malformed JSON must be rejected")
+	_check(not malformed_result.errors.is_empty(), "invalid content must report actionable errors")
+
+	var operator_json := FileAccess.get_file_as_string("res://game/content/operators.json")
+	var patch_json := FileAccess.get_file_as_string("res://game/content/patches.json")
+	var balance_json := FileAccess.get_file_as_string("res://game/content/balance.json")
+	var out_of_scope_patch_json := patch_json.replace(
+		"\"unlock_stage\": 15", "\"unlock_stage\": 21"
+	)
+	var out_of_scope_result := ContentLoaderScript.load_from_json(
+		operator_json, out_of_scope_patch_json, balance_json
+	)
+	_check(
+		not out_of_scope_result.is_valid(),
+		"content that unlocks after the 20-stage prototype must be rejected"
+	)
+
+	var session := GameSessionScript.new()
+	var snapshot: Dictionary = session.snapshot()
+	_check((snapshot.get("operators", []) as Array).size() == 4, "session snapshot must expose four operators")
+	_check((snapshot.get("patches", []) as Array).size() == 5, "session snapshot must expose five patches")
+	_check(String(snapshot.get("last_error", "")).is_empty(), "valid default content must not set last_error")
+
+
+func _test_presentation_assets() -> void:
+	for operator_id: StringName in OPERATOR_IDS:
+		var texture: Texture2D = PresentationAssetsScript.operator_texture(operator_id)
+		_check(texture != null, "operator texture '%s' must load" % operator_id)
+		if texture != null:
+			_check(texture.get_size() == Vector2(32.0, 32.0), "operator texture '%s' must be 32x32" % operator_id)
+
+	for patch_id: StringName in PATCH_IDS:
+		var texture: Texture2D = PresentationAssetsScript.patch_texture(patch_id)
+		_check(texture != null, "patch texture '%s' must load" % patch_id)
+		if texture != null:
+			_check(texture.get_size() == Vector2(24.0, 24.0), "patch texture '%s' must be 24x24" % patch_id)
+
+	for icon_id: StringName in [&"bit", &"patch_note", &"stage", &"diagnosis", &"combat", &"boss", &"maintenance", &"complete"]:
+		var texture: Texture2D = PresentationAssetsScript.ui_texture(icon_id)
+		_check(texture != null, "UI texture '%s' must load" % icon_id)
+		if texture != null:
+			_check(texture.get_size() == Vector2(16.0, 16.0), "UI texture '%s' must be 16x16" % icon_id)
+
+	var audio_paths: PackedStringArray = [
+		"res://game/assets/audio/bgm/night_shift_loop.wav",
+		"res://game/assets/audio/bgm/watchdog_loop.wav",
+		"res://game/assets/audio/bgm/maintenance_loop.wav",
+		"res://game/assets/audio/sfx/ui_move.wav",
+		"res://game/assets/audio/sfx/ui_confirm.wav",
+		"res://game/assets/audio/sfx/ui_error.wav",
+		"res://game/assets/audio/sfx/enemy_break.wav",
+		"res://game/assets/audio/sfx/stage_clear.wav",
+		"res://game/assets/audio/sfx/operator_upgrade.wav",
+		"res://game/assets/audio/sfx/patch_apply.wav",
+		"res://game/assets/audio/sfx/patch_remove.wav",
+		"res://game/assets/audio/sfx/boss_warning.wav",
+		"res://game/assets/audio/sfx/maintenance_enter.wav",
+		"res://game/assets/audio/sfx/update_ready.wav",
+		"res://game/assets/audio/sfx/version_update.wav",
+	]
+	for audio_path: String in audio_paths:
+		var stream: Resource = load(audio_path)
+		_check(stream is AudioStream, "audio stream '%s' must load" % audio_path)
+
+	_check(AudioServer.get_bus_index("Music") >= 0, "Music audio bus must exist")
+	_check(AudioServer.get_bus_index("SFX") >= 0, "SFX audio bus must exist")
+
+
+func _run_main_scene_smoke_test() -> void:
+	var failures_before := _assertion_failures
+	var packed: Resource = load("res://game/presentation/main.tscn")
+	_check(packed is PackedScene, "main scene must load as a PackedScene")
+	if packed is PackedScene:
+		var instance := (packed as PackedScene).instantiate()
+		_check(instance != null, "main scene must instantiate")
+		if instance != null:
+			_check(instance.get_script() != null, "main scene root script must load without parser errors")
+			root.add_child(instance)
+			await process_frame
+			_check(instance.is_inside_tree(), "main scene must survive one headless frame")
+			instance.queue_free()
+			await process_frame
+	_finish_test("main scene headless smoke load", failures_before)
+
+
+func _float_field(values: Dictionary, key: String) -> float:
+	_check(values.has(key), "patch preview is missing '%s'" % key)
+	return float(values.get(key, 0.0))
+
+
+func _mode(snapshot: Dictionary) -> String:
+	return String(snapshot.get("mode", ""))
+
+
+func _advance_without_upgrades(session: Variant, target_stage: int, max_seconds: float) -> bool:
+	var step_count := int(max_seconds / STEP_SECONDS)
+	for _step: int in range(step_count):
+		if int(session.snapshot().get("stage", 0)) >= target_stage:
+			return true
+		session.tick(STEP_SECONDS)
+	return int(session.snapshot().get("stage", 0)) >= target_stage
+
+
+func _drive_to_prestige(session: Variant, max_seconds: float) -> bool:
+	var step_count := int(max_seconds / STEP_SECONDS)
+	for step: int in range(step_count):
+		var snapshot: Dictionary = session.snapshot()
+		if bool(snapshot.get("prestige_available", false)):
+			return true
+
+		_try_progress_patches(session, snapshot)
+		if step % 4 == 0:
+			for operator_id: StringName in OPERATOR_IDS:
+				session.upgrade_operator(operator_id)
+		session.tick(STEP_SECONDS)
+	return bool(session.snapshot().get("prestige_available", false))
+
+
+func _try_progress_patches(session: Variant, snapshot: Dictionary) -> void:
+	var unlocked_slots := int(snapshot.get("unlocked_patch_slots", 0))
+	var slots: Array = snapshot.get("patch_slots", []) as Array
+	var desired: Array[StringName] = [&"frame_skip", &"unsafe_build", &"rollback_lock"]
+	for slot_index: int in range(mini(unlocked_slots, desired.size())):
+		var current_id := ""
+		if slot_index < slots.size():
+			current_id = String(slots[slot_index])
+		if current_id != String(desired[slot_index]):
+			session.equip_patch(slot_index, desired[slot_index])
+
+
+func _availability_by_id(items: Array) -> Dictionary:
+	var availability: Dictionary = {}
+	for item_value: Variant in items:
+		if typeof(item_value) != TYPE_DICTIONARY:
+			continue
+		var item := item_value as Dictionary
+		var item_id := String(item.get("id", ""))
+		if item_id.is_empty():
+			continue
+		availability[item_id] = bool(item.get("unlocked", item.get("discovered", false)))
+	return availability
+
+
+func _all_slots_empty(snapshot: Dictionary) -> bool:
+	var slots: Array = snapshot.get("patch_slots", []) as Array
+	for slot_value: Variant in slots:
+		if not String(slot_value).is_empty():
+			return false
+	return true

@@ -1,0 +1,194 @@
+{
+  "assets": [
+    {
+      "category": "operator",
+      "height": 32,
+      "id": "debugger",
+      "path": "res://game/assets/generated/operators/debugger.png",
+      "sha256": "c3e1e63ed231d25e6e1c478f5aa6800d7502964e622fbd6acf54f29443814846",
+      "width": 32
+    },
+    {
+      "category": "operator",
+      "height": 32,
+      "id": "build_engineer",
+      "path": "res://game/assets/generated/operators/build_engineer.png",
+      "sha256": "4802e52a363fbe75f6761000a2e743673e7d366969ae1a1d768263f9e373ccc5",
+      "width": 32
+    },
+    {
+      "category": "operator",
+      "height": 32,
+      "id": "sprite_artist",
+      "path": "res://game/assets/generated/operators/sprite_artist.png",
+      "sha256": "195caa05c1f54ad02578c976fa2ca0d2488e2111775a32fdcfd1b77bc1d58ac7",
+      "width": 32
+    },
+    {
+      "category": "operator",
+      "height": 32,
+      "id": "qa_imp",
+      "path": "res://game/assets/generated/operators/qa_imp.png",
+      "sha256": "987b05c95d35e3b916845b9242c2d2977d6cb32ef171226fa3d5ef16a79bac66",
+      "width": 32
+    },
+    {
+      "category": "enemy",
+      "height": 32,
+      "id": "broken_pixel",
+      "path": "res://game/assets/generated/enemies/broken_pixel.png",
+      "sha256": "72ca5af43c55e8489e62515ab3e0a0c8ff45fae58fe14684880b4f9e5b375c36",
+      "width": 32
+    },
+    {
+      "category": "enemy",
+      "height": 32,
+      "id": "infinite_loop",
+      "path": "res://game/assets/generated/enemies/infinite_loop.png",
+      "sha256": "36e64531c48861868be7c69c9761119292c3855edb80b6e0c6d775af0d9cbdf1",
+      "width": 32
+    },
+    {
+      "category": "enemy",
+      "height": 32,
+      "id": "missing_resource",
+      "path": "res://game/assets/generated/enemies/missing_resource.png",
+      "sha256": "d6c87fba9fb7402fd28df51ab56852b6f3fe1b0a15d2eee600d73024f0960230",
+      "width": 32
+    },
+    {
+      "category": "enemy",
+      "height": 32,
+      "id": "maintenance_error",
+      "path": "res://game/assets/generated/enemies/maintenance_error.png",
+      "sha256": "6e29cc83ef9eac50adf44699641cecf606eb167afaeedff14a8184e09b35bd21",
+      "width": 32
+    },
+    {
+      "category": "boss",
+      "height": 48,
+      "id": "watchdog_process",
+      "path": "res://game/assets/generated/enemies/watchdog_process.png",
+      "sha256": "23c4f171730e637ca824dc55026f5d2aa3d626771c97689fb52d6cbfe8f33083",
+      "width": 48
+    },
+    {
+      "category": "patch",
+      "height": 24,
+      "id": "frame_skip",
+      "path": "res://game/assets/generated/patches/frame_skip.png",
+      "sha256": "914058fb526cc79cab722630c749ce41358fbe75414940a81221477541d6c698",
+      "width": 24
+    },
+    {
+      "category": "patch",
+      "height": 24,
+      "id": "unsafe_build",
+      "path": "res://game/assets/generated/patches/unsafe_build.png",
+      "sha256": "9162b6a9158ed1735d05fc2a48b16acdf50f98a1ce4b89665f0f2a515d9551e7",
+      "width": 24
+    },
+    {
+      "category": "patch",
+      "height": 24,
+      "id": "reward_bypass",
+      "path": "res://game/assets/generated/patches/reward_bypass.png",
+      "sha256": "1695de7cbaefebe80f36d2f6bc698489dca230a6dfafacf101972c49c48e44b4",
+      "width": 24
+    },
+    {
+      "category": "patch",
+      "height": 24,
+      "id": "rollback_lock",
+      "path": "res://game/assets/generated/patches/rollback_lock.png",
+      "sha256": "198f9e24fad963c832cd1af4e17d7ecb2e55519e75a74f0c36d8df2be03907d0",
+      "width": 24
+    },
+    {
+      "category": "patch",
+      "height": 24,
+      "id": "safe_mode",
+      "path": "res://game/assets/generated/patches/safe_mode.png",
+      "sha256": "f4bcbd602163daa94cfca29df95091eaae387ce7cef35d097437e030928c2f5a",
+      "width": 24
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "bit",
+      "path": "res://game/assets/generated/ui/bit.png",
+      "sha256": "de0bb4b0fe98f4820a3baa8bb6bb6e454e072ea28a6ca062c11a29182643d3fe",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "patch_note",
+      "path": "res://game/assets/generated/ui/patch_note.png",
+      "sha256": "88ff8cab29a5a20a1c6a7075e2ba19ac61fba6a919c3569469d358e7f48c6844",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "stage",
+      "path": "res://game/assets/generated/ui/stage.png",
+      "sha256": "14a00aa2a72080a38084db2c007eab65f0737df2a3bb21f48a522b00b7a18291",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "diagnosis",
+      "path": "res://game/assets/generated/ui/diagnosis.png",
+      "sha256": "134e76d14d1a4c38321632ea4a56fa1f23b8e55b518f3688d81d823d33493bea",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "combat",
+      "path": "res://game/assets/generated/ui/combat.png",
+      "sha256": "55c3e064aa50b09d1e5729bb2edb5c0799749ed79e3a8c987e61eac67d014ce7",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "boss",
+      "path": "res://game/assets/generated/ui/boss.png",
+      "sha256": "8e6542163fd1723b4cba4c8b8c555d24ca43e4bf058762be9ad91b3932d46bee",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "maintenance",
+      "path": "res://game/assets/generated/ui/maintenance.png",
+      "sha256": "47be3ed3f57882dcb8f9feb7aae6969bf874de83e067fffdf9fc189c29869c46",
+      "width": 16
+    },
+    {
+      "category": "ui",
+      "height": 16,
+      "id": "complete",
+      "path": "res://game/assets/generated/ui/complete.png",
+      "sha256": "7ae7d2aec57885da67022eb1008febc7cf0a3985f7765860ac5e3fb789972be1",
+      "width": 16
+    },
+    {
+      "category": "background",
+      "height": 64,
+      "id": "battle_server_room",
+      "path": "res://game/assets/generated/backgrounds/battle_server_room.png",
+      "sha256": "67fc69cd563484a91f79a3cb74265c7e3f2fdae8bb800aa28b70b43c6635b4e9",
+      "width": 344
+    }
+  ],
+  "generation_seed": "pns-midnight-terminal-v1",
+  "generator": "res://tools/generate_pixel_assets.gd",
+  "generator_version": 1,
+  "license": "LicenseRef-PixelNightShift-Original",
+  "schema_version": 1,
+  "style": "original midnight operations-terminal pixel art"
+}

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "frame_skip",
+    "name": "애니메이션 프레임 생략",
+    "description": "표시 프레임을 덜 그려 처리량을 끌어올립니다.",
+    "benefit": "공격 속도 +35%",
+    "drawback": "비트 획득 -20%",
+    "unlock_stage": 3,
+    "damage_multiplier": 1.0,
+    "attack_speed_multiplier": 1.35,
+    "bit_multiplier": 0.8,
+    "enemy_health_multiplier": 1.0,
+    "boss_recovery_multiplier": 1.0,
+    "boss_special_interval_multiplier": 1.0
+  },
+  {
+    "id": "unsafe_build",
+    "name": "검증 단계 생략",
+    "description": "검증을 건너뛰고 화력을 먼저 배포합니다.",
+    "benefit": "전체 피해 +45%",
+    "drawback": "보스 회복 효과 +25%",
+    "unlock_stage": 5,
+    "damage_multiplier": 1.45,
+    "attack_speed_multiplier": 1.0,
+    "bit_multiplier": 1.0,
+    "enemy_health_multiplier": 1.0,
+    "boss_recovery_multiplier": 1.25,
+    "boss_special_interval_multiplier": 1.0
+  },
+  {
+    "id": "reward_bypass",
+    "name": "보상 테이블 우회",
+    "description": "보상 테이블을 우회해 더 많은 비트를 회수합니다.",
+    "benefit": "비트 획득 +50%",
+    "drawback": "적 최대 체력 +20%",
+    "unlock_stage": 7,
+    "damage_multiplier": 1.0,
+    "attack_speed_multiplier": 1.0,
+    "bit_multiplier": 1.5,
+    "enemy_health_multiplier": 1.2,
+    "boss_recovery_multiplier": 1.0,
+    "boss_special_interval_multiplier": 1.0
+  },
+  {
+    "id": "rollback_lock",
+    "name": "롤백 잠금",
+    "description": "보스가 상태를 되돌리는 경로를 잠급니다.",
+    "benefit": "보스 회복 효과 -70%",
+    "drawback": "전체 피해 -15%",
+    "unlock_stage": 9,
+    "damage_multiplier": 0.85,
+    "attack_speed_multiplier": 1.0,
+    "bit_multiplier": 1.0,
+    "enemy_health_multiplier": 1.0,
+    "boss_recovery_multiplier": 0.3,
+    "boss_special_interval_multiplier": 1.0
+  },
+  {
+    "id": "safe_mode",
+    "name": "저사양 안전 모드",
+    "description": "보스의 오류 행동 주기를 느리게 제한합니다.",
+    "benefit": "보스 특수 행동 간격 +40%",
+    "drawback": "비트 획득 -25%",
+    "unlock_stage": 15,
+    "damage_multiplier": 1.0,
+    "attack_speed_multiplier": 1.0,
+    "bit_multiplier": 0.75,
+    "enemy_health_multiplier": 1.0,
+    "boss_recovery_multiplier": 1.0,
+    "boss_special_interval_multiplier": 1.4
+  }
+]

@@ -1,0 +1,118 @@
+{
+	"channels": 1,
+	"engine": "Godot 4.7",
+	"files": [
+		{
+			"duration_seconds": 20.0,
+			"file": "game/assets/audio/bgm/night_shift_loop.wav",
+			"loop": true,
+			"seed": 41021,
+			"sha256": "78f8e7b0b826d001038fe75ef920a69649f883d07b84103cde2f6e64630fd50c"
+		},
+		{
+			"duration_seconds": 12.972971,
+			"file": "game/assets/audio/bgm/watchdog_loop.wav",
+			"loop": true,
+			"seed": 91487,
+			"sha256": "587f78bd180ab923cc9f8e7baa5d3921061ead090f5127fd5b986d283c39e33c"
+		},
+		{
+			"duration_seconds": 25.263175,
+			"file": "game/assets/audio/bgm/maintenance_loop.wav",
+			"loop": true,
+			"seed": 77213,
+			"sha256": "d558dec8816c5d6d22df7f6693064d9fd9394b17d63d7a2a960b832cf88033e0"
+		},
+		{
+			"duration_seconds": 0.070023,
+			"file": "game/assets/audio/sfx/ui_move.wav",
+			"loop": false,
+			"seed": 1101,
+			"sha256": "389075e425361bc61b5bc46211d8cc68f6a98fea716f48eff99da37811bfd3e4"
+		},
+		{
+			"duration_seconds": 0.16,
+			"file": "game/assets/audio/sfx/ui_confirm.wav",
+			"loop": false,
+			"seed": 1102,
+			"sha256": "375e0c4ade3c13985661fbeb933c1358fb20f51f30886e5e01791afc964b235b"
+		},
+		{
+			"duration_seconds": 0.24,
+			"file": "game/assets/audio/sfx/ui_error.wav",
+			"loop": false,
+			"seed": 1103,
+			"sha256": "ed6183471c514fcb801113a90ac9bc37b6417f87f9e8c03d9cafd4c96b7962fc"
+		},
+		{
+			"duration_seconds": 0.34,
+			"file": "game/assets/audio/sfx/enemy_break.wav",
+			"loop": false,
+			"seed": 1104,
+			"sha256": "5fc9daa2c5f1581e9dceb76dcade8e414d57d1f9b70d1ef35aa137be2d5f00fb"
+		},
+		{
+			"duration_seconds": 0.58,
+			"file": "game/assets/audio/sfx/stage_clear.wav",
+			"loop": false,
+			"seed": 1105,
+			"sha256": "044b447650f7b8c3cdf3d866ec80a25ef21ecceba3d036aa98a546d5b10e0c98"
+		},
+		{
+			"duration_seconds": 0.48,
+			"file": "game/assets/audio/sfx/operator_upgrade.wav",
+			"loop": false,
+			"seed": 1106,
+			"sha256": "13204b0b7a8f617cb33511b7ff6bc81ae68e3e5bd809638790554c9088ce7c4c"
+		},
+		{
+			"duration_seconds": 0.38,
+			"file": "game/assets/audio/sfx/patch_apply.wav",
+			"loop": false,
+			"seed": 1107,
+			"sha256": "0844bc477a63c9eb03b3ff0a18bb556733727dff3da6ddb6675f93ddb666d551"
+		},
+		{
+			"duration_seconds": 0.28,
+			"file": "game/assets/audio/sfx/patch_remove.wav",
+			"loop": false,
+			"seed": 1108,
+			"sha256": "dc93e8026668c7d960d68af35aacc652a71c59e56705dc91d2ea8c0e6343c7d8"
+		},
+		{
+			"duration_seconds": 0.92,
+			"file": "game/assets/audio/sfx/boss_warning.wav",
+			"loop": false,
+			"seed": 1109,
+			"sha256": "1c1de589cd61685f03a0be514664de83ac2a8079012ba0f47cf3267875897599"
+		},
+		{
+			"duration_seconds": 0.68,
+			"file": "game/assets/audio/sfx/maintenance_enter.wav",
+			"loop": false,
+			"seed": 1110,
+			"sha256": "e6f48a024af90d3de65adb3f6026aed67fb9a3d6581b27185911f0180782ded8"
+		},
+		{
+			"duration_seconds": 1.050023,
+			"file": "game/assets/audio/sfx/update_ready.wav",
+			"loop": false,
+			"seed": 1111,
+			"sha256": "2912807d7a02c0e3f8e38b4a75771a61c622e4f697895a9b0c780abb0303468e"
+		},
+		{
+			"duration_seconds": 1.650023,
+			"file": "game/assets/audio/sfx/version_update.wav",
+			"loop": false,
+			"seed": 1112,
+			"sha256": "78fa5cd5e673b02f8aa0748e35146d6a0d66defdfa33026c87f01c0cbffe2207"
+		}
+	],
+	"generator": "res://tools/generate_audio.gd",
+	"generator_version": "1.0.0",
+	"license": "Project-original",
+	"provenance": "Original procedural synthesis; no recordings, samples, or external melodies.",
+	"sample_format": "PCM signed 16-bit little-endian",
+	"sample_rate_hz": 22050,
+	"schema_version": 1
+}

@@ -1,0 +1,22 @@
+{
+  "normal_enemy_count": 3,
+  "enemy_base_health": 200.0,
+  "enemy_health_growth": 1.05,
+  "post_stage_10_health_growth": 1.18,
+  "enemy_reward_base": 6.0,
+  "enemy_reward_growth": 1.11,
+  "boss_health_multiplier": 1.5,
+  "boss_time_limit": 25.0,
+  "stage_10_recovery_interval": 8.0,
+  "stage_10_recovery_fraction": 0.12,
+  "stage_20_recovery_interval": 6.0,
+  "stage_20_recovery_fraction": 0.15,
+  "stage_20_debuff_time": 12.0,
+  "stage_20_debuff_multiplier": 0.8,
+  "maintenance_cycles": 2,
+  "target_normal_ttk": 10.0,
+  "legacy_cache_bonus": 0.35,
+  "legacy_cache_cost": 1,
+  "max_legacy_cache_level": 1,
+  "patch_slot_unlock_stages": [3, 11, 15]
+}
