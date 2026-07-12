@@ -397,6 +397,7 @@ func _test_animated_sprite_manifest_contract() -> void:
 		"root asset catalog must pass independent validation: %s"
 		% "; ".join(validation_errors)
 	)
+	_check_active_sprite_byte_contract()
 	if not initialization_errors.is_empty() or not validation_errors.is_empty():
 		return
 
@@ -446,6 +447,53 @@ func _test_animated_sprite_manifest_contract() -> void:
 		_check(
 			first_frame != second_frame,
 			"each broken_pixel SpriteFrames instance must own independent AtlasTexture frames"
+		)
+
+
+func _check_active_sprite_byte_contract() -> void:
+	var root_text := FileAccess.get_file_as_string(PresentationAssetsScript.ROOT_MANIFEST_PATH)
+	var parsed: Variant = JSON.parse_string(root_text)
+	_check(parsed is Dictionary, "root asset catalog must be valid JSON for byte checks")
+	if not parsed is Dictionary:
+		return
+	var root_manifest: Dictionary = parsed
+	var runs_value: Variant = root_manifest.get("active_sprite_runs", {})
+	_check(runs_value is Dictionary, "root asset catalog must expose active_sprite_runs")
+	if not runs_value is Dictionary:
+		return
+	var runs: Dictionary = runs_value
+	var required_ids: Array[StringName] = [&"debugger", &"broken_pixel"]
+	for asset_id: StringName in required_ids:
+		var run_key := String(asset_id)
+		_check(runs.has(run_key), "%s active sprite entry must exist" % asset_id)
+		if not runs.has(run_key):
+			continue
+		var entry_value: Variant = runs[run_key]
+		_check(entry_value is Dictionary, "%s active sprite entry must be a Dictionary" % asset_id)
+		if not entry_value is Dictionary:
+			continue
+		var entry: Dictionary = entry_value
+		var manifest_path := String(entry.get("manifest_path", ""))
+		var manifest_absolute := ProjectSettings.globalize_path(manifest_path)
+		var manifest_file := FileAccess.open(manifest_absolute, FileAccess.READ)
+		_check(manifest_file != null, "%s active manifest must be readable" % asset_id)
+		if manifest_file == null:
+			continue
+		var manifest_bytes: PackedByteArray = manifest_file.get_buffer(manifest_file.get_length())
+		_check(
+			manifest_bytes.find(13) == -1,
+			"%s active manifest must contain LF-only bytes" % asset_id
+		)
+		var actual_manifest_hash := FileAccess.get_sha256(manifest_absolute)
+		_check(
+			String(entry.get("manifest_sha256", "")) == actual_manifest_hash,
+			"%s root manifest pin must match the LF manifest bytes" % asset_id
+		)
+		var atlas_path := manifest_path.get_base_dir().path_join("sprite-sheet-alpha.png")
+		var actual_atlas_hash := FileAccess.get_sha256(ProjectSettings.globalize_path(atlas_path))
+		_check(
+			String(entry.get("atlas_sha256", "")) == actual_atlas_hash,
+			"%s root atlas pin must remain byte-exact" % asset_id
 		)
 
 

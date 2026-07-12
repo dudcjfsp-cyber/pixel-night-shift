@@ -6,7 +6,7 @@
       "license": "LicenseRef-PixelNightShift-Original",
       "manifest_contract": 1.0,
       "manifest_path": "res://game/assets/generated/sprites/broken_pixel/manifest.json",
-      "manifest_sha256": "373e1ea75aec66315269558258fe965aeb2b5b5702ba3eddc0eab358b07aab84",
+      "manifest_sha256": "b6a4ddb4d07efca7494707f5c55410d39cf0bfcb25d8426caaa8917225a34745",
       "sprite_gen_version": "1.56.6"
     },
     "debugger": {
@@ -15,7 +15,7 @@
       "license": "LicenseRef-PixelNightShift-Original",
       "manifest_contract": 1.0,
       "manifest_path": "res://game/assets/generated/sprites/debugger/manifest.json",
-      "manifest_sha256": "4dd7afd9c0846a409095eed2439972bbf139765705bfc6651652835126f7cc63",
+      "manifest_sha256": "cc2e10e9aeea9f06034c6f443a8727770d565b520422973acc98b94059eda6fb",
       "sprite_gen_version": "1.56.6"
     }
   },

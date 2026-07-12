@@ -117,6 +117,8 @@ func _validate_active_sprite_runs(manifest: Dictionary, failures: Array[String])
 		if String(entry.get("sprite_gen_version", "")).is_empty():
 			failures.append("Sprite run '%s' is missing sprite_gen_version provenance." % asset_id)
 		var run_manifest_path := String(entry.get("manifest_path", ""))
+		if not _validate_active_manifest_lf(run_manifest_path, asset_id, failures):
+			continue
 		var run_manifest := _read_json(run_manifest_path, "sprite run '%s' manifest" % asset_id, failures)
 		if run_manifest.is_empty():
 			continue
@@ -295,6 +297,29 @@ func _count_opaque_components(opaque_pixels: Dictionary) -> int:
 					remaining.erase(neighbor)
 					frontier.append(neighbor)
 	return component_count
+
+
+func _validate_active_manifest_lf(
+	path: String,
+	asset_id: String,
+	failures: Array[String]
+) -> bool:
+	if path.is_empty():
+		return true
+	var absolute_path := ProjectSettings.globalize_path(path)
+	if not FileAccess.file_exists(absolute_path):
+		return true
+	var file := FileAccess.open(absolute_path, FileAccess.READ)
+	if file == null:
+		return true
+	var bytes: PackedByteArray = file.get_buffer(file.get_length())
+	if bytes.find(13) == -1:
+		return true
+	failures.append(
+		"Sprite run '%s' manifest contains CR bytes; normalize it to LF before pinning manifest_sha256."
+		% asset_id
+	)
+	return false
 
 
 func _read_json(path: String, context: String, failures: Array[String]) -> Dictionary:

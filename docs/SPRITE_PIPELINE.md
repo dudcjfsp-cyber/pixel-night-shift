@@ -83,6 +83,8 @@ python "$env:SPRITE_GEN\scripts\serve_curation.py" --run-dir "game\assets\genera
 
 `game/assets/manifest.json` schema 2의 `active_sprite_runs`가 원자적인 활성화 지점입니다. 각 항목은 run 매니페스트와 atlas의 SHA-256, 매니페스트 계약 버전, 생성기 버전과 라이선스를 기록합니다. 기존 정적 `assets` 23개 항목은 롤백·검증 자료로 계속 유지합니다.
 
+활성 run의 `manifest.json` 권위 바이트는 `.gitattributes`와 동일한 LF입니다. CR 바이트가 있으면 검증에 실패하며, root의 `manifest_sha256`은 의미상 정규화한 JSON이 아니라 LF 실제 바이트의 SHA-256을 pin합니다. 생성 결과가 CRLF라면 먼저 LF로 정규화한 뒤 pin을 갱신해야 합니다. 런타임은 이 바이트를 자동 정규화하거나 폴백하지 않고 raw-byte SHA를 그대로 비교합니다.
+
 ## 출처와 라이선스
 
 Base와 raw row는 이 프로젝트를 위해 새로 만든 독자 디자인입니다. 외부 다운로드 에셋을 섞지 않으며, 참고 게임의 캐릭터·실루엣·팔레트·UI 구도를 복제하지 않습니다. 프로젝트 소유 에셋의 라이선스 표기는 `LicenseRef-PixelNightShift-Original`입니다.
