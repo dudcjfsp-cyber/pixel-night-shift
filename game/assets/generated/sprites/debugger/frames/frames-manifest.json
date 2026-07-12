@@ -1,0 +1,213 @@
+{
+  "ok": true,
+  "engine": "component-row",
+  "run_dir": "C:\\Users\\rycba\\OneDrive\\Desktop\\자체제작게임\\방치형게임2\\game\\assets\\generated\\sprites\\debugger",
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "magenta",
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ],
+    "selection": "auto",
+    "score": 204.96,
+    "min_subject_distance": 201.35,
+    "background": {
+      "mode": "flat",
+      "hex": "#F705EB",
+      "rgb": [
+        247,
+        5,
+        235
+      ],
+      "opaque_border_fraction": 1.0,
+      "border_coverage": 1.0,
+      "enclosed_background_pixels": 52,
+      "enclosed_material_pixels": 0,
+      "subject_pixels": 8926
+    },
+    "candidates": [
+      {
+        "name": "magenta",
+        "hex": "#FF00FF",
+        "score": 204.96,
+        "min_subject_distance": 201.35,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "green",
+        "hex": "#00FF00",
+        "score": 202.74,
+        "min_subject_distance": 195.68,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "cyan",
+        "hex": "#00FFFF",
+        "score": 39.33,
+        "min_subject_distance": 7.81,
+        "clears_erase_radius": false
+      },
+      {
+        "name": "blue",
+        "hex": "#004DFF",
+        "score": 128.93,
+        "min_subject_distance": 109.56,
+        "clears_erase_radius": true
+      }
+    ],
+    "selection_reason": "highest 1st-percentile subject distance among the 3 candidate(s) clearing the 96 erase radius"
+  },
+  "rows": [
+    {
+      "state": "idle",
+      "frames": 4,
+      "method": "components",
+      "files": [
+        "frames/idle/frame-0.png",
+        "frames/idle/frame-1.png",
+        "frames/idle/frame-2.png",
+        "frames/idle/frame-3.png"
+      ],
+      "frame_records": [
+        {
+          "index": 0,
+          "nontransparent_pixels": 248,
+          "bbox": [
+            9,
+            3,
+            23,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "nontransparent_pixels": 248,
+          "bbox": [
+            9,
+            3,
+            23,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "nontransparent_pixels": 256,
+          "bbox": [
+            9,
+            3,
+            23,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "nontransparent_pixels": 247,
+          "bbox": [
+            9,
+            3,
+            23,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ],
+      "ok": true,
+      "plain_files": [
+        "frames/idle/frame-0.plain.png",
+        "frames/idle/frame-1.plain.png",
+        "frames/idle/frame-2.plain.png",
+        "frames/idle/frame-3.plain.png"
+      ]
+    },
+    {
+      "state": "upgrade",
+      "frames": 4,
+      "method": "components",
+      "files": [
+        "frames/upgrade/frame-0.png",
+        "frames/upgrade/frame-1.png",
+        "frames/upgrade/frame-2.png",
+        "frames/upgrade/frame-3.png"
+      ],
+      "frame_records": [
+        {
+          "index": 0,
+          "nontransparent_pixels": 297,
+          "bbox": [
+            8,
+            3,
+            25,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "nontransparent_pixels": 299,
+          "bbox": [
+            8,
+            3,
+            25,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "nontransparent_pixels": 304,
+          "bbox": [
+            8,
+            3,
+            26,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "nontransparent_pixels": 292,
+          "bbox": [
+            8,
+            3,
+            25,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ],
+      "ok": true,
+      "plain_files": [
+        "frames/upgrade/frame-0.plain.png",
+        "frames/upgrade/frame-1.plain.png",
+        "frames/upgrade/frame-2.plain.png",
+        "frames/upgrade/frame-3.plain.png"
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [
+    "pixel-perfect: pitch=10.0,(8.0, 9.9) scale=1x logical<=32x26 palette=10"
+  ]
+}

@@ -1,0 +1,216 @@
+{
+  "ok": true,
+  "engine": "component-row",
+  "run_dir": "C:\\Users\\rycba\\OneDrive\\Desktop\\자체제작게임\\방치형게임2\\game\\assets\\generated\\sprites\\broken_pixel",
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "green",
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "selection": "auto",
+    "score": 257.26,
+    "min_subject_distance": 248.38,
+    "background": {
+      "mode": "flat",
+      "hex": "#08F913",
+      "rgb": [
+        8,
+        249,
+        19
+      ],
+      "opaque_border_fraction": 1.0,
+      "border_coverage": 1.0,
+      "enclosed_background_pixels": 0,
+      "enclosed_material_pixels": 0,
+      "subject_pixels": 17346
+    },
+    "candidates": [
+      {
+        "name": "magenta",
+        "hex": "#FF00FF",
+        "score": 179.15,
+        "min_subject_distance": 171.51,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "green",
+        "hex": "#00FF00",
+        "score": 257.26,
+        "min_subject_distance": 248.38,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "cyan",
+        "hex": "#00FFFF",
+        "score": 243.71,
+        "min_subject_distance": 239.05,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "blue",
+        "hex": "#004DFF",
+        "score": 222.23,
+        "min_subject_distance": 214.95,
+        "clears_erase_radius": true
+      }
+    ],
+    "selection_reason": "highest 1st-percentile subject distance among the 4 candidate(s) clearing the 96 erase radius"
+  },
+  "rows": [
+    {
+      "state": "idle",
+      "frames": 4,
+      "method": "components",
+      "files": [
+        "frames/idle/frame-0.png",
+        "frames/idle/frame-1.png",
+        "frames/idle/frame-2.png",
+        "frames/idle/frame-3.png"
+      ],
+      "frame_records": [
+        {
+          "index": 0,
+          "nontransparent_pixels": 552,
+          "bbox": [
+            4,
+            3,
+            28,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "nontransparent_pixels": 485,
+          "bbox": [
+            4,
+            7,
+            29,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "nontransparent_pixels": 571,
+          "bbox": [
+            3,
+            3,
+            28,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "nontransparent_pixels": 549,
+          "bbox": [
+            4,
+            3,
+            28,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ],
+      "ok": true,
+      "plain_files": [
+        "frames/idle/frame-0.plain.png",
+        "frames/idle/frame-1.plain.png",
+        "frames/idle/frame-2.plain.png",
+        "frames/idle/frame-3.plain.png"
+      ]
+    },
+    {
+      "state": "hurt",
+      "frames": 4,
+      "method": "components",
+      "files": [
+        "frames/hurt/frame-0.png",
+        "frames/hurt/frame-1.png",
+        "frames/hurt/frame-2.png",
+        "frames/hurt/frame-3.png"
+      ],
+      "frame_records": [
+        {
+          "index": 0,
+          "nontransparent_pixels": 540,
+          "bbox": [
+            5,
+            3,
+            29,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "nontransparent_pixels": 522,
+          "bbox": [
+            4,
+            4,
+            29,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "nontransparent_pixels": 528,
+          "bbox": [
+            4,
+            4,
+            29,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "nontransparent_pixels": 540,
+          "bbox": [
+            5,
+            3,
+            29,
+            29
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ],
+      "ok": true,
+      "plain_files": [
+        "frames/hurt/frame-0.plain.png",
+        "frames/hurt/frame-1.plain.png",
+        "frames/hurt/frame-2.plain.png",
+        "frames/hurt/frame-3.plain.png"
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [
+    "idle: dropped 2 collapsed per-frame pitch(es) below 4.16",
+    "idle: dropped 2 collapsed per-frame pitch(es) below 4.16",
+    "idle: per-frame pitch outliers (0:4.23, 2:4.00, 3:4.00) snapped at consensus 6.94",
+    "pixel-perfect: pitch=6.94,7.0 scale=1x logical<=32x26 palette=9"
+  ]
+}

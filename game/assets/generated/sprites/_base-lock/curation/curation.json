@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-curation",
+  "states": {
+    "broken_pixel": {
+      "selected": [
+        0
+      ],
+      "order": [
+        0,
+        1
+      ],
+      "transforms": {}
+    },
+    "debugger": {
+      "selected": [
+        1
+      ],
+      "order": [
+        0,
+        1
+      ],
+      "transforms": {}
+    }
+  }
+}

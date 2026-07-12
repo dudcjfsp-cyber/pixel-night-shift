@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-unpack-source",
+  "layout_source": "imported-pngs",
+  "cell": {
+    "width": 1254,
+    "height": 1254
+  },
+  "source_dir": "C:\\Users\\rycba\\OneDrive\\Desktop\\자체제작게임\\방치형게임2\\game\\assets\\generated\\sprites\\_base-lock\\candidates\\broken_pixel",
+  "files": [
+    "broken-pixel-a.png",
+    "broken-pixel-b.png",
+    "debugger-a.png",
+    "debugger-b.png"
+  ],
+  "labels": [
+    "broken-pixel-a",
+    "broken-pixel-b",
+    "debugger-a",
+    "debugger-b"
+  ],
+  "groups": [
+    "broken_pixel",
+    "debugger"
+  ]
+}

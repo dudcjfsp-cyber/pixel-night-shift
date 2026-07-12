@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-request",
+  "engine": "component-row",
+  "character": {
+    "id": "broken_pixel",
+    "description": "front-facing red corrupted pixel block creature with two white rectangular eyes, a bright vertical white fracture, an orange missing-corner glitch at upper right, and two short feet",
+    "base_image": "base-source.png"
+  },
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "green",
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "selection": "auto",
+    "score": 257.26,
+    "min_subject_distance": 248.38,
+    "background": {
+      "mode": "flat",
+      "hex": "#08F913",
+      "rgb": [
+        8,
+        249,
+        19
+      ],
+      "opaque_border_fraction": 1.0,
+      "border_coverage": 1.0,
+      "enclosed_background_pixels": 0,
+      "enclosed_material_pixels": 0,
+      "subject_pixels": 17346
+    },
+    "candidates": [
+      {
+        "name": "magenta",
+        "hex": "#FF00FF",
+        "score": 179.15,
+        "min_subject_distance": 171.51,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "green",
+        "hex": "#00FF00",
+        "score": 257.26,
+        "min_subject_distance": 248.38,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "cyan",
+        "hex": "#00FFFF",
+        "score": 243.71,
+        "min_subject_distance": 239.05,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "blue",
+        "hex": "#004DFF",
+        "score": 222.23,
+        "min_subject_distance": 214.95,
+        "clears_erase_radius": true
+      }
+    ],
+    "selection_reason": "highest 1st-percentile subject distance among the 4 candidate(s) clearing the 96 erase radius"
+  },
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "stable planted idle: a subtle block-body compression and white fracture pulse while both feet remain on one baseline; frame 4 flows naturally back to frame 1; no detached pixels"
+    },
+    "hurt": {
+      "frames": 4,
+      "fps": 8,
+      "loop": false,
+      "action": "clear hit reaction from screen-left with start-middle-end poses: start near idle, compress and recoil toward screen-right, fracture brightens, then recover toward idle; both feet stay readable; no debris or detached effects"
+    }
+  },
+  "style": "match the attached base/anchor reference image EXACTLY: same pixel density (logical pixel block size), same body proportions, same outline weight, same palette, same shading style, same level of detail. Do not restyle, do not change proportions, do not add or remove detail density. Avoid polished illustration, painterly rendering, anime key art, 3D render, vector app-icon polish, glossy lighting, soft gradients, and anti-aliased high-detail edges.",
+  "motion_phase_guides": false,
+  "fit": {
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 9,
+    "detail_bias": true,
+    "outline": true,
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom"
+  },
+  "chroma": {
+    "unmix_reach": 4,
+    "spill_max_fraction": 0.005
+  }
+}

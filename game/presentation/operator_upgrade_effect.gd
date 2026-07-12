@@ -46,7 +46,7 @@ func play(dps_delta: float) -> void:
 	_message = "LEVEL UP  ·  DPS +%s" % _format_number(maxf(0.0, dps_delta))
 	visible = true
 	set_process(true)
-	_portrait.pivot_offset = _portrait.size * 0.5
+	_portrait.pivot_offset = Vector2(_portrait.size.x * 0.5, _portrait.size.y)
 	_apply_highlight_style()
 	queue_redraw()
 

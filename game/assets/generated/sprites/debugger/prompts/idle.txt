@@ -1,0 +1,80 @@
+Create a single horizontal sprite strip for the game character `debugger` in the state `idle`.
+
+WHOLE-ROW IMAGE EDIT MODE:
+- The first attached image is the existing four-slot idle row to edit. Treat it as the edit target and output a newly rendered complete four-slot row on the same flat chroma canvas.
+- The second attached image is the canonical base and owns identity only. The third attached image is the layout guide and owns frame count, slot geometry, and safe padding only.
+- Preserve the edit target's slot 0, slot 2, and slot 3 identity, scale, planted feet, connected probe, middle progression, and slot-3-to-slot-0 wrap as closely as image generation allows.
+- Correct the edit target's duplicate slot 1: render slot 1 as a genuine inhale midpoint whose helmet, shoulders, and chest change 6–12 logical alpha pixels relative to both neighboring slots after logical-height-26 extraction.
+- Do not materially redraw slots 0, 2, or 3: keep their helmet, shoulders, chest, arms, probe, hips, legs, feet, and three cyan markers at the edit target's positions. Preserve cyan visor pixels in every slot.
+- Limit slot 1 to the requested 6–12 logical alpha-pixel change. More than 12 changed alpha pixels relative to either neighbor is an over-edit and must be avoided.
+- Output the entire newly generated four-pose row. Do not crop, splice, reorder, select, retime, or locally patch extracted frames.
+
+If this is a pre-idle/simple run, the attached base image may be used as the canonical character design. In direction-anchor mode, do not use base images for final action rows; accepted idle/direction anchors own row identity. Use the attached accepted idle/direction anchor as the canonical character design for this row. If a state anchor is attached for a non-locomotion state, treat it as approved state vocabulary only. Use the attached layout guide image only for frame count, slot spacing, centering, and safe padding. If an additional generated row strip is attached, use it only as a motion reference, never as a replacement identity source. Do not simply copy the still reference pose. Generate distinct animation poses that create a readable cycle or action.
+
+Character: front-facing original pixel-art night-shift debugger in a navy armored work suit with cyan visor, chest diagnostic display, and handheld probe; preserve the exact locked identity.
+Style contract: match the attached base/anchor reference image EXACTLY: same pixel density (logical pixel block size), same body proportions, same outline weight, same palette, same shading style, same level of detail. Do not restyle, do not change proportions, do not add or remove detail density. Avoid polished illustration, painterly rendering, anime key art, 3D render, vector app-icon polish, glossy lighting, soft gradients, and anti-aliased high-detail edges..
+
+Use this prompt as an authoritative sprite-production spec. Do not expand it into a polished illustration, painterly character image, anime key art, 3D render, vector mascot, glossy app icon, realistic portrait, or marketing artwork.
+
+Animation action: exact four-phase planted idle loop: frame 1 neutral, frame 2 gentle inhale, frame 3 gentle exhale, frame 4 near-neutral return matching frame 1 feet, legs, arms, probe height, and silhouette with only a tiny breathing difference; distribute readable motion across every transition with no held duplicate frames; target each internal alpha IoU between 0.93 and 0.98 with at least 6 changed alpha pixels, final-to-first alpha IoU at least 0.93, and foot-centroid drift at most 1 logical pixel.
+
+BLOCKING four-phase loop correction:
+- A third attached generated idle row is a motion reference only. It does not own identity. Keep identity, outfit, palette, proportions, and props locked to the base-source image.
+- Preserve the motion reference's good scale, planted feet, connected probe, frame-2→frame-3 and frame-3→frame-4 progression, and near-seamless frame-4→frame-1 wrap. Generate a new complete four-pose row; do not copy, crop, reorder, retime, or splice frames from the reference.
+- The specific defect to fix is the motion reference's first→second pose duplicate. Make the new second pose's inhale silhouette visibly different from the first at the helmet, shoulders, and chest so logical-height-26 extraction changes 6–12 alpha pixels. Keep the other three pose relationships and the final→first seam close to the motion reference.
+- Treat the motion reference's pose 1, pose 3, and pose 4 as the timing targets for the new pose 1, pose 3, and pose 4. Create the new pose 2 as a genuine inhale midpoint between those preserved pose-1 and pose-3 silhouettes, with 6–12 changed logical alpha pixels relative to each neighbor. Preserve the reference's pose-3→pose-4 progression and pose-4→pose-1 wrap.
+- Frame 1 is the neutral planted anchor. Both feet, both legs, both arms, and the body-mounted probe use the canonical resting silhouette.
+- Frame 2 is a gentle inhale: use only a small, coherent chest/shoulder rise while keeping feet planted and the probe close to the body.
+- Frame 3 is a gentle exhale: ease past neutral by a similarly small amount. It must visibly progress from frame 2; do not duplicate or hold frame 2.
+- Frame 4 is a near-neutral return. Match frame 1's exact foot placement, leg silhouettes, arm silhouettes, probe height, and overall body silhouette, with only a tiny breathing difference so frame 4 flows into frame 1.
+- Spread the breathing change evenly across all four transitions. Do not put most of the reset into the frame-4-to-frame-1 wrap, and do not make frames 3 and 4 a near-identical hold.
+- After logical-height-26 extraction, design for frame-4-to-frame-1 alpha IoU of at least 0.93 and no more than 1 logical pixel of foot-centroid drift across the loop.
+- Lock both feet, both leg silhouettes, both arm silhouettes, and the probe height/angle to exactly the same placement in all four frames. Animate only a tiny head, shoulder, and chest breathing change; limb or probe resets are forbidden.
+- Give frame 2 a deliberate small inhale silhouette change from frame 1, such as a one-logical-pixel shoulder/chest rise. Give frame 3 a deliberate small exhale silhouette change from frame 2. Frames 1→2 and 2→3 must not collapse into duplicate alpha masks or near-holds after extraction.
+- Make frame 4's head, shoulders, chest, arms, probe, hips, legs, and feet visually almost identical to frame 1. If any tradeoff is necessary, prioritize the frame-4/frame-1 match and distribute the remaining tiny breathing changes through frames 2 and 3.
+- Do not make the loop effectively static. After logical-height-26 extraction, each internal transition (frame 1→2, 2→3, and 3→4) must change at least 6 silhouette pixels and should land between 0.93 and 0.98 alpha IoU. A transition above 0.98 is a near-hold and must be avoided, while the frame-4→frame-1 wrap must remain at or above 0.93.
+
+BLOCKING identity and connectivity correction for this row:
+- Keep the handheld probe pressed close against the gloved hand, forearm, and torso throughout all four idle poses. Do not raise or extend it away from the body.
+- Simplify the probe into one chunky monolithic unit with a short thick antenna integrated directly into its body. The grip, probe body, antenna, cyan cap/panel, glove, arm, and torso must form one unbroken 8-neighbor-connected opaque silhouette in every frame.
+- Put a large solid cyan rectangular status panel on the probe body in every frame, at least one third of the visible probe face. Preserve a separate solid cyan visor display and a separate solid cyan chest display in every frame; visor cyan alone is not sufficient.
+- Design the probe connection and all three cyan markers to survive extraction to a 26-pixel-tall logical sprite. Do not use hairline stems, tiny highlights, floating bulbs, isolated dots, or detached pixels.
+- At the final logical-pixel scale, reserve an uninterrupted cyan visor interior at least 5 pixels wide by 2 pixels tall, a cyan chest screen at least 2 by 2 pixels, and an attached cyan probe panel at least 2 by 2 pixels. Render these as broad solid blocks rather than thin stripes or small highlights.
+- Check all four poses independently: every single pose must visibly contain all three large cyan blocks at the same time. Never darken or close the visor display in an idle frame.
+
+Anchor lock:
+- Accepted idle/direction anchors own character identity, outfit details, colors, face design, asymmetric markings, and side-specific accessories for final action rows.
+- Base character images and original character sheets are pre-idle sources only. Do not reinterpret or reintroduce base-character details inside a direction-anchor action row.
+- This row owns motion only. Spend the variation budget on limb contacts, arm counter-swing, body height, torso lean, head bob, hair bounce, and loop continuity.
+- Do not redesign or reinterpret identity details while animating. Keep face, hair shape, markings, palette, outline weight, body proportions, outfit, props, and silhouette copied from the approved anchors.
+- Preserve side-specific features exactly as the approved anchors show them. Do not solve hairpin side, earring side, logos, handed props, scars, one-sided markings, asymmetric clothing, or lighting cues from scratch inside the row.
+- When generating a paired left/right row, use the paired row reference only for timing, scale, and animation intensity. Rotate the body, feet, shoulders, face angle, and gaze to the target facing, but keep identity details attached according to the accepted target-direction anchor.
+- For cyclic locomotion, do not let a single running/walking pose anchor determine every frame's leg phase. Use multi-pose motion references and the layout phase guide for foot contacts.
+- Prefer a subtler animation over any change that mutates the character identity.
+
+
+
+Transparency and artifact rules:
+- Prefer pose, expression, and silhouette changes over decorative effects.
+- Effects are allowed only when state-relevant, opaque, hard-edged, sprite-like, fully inside the same frame slot, and physically touching or overlapping the character silhouette.
+- Do not draw detached effects: floating stars, loose sparkles, floating punctuation, floating icons, separated smoke clouds, loose dust, disconnected outline bits, or stray pixels.
+- Do not draw wave marks, motion arcs, speed lines, action streaks, afterimages, blur, smears, halos, glows, auras, floor patches, cast shadows, contact shadows, drop shadows, oval floor shadows, landing marks, or impact bursts.
+- Do not include text, labels, frame numbers, visible grids, guide marks, speech bubbles, thought bubbles, UI panels, code snippets, scenery, checkerboard transparency, white backgrounds, or black backgrounds.
+- Reject any pose that is cropped, overlaps another pose, crosses into a neighboring frame slot, or creates a separate disconnected component that is not attached to the character.
+- Every opaque pixel, including every black outline pixel and cyan probe pixel, must remain part of the same 8-neighbor-connected character component after aggressive downscaling. Use thick continuous bridges, never 1-pixel-separated fragments.
+
+Layout requirements:
+- Exactly 4 full-body frames, left to right, in one horizontal row.
+- The attached layout guide shows the 4 frame boxes, inner safe area, and optional motion phase hints for this row. Follow its slot count, spacing, centering, padding, and phase timing.
+- Do not reproduce the layout guide itself: no visible boxes, guide lines, center marks, labels, stick figures, guide colors, or guide background may appear in the output.
+- Treat the image as 4 equal-width invisible 32x32 frame slots. Fill every slot: each requested slot must contain exactly one complete full-body pose.
+- Spread the 4 poses evenly across the whole image width. Do not leave any requested slot blank or create large empty gaps between poses.
+- Center one complete pose in each slot. No pose may cross into the neighboring slot.
+- Use a perfectly flat pure magenta #FF00FF chroma-key background across the whole image.
+- Do not use #FF00FF, pure magenta, or chroma-adjacent colors in the character, highlights, props, shadows, or effects.
+- Keep the rendering faithful to the attached reference sprite: same outline weight, same palette, same detail level — do not restyle it.
+- Keep every frame self-contained with at least 3 px horizontal and 3 px vertical safe padding. No character body part should be clipped by the frame slot.
+- Avoid motion blur. Use clear pose changes readable at 32x32.
+- Preserve the same silhouette, face, proportions, palette, material, and props across every frame.
+
+Output only the sprite strip image.

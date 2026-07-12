@@ -1,0 +1,35 @@
+{
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "stable planted idle: subtle breathing and a restrained cyan visor scan; the diagnostic probe stays close to the body; frame 4 flows naturally back to frame 1"
+    },
+    "upgrade": {
+      "frames": 4,
+      "fps": 6,
+      "loop": false,
+      "action": "brief upgrade acknowledgement with clear start-middle-end poses: start near idle, lift the handheld diagnostic probe slightly, show a confident visor response, then settle toward idle; both feet remain planted; no detached effects"
+    }
+  },
+  "cell": {
+    "shape": "square",
+    "size": 32,
+    "safe_margin": 3
+  },
+  "fit": {
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 10,
+    "detail_bias": true,
+    "outline": false,
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom"
+  },
+  "qa": {
+    "min_used_pixels": 230,
+    "basis": "round down from shipped debugger coverage scaled to usable height: 356 * (26 / 32)^2 = 235.0"
+  }
+}

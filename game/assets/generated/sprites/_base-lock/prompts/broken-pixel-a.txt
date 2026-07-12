@@ -1,0 +1,9 @@
+Use case: stylized-concept
+Asset type: canonical base-idle candidate for a 32x32 pixel-game animation pipeline
+Input image: the existing broken_pixel PNG is an identity, palette, silhouette, and true low-resolution pixel-density reference; generate a new resolved full-body base, do not merely enlarge it
+Primary request: an original Pixel Night Shift broken-pixel error creature, squat asymmetric red and dark-crimson block body, orange damaged corner, two pale rectangular eyes, one bold white fracture running through the body, and two short blocky feet; jagged damage stays connected to the main body
+Pose/camera: one neutral full-body idle pose, front-left three-quarter view facing toward screen left, both feet planted on one baseline, readable compact silhouette
+Style: authentic chunky low-resolution pixel art matching the reference's block size, hard 1-pixel dark outline, no antialiasing, no soft painting, at most 12 colors
+Scene/backdrop: perfectly flat solid #00FF00 chroma-key background
+Composition: exactly one centered creature, complete top-to-feet silhouette, generous empty padding on every side, no cropping
+Constraints: preserve the reference identity cues and palette; original project-only design; no resemblance to recognizable creatures from other games; no text, UI, frame, guide, shadow, glow, reflection, floor, particles, detached pixels, extra objects, extra poses, or watermark; background must be one uniform color; do not use green or green-adjacent colors in the subject

@@ -4,6 +4,7 @@ const GameSessionScript := preload("res://game/app/game_session.gd")
 const ProgressionRules := preload("res://game/domain/progression_rules.gd")
 const ContentLoaderScript := preload("res://game/content/content_loader.gd")
 const PresentationAssetsScript := preload("res://game/presentation/presentation_assets.gd")
+const BattleLaneViewScript := preload("res://game/presentation/battle_lane_view.gd")
 
 const OPERATOR_IDS: Array[StringName] = [
 	&"debugger", &"build_engineer", &"sprite_artist", &"qa_imp",
@@ -33,6 +34,8 @@ func _run_all() -> void:
 	_run_test("boss failure recovers without a soft lock", _test_boss_failure_recovery)
 	_run_test("prestige resets run state and preserves meta state", _test_prestige_reset_and_preservation)
 	_run_test("content availability and validation", _test_content_validation)
+	_run_test("animated sprite manifest contract", _test_animated_sprite_manifest_contract)
+	_run_test("battle lane animation events and layout", _test_battle_lane_animation_events_and_layout)
 	_run_test("presentation assets are complete", _test_presentation_assets)
 	await _run_main_scene_smoke_test()
 
@@ -377,6 +380,269 @@ func _test_content_validation() -> void:
 	_check((snapshot.get("operators", []) as Array).size() == 4, "session snapshot must expose four operators")
 	_check((snapshot.get("patches", []) as Array).size() == 5, "session snapshot must expose five patches")
 	_check(String(snapshot.get("last_error", "")).is_empty(), "valid default content must not set last_error")
+
+
+func _test_animated_sprite_manifest_contract() -> void:
+	var initialization_errors: PackedStringArray = PresentationAssetsScript.initialize()
+	_check(
+		initialization_errors.is_empty(),
+		"active presentation assets must initialize without errors: %s"
+		% "; ".join(initialization_errors)
+	)
+	var validation_errors: PackedStringArray = PresentationAssetsScript.validate_catalog(
+		PresentationAssetsScript.ROOT_MANIFEST_PATH
+	)
+	_check(
+		validation_errors.is_empty(),
+		"root asset catalog must pass independent validation: %s"
+		% "; ".join(validation_errors)
+	)
+	if not initialization_errors.is_empty() or not validation_errors.is_empty():
+		return
+
+	_check(
+		PresentationAssetsScript.is_sprite_run_active(&"debugger"),
+		"debugger component-row run must be active"
+	)
+	_check(
+		PresentationAssetsScript.is_sprite_run_active(&"broken_pixel"),
+		"broken_pixel component-row run must be active"
+	)
+	_check_invalid_active_sprite_catalog_fails()
+
+	var debugger_first: SpriteFrames = PresentationAssetsScript.make_operator_frames(&"debugger")
+	var debugger_second: SpriteFrames = PresentationAssetsScript.make_operator_frames(&"debugger")
+	_check(debugger_first != null, "debugger SpriteFrames must load")
+	_check(debugger_second != null, "a second debugger SpriteFrames instance must load")
+	if debugger_first != null:
+		_check_animation_contract(debugger_first, &"debugger", &"idle", 4, 4.0, true)
+		_check_animation_contract(debugger_first, &"debugger", &"upgrade", 4, 6.0, false)
+	if debugger_first != null and debugger_second != null:
+		_check(
+			debugger_first != debugger_second,
+			"each debugger request must return an independent SpriteFrames instance"
+		)
+		var first_frame: Texture2D = debugger_first.get_frame_texture(&"idle", 0)
+		var second_frame: Texture2D = debugger_second.get_frame_texture(&"idle", 0)
+		_check(
+			first_frame != second_frame,
+			"each debugger SpriteFrames instance must own independent AtlasTexture frames"
+		)
+
+	var enemy_first: SpriteFrames = PresentationAssetsScript.make_enemy_frames(1, false, "combat")
+	var enemy_second: SpriteFrames = PresentationAssetsScript.make_enemy_frames(1, false, "combat")
+	_check(enemy_first != null, "broken_pixel SpriteFrames must load for stage 1 combat")
+	_check(enemy_second != null, "a second broken_pixel SpriteFrames instance must load")
+	if enemy_first != null:
+		_check_animation_contract(enemy_first, &"broken_pixel", &"idle", 4, 4.0, true)
+		_check_animation_contract(enemy_first, &"broken_pixel", &"hurt", 4, 8.0, false)
+	if enemy_first != null and enemy_second != null:
+		_check(
+			enemy_first != enemy_second,
+			"each broken_pixel request must return an independent SpriteFrames instance"
+		)
+		var first_frame: Texture2D = enemy_first.get_frame_texture(&"idle", 0)
+		var second_frame: Texture2D = enemy_second.get_frame_texture(&"idle", 0)
+		_check(
+			first_frame != second_frame,
+			"each broken_pixel SpriteFrames instance must own independent AtlasTexture frames"
+		)
+
+
+func _check_invalid_active_sprite_catalog_fails() -> void:
+	var invalid_path := "user://invalid-active-sprite-catalog.json"
+	var invalid_catalog := {
+		"schema_version": 2,
+		"active_sprite_runs": {
+			"debugger": {
+				"category": "operator",
+				"manifest_contract": 1,
+				"manifest_path": "res://game/assets/generated/sprites/debugger/missing.json",
+				"manifest_sha256": "missing",
+				"atlas_sha256": "missing",
+			}
+		}
+	}
+	var file := FileAccess.open(invalid_path, FileAccess.WRITE)
+	_check(file != null, "invalid catalog fixture must be writable")
+	if file == null:
+		return
+	file.store_string(JSON.stringify(invalid_catalog))
+	file.close()
+	var errors: PackedStringArray = PresentationAssetsScript.validate_catalog(invalid_path)
+	_check(not errors.is_empty(), "a missing active sprite manifest must fail catalog validation")
+	var reported_missing_file := false
+	for error_message: String in errors:
+		if error_message.contains("missing file"):
+			reported_missing_file = true
+	_check(
+		reported_missing_file,
+		"a missing active sprite manifest must report the concrete missing-file error"
+	)
+	var remove_error := DirAccess.remove_absolute(ProjectSettings.globalize_path(invalid_path))
+	_check(remove_error == OK, "invalid catalog fixture cleanup must succeed")
+
+
+func _check_animation_contract(
+	frames: SpriteFrames,
+	asset_id: StringName,
+	state: StringName,
+	expected_frame_count: int,
+	expected_fps: float,
+	expected_loop: bool
+) -> void:
+	_check(frames.has_animation(state), "%s must define '%s'" % [asset_id, state])
+	if not frames.has_animation(state):
+		return
+	_check(
+		frames.get_frame_count(state) == expected_frame_count,
+		"%s '%s' must contain %d frames" % [asset_id, state, expected_frame_count]
+	)
+	_check(
+		is_equal_approx(frames.get_animation_speed(state), expected_fps),
+		"%s '%s' must play at %.1f fps" % [asset_id, state, expected_fps]
+	)
+	_check(
+		frames.get_animation_loop(state) == expected_loop,
+		"%s '%s' loop flag must be %s" % [asset_id, state, expected_loop]
+	)
+
+	var seen_regions: Array[Rect2] = []
+	for frame_index: int in range(frames.get_frame_count(state)):
+		var texture: Texture2D = frames.get_frame_texture(state, frame_index)
+		_check(
+			texture is AtlasTexture,
+			"%s '%s' frame %d must be an AtlasTexture" % [asset_id, state, frame_index]
+		)
+		if not texture is AtlasTexture:
+			continue
+		var atlas_frame := texture as AtlasTexture
+		_check(
+			atlas_frame.region.size == Vector2(32.0, 32.0),
+			"%s '%s' frame %d rect must be 32x32" % [asset_id, state, frame_index]
+		)
+		_check(
+			atlas_frame.get_size() == Vector2(32.0, 32.0),
+			"%s '%s' frame %d must expose only its 32x32 cell" % [asset_id, state, frame_index]
+		)
+		_check(
+			atlas_frame.atlas != null,
+			"%s '%s' frame %d must retain its atlas source" % [asset_id, state, frame_index]
+		)
+		if atlas_frame.atlas != null:
+			var atlas_size: Vector2 = atlas_frame.atlas.get_size()
+			_check(
+				atlas_frame.region.size != atlas_size,
+				"%s '%s' frame %d must not expose the full atlas"
+				% [asset_id, state, frame_index]
+			)
+			_check(
+				atlas_frame.region.position.x >= 0.0
+				and atlas_frame.region.position.y >= 0.0
+				and atlas_frame.region.end.x <= atlas_size.x
+				and atlas_frame.region.end.y <= atlas_size.y,
+				"%s '%s' frame %d rect must remain inside the atlas"
+				% [asset_id, state, frame_index]
+			)
+		_check(
+			atlas_frame.filter_clip,
+			"%s '%s' frame %d must clip filtering to its atlas cell"
+			% [asset_id, state, frame_index]
+		)
+		_check(
+			not seen_regions.has(atlas_frame.region),
+			"%s '%s' frame %d must use a distinct manifest rect"
+			% [asset_id, state, frame_index]
+		)
+		seen_regions.append(atlas_frame.region)
+
+
+func _test_battle_lane_animation_events_and_layout() -> void:
+	var initialization_errors: PackedStringArray = PresentationAssetsScript.initialize()
+	_check(
+		initialization_errors.is_empty(),
+		"battle lane animation test requires a valid active sprite catalog"
+	)
+	if not initialization_errors.is_empty():
+		return
+
+	var lane := BattleLaneViewScript.new()
+	root.add_child(lane)
+	var session := GameSessionScript.new()
+	var snapshot: Dictionary = session.snapshot()
+	lane.update_from_snapshot(snapshot, {})
+
+	var enemy_slot := lane.find_child("EnemyPortraitSlot", true, false) as Control
+	var enemy_portrait := lane.find_child("EnemyPortrait", true, false) as TextureRect
+	var debugger_portrait := lane.find_child("OperatorPortrait_debugger", true, false) as TextureRect
+	_check(enemy_slot != null, "battle lane must expose a fixed enemy portrait slot")
+	_check(enemy_portrait != null, "battle lane must expose the active enemy portrait")
+	_check(debugger_portrait != null, "battle lane must expose the debugger portrait")
+	if enemy_slot == null or enemy_portrait == null or debugger_portrait == null:
+		lane.queue_free()
+		return
+
+	_check(enemy_slot.size == Vector2(48.0, 48.0), "enemy portrait slot must remain 48x48")
+	_check(enemy_portrait.size == Vector2(32.0, 32.0), "broken_pixel must display at 32x32")
+	_check(
+		enemy_portrait.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST,
+		"broken_pixel portrait must use nearest filtering"
+	)
+	_check(
+		debugger_portrait.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST,
+		"debugger portrait must use nearest filtering"
+	)
+	_check(
+		enemy_portrait.position == Vector2(8.0, 16.0),
+		"32x32 enemies must be bottom-centered in the 48x48 slot"
+	)
+
+	var idle_first: Texture2D = enemy_portrait.texture
+	lane._process(0.26)
+	var idle_advanced: Texture2D = enemy_portrait.texture
+	_check(idle_advanced != idle_first, "broken_pixel idle must advance after one frame interval")
+	lane.update_from_snapshot(snapshot, snapshot)
+	_check(
+		enemy_portrait.texture == idle_advanced,
+		"same-enemy snapshot refreshes must not reset the current idle frame"
+	)
+
+	lane.play_operator_upgrade(&"debugger")
+	_check(debugger_portrait.texture is AtlasTexture, "debugger upgrade event must display an atlas cell")
+	if debugger_portrait.texture is AtlasTexture:
+		var upgrade_frame := debugger_portrait.texture as AtlasTexture
+		_check(
+			upgrade_frame.region.position.y == 32.0,
+			"debugger upgrade event must switch from idle to the upgrade row"
+		)
+	_check(
+		debugger_portrait.pivot_offset
+		== Vector2(debugger_portrait.size.x * 0.5, debugger_portrait.size.y),
+		"debugger upgrade pulse pivot must stay at bottom center"
+	)
+	lane._process(0.1)
+	_check(
+		debugger_portrait.scale.x > 1.0 and debugger_portrait.scale.y > 1.0,
+		"debugger upgrade event must preserve the existing pulse effect"
+	)
+
+	var damaged_snapshot: Dictionary = snapshot.duplicate(true)
+	var damaged_enemy: Dictionary = damaged_snapshot["enemy"]
+	damaged_enemy["hp"] = maxf(0.0, float(damaged_enemy["hp"]) - 1.0)
+	damaged_snapshot["enemy"] = damaged_enemy
+	lane.update_from_snapshot(damaged_snapshot, snapshot)
+	_check(enemy_portrait.texture is AtlasTexture, "enemy damage event must display an atlas cell")
+	if enemy_portrait.texture is AtlasTexture:
+		var hurt_frame := enemy_portrait.texture as AtlasTexture
+		_check(
+			hurt_frame.region.position.y == 32.0,
+			"enemy damage event must switch from idle to the hurt row"
+		)
+	_check(
+		enemy_portrait.modulate == Color("ff9ca6"),
+		"enemy damage event must preserve the existing hit tint"
+	)
+	lane.queue_free()
 
 
 func _test_presentation_assets() -> void:

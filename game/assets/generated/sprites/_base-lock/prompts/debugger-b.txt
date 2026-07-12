@@ -1,0 +1,9 @@
+Use case: stylized-concept
+Asset type: alternate canonical base-idle candidate for a 32x32 pixel-game animation pipeline
+Input image: the existing debugger PNG is an identity, palette, silhouette, and true low-resolution pixel-density reference; generate a new resolved full-body base, do not merely enlarge it
+Primary request: the same original Pixel Night Shift debugger operator, with a slightly broader visor helmet and sturdier boots while retaining the straight technical silhouette, cyan horizontal visor, midnight-navy suit, steel details, and a compact diagnostic probe held at chest height
+Pose/camera: one neutral full-body idle pose, front-right three-quarter view facing toward screen right, feet planted symmetrically on one baseline, probe integrated into the silhouette
+Style: authentic chunky low-resolution pixel art matching the reference's block size, hard 1-pixel dark outline, no antialiasing, no soft painting, limited project palette
+Scene/backdrop: perfectly flat solid #FF00FF chroma-key background
+Composition: exactly one centered character, complete head-to-feet silhouette, generous empty padding on every side, no cropping
+Constraints: preserve the reference identity cues and compact proportions; original project-only design; no resemblance to recognizable characters from other games; no text, UI, frame, guide, shadow, glow, reflection, floor, particles, detached effects, extra objects, extra poses, or watermark; background must be one uniform color; do not use magenta or purple in the subject

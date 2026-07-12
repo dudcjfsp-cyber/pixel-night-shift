@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-request",
+  "engine": "component-row",
+  "character": {
+    "id": "debugger",
+    "description": "front-facing original pixel-art night-shift debugger in a navy armored work suit with cyan visor, chest diagnostic display, and handheld probe; preserve the exact locked identity",
+    "base_image": "base-source.png"
+  },
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "magenta",
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ],
+    "selection": "auto",
+    "score": 204.96,
+    "min_subject_distance": 201.35,
+    "background": {
+      "mode": "flat",
+      "hex": "#F705EB",
+      "rgb": [
+        247,
+        5,
+        235
+      ],
+      "opaque_border_fraction": 1.0,
+      "border_coverage": 1.0,
+      "enclosed_background_pixels": 52,
+      "enclosed_material_pixels": 0,
+      "subject_pixels": 8926
+    },
+    "candidates": [
+      {
+        "name": "magenta",
+        "hex": "#FF00FF",
+        "score": 204.96,
+        "min_subject_distance": 201.35,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "green",
+        "hex": "#00FF00",
+        "score": 202.74,
+        "min_subject_distance": 195.68,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "cyan",
+        "hex": "#00FFFF",
+        "score": 39.33,
+        "min_subject_distance": 7.81,
+        "clears_erase_radius": false
+      },
+      {
+        "name": "blue",
+        "hex": "#004DFF",
+        "score": 128.93,
+        "min_subject_distance": 109.56,
+        "clears_erase_radius": true
+      }
+    ],
+    "selection_reason": "highest 1st-percentile subject distance among the 3 candidate(s) clearing the 96 erase radius"
+  },
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "exact four-phase planted idle loop: frame 1 neutral, frame 2 gentle inhale, frame 3 gentle exhale, frame 4 near-neutral return matching frame 1 feet, legs, arms, probe height, and silhouette with only a tiny breathing difference; distribute readable motion across every transition with no held duplicate frames; target each internal alpha IoU between 0.93 and 0.98 with at least 6 changed alpha pixels, final-to-first alpha IoU at least 0.93, and foot-centroid drift at most 1 logical pixel"
+    },
+    "upgrade": {
+      "frames": 4,
+      "fps": 6,
+      "loop": false,
+      "action": "brief upgrade acknowledgement with clear start-middle-end poses: start near idle, lift the handheld diagnostic probe slightly, show a confident visor response, then settle toward idle; both feet remain planted; no detached effects"
+    }
+  },
+  "style": "match the attached base/anchor reference image EXACTLY: same pixel density (logical pixel block size), same body proportions, same outline weight, same palette, same shading style, same level of detail. Do not restyle, do not change proportions, do not add or remove detail density. Avoid polished illustration, painterly rendering, anime key art, 3D render, vector app-icon polish, glossy lighting, soft gradients, and anti-aliased high-detail edges.",
+  "motion_phase_guides": false,
+  "fit": {
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 10,
+    "detail_bias": true,
+    "outline": false,
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom"
+  },
+  "chroma": {
+    "unmix_reach": 4,
+    "spill_max_fraction": 0.005
+  },
+  "qa": {
+    "min_used_pixels": 230,
+    "min_used_pixels_basis": "Strict logical-height calibration: shipped 32x32 debugger has 356 opaque pixels; 356 * (26 / 32)^2 = 235 expected opaque pixels at logical height 26, so 230 is an approximately 98% floor."
+  }
+}

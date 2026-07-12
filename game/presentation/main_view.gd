@@ -95,6 +95,11 @@ var _button_disabled_style: StyleBoxFlat
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var asset_errors: PackedStringArray = ASSETS.initialize()
+	if not asset_errors.is_empty():
+		_show_asset_initialization_failure(asset_errors)
+		set_process(false)
+		return
 	_build_styles()
 	_audio_director = AUDIO_DIRECTOR_SCRIPT.new()
 	add_child(_audio_director)
@@ -105,6 +110,22 @@ func _ready() -> void:
 		set_process(false)
 		return
 	_refresh_from_session()
+
+
+func _show_asset_initialization_failure(errors: PackedStringArray) -> void:
+	for error_message: String in errors:
+		push_error(error_message)
+	var label := Label.new()
+	label.text = "에셋 초기화 실패\n\n%s" % "\n".join(errors)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", COLOR_RED)
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.offset_left = 16.0
+	label.offset_top = 16.0
+	label.offset_right = -16.0
+	label.offset_bottom = -16.0
+	add_child(label)
 
 
 func _process(delta_seconds: float) -> void:
@@ -534,9 +555,15 @@ func _create_operator_row(operator_data: Dictionary) -> void:
 	row.add_theme_constant_override("separation", 6)
 	margin.add_child(row)
 
-	var portrait := _make_texture_rect(36)
+	var portrait_slot := Control.new()
+	portrait_slot.custom_minimum_size = Vector2(36.0, 36.0)
+	portrait_slot.size = Vector2(36.0, 36.0)
+	row.add_child(portrait_slot)
+	var portrait := _make_texture_rect(32)
+	portrait.name = "OperatorCardPortrait_%s" % operator_id
+	portrait.position = Vector2(2.0, 4.0)
 	portrait.texture = ASSETS.operator_texture(StringName(operator_id))
-	row.add_child(portrait)
+	portrait_slot.add_child(portrait)
 	var info := _make_label("", 11)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(info)

@@ -6,7 +6,7 @@ extends SceneTree
 
 const OUTPUT_ROOT := "res://game/assets/generated"
 const MANIFEST_PATH := "res://game/assets/manifest.json"
-const GENERATOR_VERSION := 1
+const GENERATOR_VERSION := 2
 const GENERATION_SEED := "pns-midnight-terminal-v1"
 const ASSET_LICENSE := "LicenseRef-PixelNightShift-Original"
 
@@ -113,18 +113,23 @@ func _save_asset(asset: Dictionary) -> Error:
 
 
 func _write_manifest() -> Error:
+	var active_runs_value: Variant = _read_active_sprite_runs()
+	if active_runs_value == null:
+		return ERR_FILE_CORRUPT
+	var active_sprite_runs: Dictionary = active_runs_value
 	var absolute_path := ProjectSettings.globalize_path(MANIFEST_PATH)
 	var directory_error := DirAccess.make_dir_recursive_absolute(absolute_path.get_base_dir())
 	if directory_error != OK:
 		return directory_error
 	var manifest := {
-		"schema_version": 1,
+		"schema_version": 2,
 		"generator": "res://tools/generate_pixel_assets.gd",
 		"generator_version": GENERATOR_VERSION,
 		"generation_seed": GENERATION_SEED,
 		"license": ASSET_LICENSE,
 		"style": "original midnight operations-terminal pixel art",
 		"assets": _manifest_entries,
+		"active_sprite_runs": active_sprite_runs,
 	}
 	var file := FileAccess.open(absolute_path, FileAccess.WRITE)
 	if file == null:
@@ -132,6 +137,37 @@ func _write_manifest() -> Error:
 		return FileAccess.get_open_error()
 	file.store_string(JSON.stringify(manifest, "  ", true) + "\n")
 	return OK
+
+
+func _read_active_sprite_runs() -> Variant:
+	var absolute_path := ProjectSettings.globalize_path(MANIFEST_PATH)
+	if not FileAccess.file_exists(absolute_path):
+		return {}
+	var file := FileAccess.open(absolute_path, FileAccess.READ)
+	if file == null:
+		push_error("Could not read existing manifest before regeneration: %s" % MANIFEST_PATH)
+		return null
+	var parser := JSON.new()
+	var parse_error := parser.parse(file.get_as_text())
+	if parse_error != OK or not parser.data is Dictionary:
+		push_error("Existing asset manifest is invalid JSON; refusing to overwrite it.")
+		return null
+	var existing: Dictionary = parser.data
+	var schema := int(existing.get("schema_version", 0))
+	if schema == 1:
+		return {}
+	if schema > 2:
+		push_error("Existing asset manifest uses newer schema %d; refusing to overwrite it." % schema)
+		return null
+	if schema != 2:
+		push_error("Existing asset manifest has unsupported schema %d; refusing to overwrite it." % schema)
+		return null
+	var runs_value: Variant = existing.get("active_sprite_runs", {})
+	if not runs_value is Dictionary:
+		push_error("Existing asset manifest active_sprite_runs must be a Dictionary.")
+		return null
+	var runs: Dictionary = runs_value
+	return runs.duplicate(true)
 
 
 func _canvas(width: int, height: int, color: Color = CLEAR) -> Image:

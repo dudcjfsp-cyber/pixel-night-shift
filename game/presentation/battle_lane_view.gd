@@ -13,13 +13,67 @@ const COLOR_YELLOW := Color("f4c95d")
 const COLOR_CYAN := Color("52d6c8")
 const OPERATOR_UPGRADE_DURATION := 0.55
 
+
+class PortraitPlayback extends RefCounted:
+	var portrait: TextureRect
+	var frames: SpriteFrames
+	var animation: StringName = &"idle"
+	var frame_index := 0
+	var elapsed_seconds := 0.0
+
+	func bind(target: TextureRect, source: SpriteFrames) -> void:
+		portrait = target
+		frames = source
+		animation = &"idle"
+		frame_index = 0
+		elapsed_seconds = 0.0
+		_apply_frame()
+
+	func play(animation_name: StringName) -> void:
+		if frames == null or not frames.has_animation(animation_name):
+			return
+		animation = animation_name
+		frame_index = 0
+		elapsed_seconds = 0.0
+		_apply_frame()
+
+	func advance(delta_seconds: float) -> void:
+		if frames == null or portrait == null:
+			return
+		var frame_count := frames.get_frame_count(animation)
+		var fps := frames.get_animation_speed(animation)
+		if frame_count <= 1 or fps <= 0.0:
+			return
+		var frame_seconds := 1.0 / fps
+		elapsed_seconds += delta_seconds
+		while elapsed_seconds >= frame_seconds:
+			elapsed_seconds -= frame_seconds
+			frame_index += 1
+			if frame_index >= frame_count:
+				if frames.get_animation_loop(animation):
+					frame_index = 0
+				else:
+					animation = &"idle"
+					frame_index = 0
+					elapsed_seconds = 0.0
+			_apply_frame()
+
+	func _apply_frame() -> void:
+		if portrait == null or frames == null:
+			return
+		portrait.texture = frames.get_frame_texture(animation, frame_index)
+
 var _enemy_name_label: Label
 var _mode_icon: TextureRect
 var _mode_label: Label
 var _operator_portraits: Dictionary = {}
+var _operator_playbacks: Dictionary = {}
 var _operator_base_modulates: Dictionary = {}
 var _operator_upgrade_times: Dictionary = {}
+var _enemy_portrait_slot: Control
 var _enemy_portrait: TextureRect
+var _enemy_playback: PortraitPlayback
+var _enemy_asset_id: StringName = &""
 var _enemy_hp_bar: ProgressBar
 var _enemy_hp_label: Label
 var _timer_label: Label
@@ -35,6 +89,11 @@ func _ready() -> void:
 
 
 func _process(delta_seconds: float) -> void:
+	for playback_value: Variant in _operator_playbacks.values():
+		var playback: PortraitPlayback = playback_value
+		playback.advance(delta_seconds)
+	if _enemy_playback != null:
+		_enemy_playback.advance(delta_seconds)
 	_hit_feedback_time_left = maxf(0.0, _hit_feedback_time_left - delta_seconds)
 	if _hit_feedback_time_left <= 0.0 and is_instance_valid(_enemy_portrait):
 		_enemy_portrait.modulate = _enemy_base_modulate
@@ -47,9 +106,11 @@ func play_operator_upgrade(operator_id: StringName) -> void:
 		push_error("Missing battle portrait for operator '%s'." % operator_id)
 		return
 	var portrait: TextureRect = _operator_portraits[key]
-	portrait.pivot_offset = portrait.size * 0.5
+	portrait.pivot_offset = Vector2(portrait.size.x * 0.5, portrait.size.y)
 	portrait.z_index = 2
 	_operator_upgrade_times[key] = OPERATOR_UPGRADE_DURATION
+	var playback: PortraitPlayback = _operator_playbacks[key]
+	playback.play(&"upgrade")
 
 
 func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -> void:
@@ -65,7 +126,9 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 	_mode_label.text = _mode_display_text(mode)
 	_mode_label.add_theme_color_override("font_color", _mode_color(mode))
 	_mode_icon.texture = ASSETS.mode_texture(mode)
-	_enemy_portrait.texture = ASSETS.enemy_texture(stage, bool(enemy["is_boss"]), mode)
+	var next_enemy_id: StringName = ASSETS.enemy_id(stage, bool(enemy["is_boss"]), mode)
+	if next_enemy_id != _enemy_asset_id:
+		_bind_enemy(next_enemy_id, stage, bool(enemy["is_boss"]), mode)
 	_enemy_base_modulate = Color("ffc2ee") if bool(enemy["is_boss"]) and stage >= 20 else Color.WHITE
 	if _hit_feedback_time_left <= 0.0:
 		_enemy_portrait.modulate = _enemy_base_modulate
@@ -139,10 +202,15 @@ func _build_interface() -> void:
 	arena.add_child(operator_row)
 	for operator_id: StringName in [&"debugger", &"build_engineer", &"sprite_artist", &"qa_imp"]:
 		var portrait := _make_texture_rect(32)
-		portrait.texture = ASSETS.operator_texture(operator_id)
+		portrait.name = "OperatorPortrait_%s" % operator_id
 		portrait.tooltip_text = String(operator_id)
 		operator_row.add_child(portrait)
 		_operator_portraits[String(operator_id)] = portrait
+		var frames: SpriteFrames = ASSETS.make_operator_frames(operator_id)
+		assert(frames != null, "Missing animation frames for operator '%s'." % operator_id)
+		var playback := PortraitPlayback.new()
+		playback.bind(portrait, frames)
+		_operator_playbacks[String(operator_id)] = playback
 
 	var flow_label := _make_label("▶  AUTO  ▶", 9)
 	flow_label.position = Vector2(142.0, 26.0)
@@ -151,9 +219,15 @@ func _build_interface() -> void:
 	flow_label.add_theme_color_override("font_color", COLOR_CYAN)
 	arena.add_child(flow_label)
 
-	_enemy_portrait = _make_texture_rect(48)
-	_enemy_portrait.position = Vector2(260.0, 11.0)
-	arena.add_child(_enemy_portrait)
+	_enemy_portrait_slot = Control.new()
+	_enemy_portrait_slot.name = "EnemyPortraitSlot"
+	_enemy_portrait_slot.position = Vector2(260.0, 11.0)
+	_enemy_portrait_slot.size = Vector2(48.0, 48.0)
+	_enemy_portrait_slot.custom_minimum_size = Vector2(48.0, 48.0)
+	arena.add_child(_enemy_portrait_slot)
+	_enemy_portrait = _make_texture_rect(32)
+	_enemy_portrait.name = "EnemyPortrait"
+	_enemy_portrait_slot.add_child(_enemy_portrait)
 
 	_enemy_hp_bar = ProgressBar.new()
 	_enemy_hp_bar.custom_minimum_size.y = 17.0
@@ -190,6 +264,24 @@ func _show_damage_feedback(previous_snapshot: Dictionary, snapshot: Dictionary) 
 		return
 	_hit_feedback_time_left = 0.18
 	_enemy_portrait.modulate = Color("ff9ca6")
+	if _enemy_playback != null:
+		_enemy_playback.play(&"hurt")
+
+
+func _bind_enemy(asset_id: StringName, stage: int, is_boss: bool, mode: String) -> void:
+	var frames: SpriteFrames = ASSETS.make_enemy_frames(stage, is_boss, mode)
+	assert(frames != null, "Missing animation frames for enemy '%s'." % asset_id)
+	var cell_size: Vector2i = ASSETS.sprite_cell_size(asset_id)
+	assert(cell_size in [Vector2i(32, 32), Vector2i(48, 48)], "Unsupported enemy cell: %s" % cell_size)
+	_enemy_portrait.custom_minimum_size = Vector2(cell_size)
+	_enemy_portrait.size = Vector2(cell_size)
+	_enemy_portrait.position = Vector2(
+		(48.0 - float(cell_size.x)) * 0.5,
+		48.0 - float(cell_size.y)
+	)
+	_enemy_playback = PortraitPlayback.new()
+	_enemy_playback.bind(_enemy_portrait, frames)
+	_enemy_asset_id = asset_id
 
 
 func _update_operator_upgrade_effects(delta_seconds: float) -> void:

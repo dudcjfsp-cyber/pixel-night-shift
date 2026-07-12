@@ -21,6 +21,16 @@ Domain -> no presentation, file, clock, lifecycle, or audio dependency
 - `BattleLaneView` and `AudioDirector` receive presentation snapshots or semantic cues only. Neither imports `GameSession` nor changes simulation state.
 - `game/assets/` contains generated runtime files and provenance manifests. `tools/` owns deterministic regeneration; the game does not generate assets at runtime.
 
+## Animated presentation assets
+
+`game/assets/manifest.json` schema 2 is the activation boundary for generated character animation. Its `active_sprite_runs` map points to per-character native `manifest.json` files and pins both manifest and atlas SHA-256 values. The original 23 static asset entries remain present and validated.
+
+`PresentationAssets` is the only loader for this mapping. It validates the catalog, hashes, component-row contract, cell size, required states, atlas dimensions and every absolute `frame_layout` rectangle before exposing a fresh `SpriteFrames` resource to a caller. It never infers a grid or scans alpha at runtime, and an invalid active run stops presentation initialization instead of silently falling back.
+
+`BattleLaneView` owns presentation-only playback clocks. Snapshot refreshes replace an enemy animation only when its visual asset ID changes. Operator upgrade cues start `upgrade`; enemy HP loss starts `hurt`; non-loop states return to `idle`. The existing bottom-centered upgrade pulse and hit tint are layered over those states. These cues do not change combat state or import domain rules.
+
+The run layout, regeneration, curation and provenance contract is documented in [SPRITE_PIPELINE.md](SPRITE_PIPELINE.md).
+
 ## App shell ownership
 
 Top-level screens are `BOOT`, `FIRST_START`, `OPERATIONS_ROOM`, `GAMEPLAY`, and `SAVE_RECOVERY`. At most one of `OFFLINE_REPORT`, `SETTINGS`, `VERSION_UPDATE_CONFIRM`, `RUN_SUMMARY`, or `ONBOARDING` may be open over the active screen.

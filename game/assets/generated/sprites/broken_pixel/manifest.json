@@ -1,0 +1,156 @@
+{
+  "characterId": "broken_pixel",
+  "engine": "component-row",
+  "game_input": "sprite-sheet-alpha.png",
+  "degraded_static_fallback": false,
+  "curation_applied": false,
+  "frame_variant": "pixel",
+  "sprite_sheet_alpha": "sprite-sheet-alpha.png",
+  "sprite_sheet_alpha_report": "sprite-sheet-alpha.report.json",
+  "base_image": "base-source.png",
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "green",
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "selection": "auto",
+    "score": 257.26,
+    "min_subject_distance": 248.38,
+    "background": {
+      "mode": "flat",
+      "hex": "#08F913",
+      "rgb": [
+        8,
+        249,
+        19
+      ],
+      "opaque_border_fraction": 1.0,
+      "border_coverage": 1.0,
+      "enclosed_background_pixels": 0,
+      "enclosed_material_pixels": 0,
+      "subject_pixels": 17346
+    },
+    "candidates": [
+      {
+        "name": "magenta",
+        "hex": "#FF00FF",
+        "score": 179.15,
+        "min_subject_distance": 171.51,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "green",
+        "hex": "#00FF00",
+        "score": 257.26,
+        "min_subject_distance": 248.38,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "cyan",
+        "hex": "#00FFFF",
+        "score": 243.71,
+        "min_subject_distance": 239.05,
+        "clears_erase_radius": true
+      },
+      {
+        "name": "blue",
+        "hex": "#004DFF",
+        "score": 222.23,
+        "min_subject_distance": 214.95,
+        "clears_erase_radius": true
+      }
+    ],
+    "selection_reason": "highest 1st-percentile subject distance among the 4 candidate(s) clearing the 96 erase radius"
+  },
+  "animation": {
+    "cellWidth": 32,
+    "cellHeight": 32,
+    "columns": 4,
+    "rows": {
+      "idle": {
+        "row": 0,
+        "frames": 4,
+        "fps": 4,
+        "loop": true
+      },
+      "hurt": {
+        "row": 1,
+        "frames": 4,
+        "fps": 8,
+        "loop": false
+      }
+    }
+  },
+  "frame_layout": {
+    "sheetWidth": 128,
+    "sheetHeight": 64,
+    "cellWidth": 32,
+    "cellHeight": 32,
+    "rows": {
+      "idle": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "x": 32,
+          "y": 0,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "x": 64,
+          "y": 0,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "x": 96,
+          "y": 0,
+          "w": 32,
+          "h": 32
+        }
+      ],
+      "hurt": [
+        {
+          "x": 0,
+          "y": 32,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "x": 32,
+          "y": 32,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "x": 64,
+          "y": 32,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "x": 96,
+          "y": 32,
+          "w": 32,
+          "h": 32
+        }
+      ]
+    }
+  }
+}

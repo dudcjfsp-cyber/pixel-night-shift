@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "engine": "component-row",
+  "run_dir": "C:\\Users\\rycba\\OneDrive\\Desktop\\자체제작게임\\방치형게임2\\game\\assets\\generated\\sprites\\_base-lock\\curation",
+  "cell": {
+    "shape": "square",
+    "width": 1254,
+    "height": 1254,
+    "size": 1254,
+    "safe_margin": 0
+  },
+  "rows": [
+    {
+      "state": "broken_pixel",
+      "frames": 2,
+      "method": "imported-pngs",
+      "files": [
+        "frames/broken_pixel/frame-0.png",
+        "frames/broken_pixel/frame-1.png"
+      ],
+      "labels": [
+        "broken-pixel-a",
+        "broken-pixel-b"
+      ],
+      "ok": true
+    },
+    {
+      "state": "debugger",
+      "frames": 2,
+      "method": "imported-pngs",
+      "files": [
+        "frames/debugger/frame-0.png",
+        "frames/debugger/frame-1.png"
+      ],
+      "labels": [
+        "debugger-a",
+        "debugger-b"
+      ],
+      "ok": true
+    }
+  ],
+  "errors": [],
+  "warnings": []
+}

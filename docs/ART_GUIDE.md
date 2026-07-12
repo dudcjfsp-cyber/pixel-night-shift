@@ -103,3 +103,7 @@ PNG는 `tools/generate_pixel_assets.gd`가 Godot `Image` API만 사용해 생성
 ## 라이선스와 출처
 
 모든 생성 PNG는 프로젝트 전용 오리지널 에셋이며 매니페스트에 `LicenseRef-PixelNightShift-Original`로 기록합니다. 생성기, 시드, 크기, SHA-256을 함께 기록해 출처가 섞이지 않도록 합니다.
+
+## 캐릭터 애니메이션 예외
+
+요원·적·보스의 애니메이션은 기존 정적 생성기를 덮어쓰지 않고 `game/assets/generated/sprites/<asset-id>/`의 `sprite-gen` component-row run으로 별도 생성합니다. 활성화 전까지 기존 PNG와 생성기는 롤백 자료로 보존합니다. 숫자 계약, Base Lock, row 재생성, 큐레이션과 Godot 매니페스트 연동 절차는 [SPRITE_PIPELINE.md](SPRITE_PIPELINE.md)를 따릅니다.

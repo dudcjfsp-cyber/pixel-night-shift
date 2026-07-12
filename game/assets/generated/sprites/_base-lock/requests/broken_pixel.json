@@ -1,0 +1,31 @@
+{
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "stable planted idle: a subtle block-body compression and white fracture pulse while both feet remain on one baseline; frame 4 flows naturally back to frame 1; no detached pixels"
+    },
+    "hurt": {
+      "frames": 4,
+      "fps": 8,
+      "loop": false,
+      "action": "clear hit reaction from screen-left with start-middle-end poses: start near idle, compress and recoil toward screen-right, fracture brightens, then recover toward idle; both feet stay readable; no debris or detached effects"
+    }
+  },
+  "cell": {
+    "shape": "square",
+    "size": 32,
+    "safe_margin": 3
+  },
+  "fit": {
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 9,
+    "detail_bias": true,
+    "outline": true,
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom"
+  }
+}

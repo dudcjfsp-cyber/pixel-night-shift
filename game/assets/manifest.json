@@ -1,4 +1,24 @@
 {
+  "active_sprite_runs": {
+    "broken_pixel": {
+      "atlas_sha256": "362e7e22a81a8e660611479ddd83b3770f22f92387d479c32d170daf6cf1f593",
+      "category": "enemy",
+      "license": "LicenseRef-PixelNightShift-Original",
+      "manifest_contract": 1.0,
+      "manifest_path": "res://game/assets/generated/sprites/broken_pixel/manifest.json",
+      "manifest_sha256": "373e1ea75aec66315269558258fe965aeb2b5b5702ba3eddc0eab358b07aab84",
+      "sprite_gen_version": "1.56.6"
+    },
+    "debugger": {
+      "atlas_sha256": "0674c5aa53c6deadefe44491f023092abc9cd9a9a6182f7a57935e09e3b1034d",
+      "category": "operator",
+      "license": "LicenseRef-PixelNightShift-Original",
+      "manifest_contract": 1.0,
+      "manifest_path": "res://game/assets/generated/sprites/debugger/manifest.json",
+      "manifest_sha256": "4dd7afd9c0846a409095eed2439972bbf139765705bfc6651652835126f7cc63",
+      "sprite_gen_version": "1.56.6"
+    }
+  },
   "assets": [
     {
       "category": "operator",
@@ -187,8 +207,8 @@
   ],
   "generation_seed": "pns-midnight-terminal-v1",
   "generator": "res://tools/generate_pixel_assets.gd",
-  "generator_version": 1,
+  "generator_version": 2,
   "license": "LicenseRef-PixelNightShift-Original",
-  "schema_version": 1,
+  "schema_version": 2,
   "style": "original midnight operations-terminal pixel art"
 }

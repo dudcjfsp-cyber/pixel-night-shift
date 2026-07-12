@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-request",
+  "engine": "component-row",
+  "character": {
+    "id": "curation",
+    "description": "imported PNG set from C:\\Users\\rycba\\OneDrive\\Desktop\\자체제작게임\\방치형게임2\\game\\assets\\generated\\sprites\\_base-lock\\candidates\\broken_pixel"
+  },
+  "cell": {
+    "shape": "square",
+    "width": 1254,
+    "height": 1254,
+    "size": 1254,
+    "safe_margin": 0
+  },
+  "chroma_key": {
+    "name": "magenta",
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ]
+  },
+  "states": {
+    "broken_pixel": {
+      "frames": 2,
+      "fps": 2,
+      "loop": false,
+      "action": "imported still set"
+    },
+    "debugger": {
+      "frames": 2,
+      "fps": 2,
+      "loop": false,
+      "action": "imported still set"
+    }
+  }
+}
