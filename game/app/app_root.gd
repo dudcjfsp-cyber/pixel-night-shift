@@ -1,0 +1,1064 @@
+class_name AppRoot
+extends Control
+
+const UI: GDScript = preload("res://game/presentation/app_shell/app_shell_ui.gd")
+const POLICY: GDScript = preload("res://game/app/app_policy.gd")
+const MAIN_VIEW_SCRIPT: GDScript = preload("res://game/presentation/main_view.gd")
+const MAIN_VIEW_SCENE: PackedScene = preload("res://game/presentation/main.tscn")
+const BOOT_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/boot_view.tscn"
+)
+const FIRST_SHIFT_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/first_shift_view.tscn"
+)
+const OPERATIONS_ROOM_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/operations_room_view.tscn"
+)
+const OFFLINE_REPORT_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/offline_report_view.tscn"
+)
+const SETTINGS_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/settings_view.tscn"
+)
+const SAVE_RECOVERY_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/save_recovery_view.tscn"
+)
+const VERSION_UPDATE_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/version_update_confirm_view.tscn"
+)
+const RUN_SUMMARY_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/run_summary_view.tscn"
+)
+const ONBOARDING_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/onboarding_view.tscn"
+)
+const OPERATIONS_DATA_SCRIPT: GDScript = preload(
+	"res://game/presentation/app_shell/view_data/operations_room_view_data.gd"
+)
+const OFFLINE_DATA_SCRIPT: GDScript = preload(
+	"res://game/presentation/app_shell/view_data/offline_report_view_data.gd"
+)
+
+const SCREEN_NONE: StringName = &"none"
+const SCREEN_BOOT: StringName = &"boot"
+const SCREEN_FIRST_START: StringName = &"first_start"
+const SCREEN_OPERATIONS_ROOM: StringName = &"operations_room"
+const SCREEN_GAMEPLAY: StringName = &"gameplay"
+const SCREEN_SAVE_RECOVERY: StringName = &"save_recovery"
+
+const OVERLAY_NONE: StringName = &"none"
+const OVERLAY_OFFLINE_REPORT: StringName = &"offline_report"
+const OVERLAY_SETTINGS: StringName = &"settings"
+const OVERLAY_VERSION_UPDATE_CONFIRM: StringName = &"version_update_confirm"
+const OVERLAY_RUN_SUMMARY: StringName = &"run_summary"
+const OVERLAY_ONBOARDING: StringName = &"onboarding"
+
+const AUDIO_REFRESH_SECONDS := 0.12
+const OPERATIONS_REFRESH_SECONDS := 0.25
+
+var _save_repository: SaveRepository
+var _settings_repository: SettingsRepository
+var _clock: Variant = null
+var _services_configured := false
+var _session: GameSession
+var _audio_director: AudioDirector
+var _settings: AppSettings
+
+var _safe_margin: MarginContainer
+var _screen_host: Control
+var _overlay_host: Control
+var _screen_id: StringName = SCREEN_NONE
+var _overlay_id: StringName = OVERLAY_NONE
+var _gameplay_view: MAIN_VIEW_SCRIPT
+var _recovery_result: SaveLoadResult
+
+var _started := false
+var _backgrounded := false
+var _background_started_at_unix := 0
+var _last_saved_at_unix := 0
+var _last_gameplay_tab := 0
+var _save_has_error := false
+var _save_status := "저장 전"
+var _settings_has_error := false
+var _settings_status := "설정 저장 전"
+var _pending_offline_report: Dictionary = {}
+var _onboarding_step := 0
+var _run_summary_data: Dictionary = {}
+var _save_elapsed := 0.0
+var _audio_refresh_left := 0.0
+var _operations_refresh_left := 0.0
+var _audio_snapshot: Dictionary = {}
+
+
+func configure_services(
+	save_repository: SaveRepository,
+	settings_repository: SettingsRepository,
+	clock: Variant
+) -> bool:
+	if is_inside_tree() or _services_configured:
+		push_error("AppRoot services must be configured once before entering the tree.")
+		return false
+	if save_repository == null or settings_repository == null:
+		push_error("AppRoot repositories cannot be null.")
+		return false
+	if clock == null or not clock.has_method("now_unix"):
+		push_error("AppRoot clock must expose now_unix().")
+		return false
+	_save_repository = save_repository
+	_settings_repository = settings_repository
+	_clock = clock
+	_services_configured = true
+	return true
+
+
+func current_screen_id() -> StringName:
+	return _screen_id
+
+
+func current_overlay_id() -> StringName:
+	return _overlay_id
+
+
+func session_snapshot() -> Dictionary:
+	return {} if _session == null else _session.snapshot().duplicate(true)
+
+
+func session_instance_id() -> int:
+	return 0 if _session == null else int(_session.get_instance_id())
+
+
+func last_gameplay_tab() -> int:
+	return _last_gameplay_tab
+
+
+func save_has_error() -> bool:
+	return _save_has_error
+
+
+func handle_back_request() -> bool:
+	if _overlay_id != OVERLAY_NONE:
+		_close_overlay()
+		return false
+	if _screen_id == SCREEN_SAVE_RECOVERY and _screen_host.get_child_count() > 0:
+		var recovery_view := _screen_host.get_child(0) as AppShellSaveRecoveryView
+		if recovery_view != null and recovery_view.is_confirming_new_shift():
+			recovery_view.show_new_shift_confirmation(false)
+			return false
+	if _screen_id == SCREEN_GAMEPLAY:
+		_show_operations_room()
+		_save_progress("현장에서 운영실로 이동")
+		return false
+	var should_exit := _screen_id in [
+		SCREEN_OPERATIONS_ROOM, SCREEN_FIRST_START, SCREEN_SAVE_RECOVERY,
+	]
+	if should_exit and _session != null:
+		_save_progress("앱 이탈", false)
+	return should_exit
+
+
+func handle_application_paused() -> void:
+	if _backgrounded:
+		return
+	_background_started_at_unix = _now_unix()
+	_save_progress("앱 일시정지", false)
+	_backgrounded = true
+
+
+func handle_application_resumed() -> void:
+	if not _backgrounded:
+		return
+	_backgrounded = false
+	_close_overlay()
+	if _session != null:
+		_apply_offline_progress(_background_started_at_unix)
+
+
+func apply_safe_area(safe_rect: Rect2i, window_size: Vector2i) -> void:
+	_apply_safe_area(safe_rect, window_size)
+
+
+func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if not _services_configured:
+		_save_repository = SaveRepository.new()
+		_settings_repository = SettingsRepository.new()
+		_clock = SystemClock.new()
+	_build_hosts()
+	_load_settings()
+	_audio_director = AudioDirector.new()
+	_audio_director.name = "AudioDirector"
+	add_child(_audio_director)
+	_apply_audio_settings()
+	get_tree().auto_accept_quit = false
+	get_window().size_changed.connect(_update_safe_area)
+	_update_safe_area()
+	call_deferred("_start_boot")
+
+
+func _process(delta_seconds: float) -> void:
+	if not _started or _backgrounded or _session == null:
+		return
+	_session.tick(delta_seconds)
+	_save_elapsed += delta_seconds
+	_audio_refresh_left -= delta_seconds
+	_operations_refresh_left -= delta_seconds
+	if _audio_refresh_left <= 0.0:
+		_audio_refresh_left = AUDIO_REFRESH_SECONDS
+		_sync_audio()
+	if _screen_id == SCREEN_OPERATIONS_ROOM and _operations_refresh_left <= 0.0:
+		_operations_refresh_left = OPERATIONS_REFRESH_SECONDS
+		_refresh_operations_room()
+	if _save_elapsed >= POLICY.PERIODIC_SAVE_SECONDS:
+		_save_elapsed = 0.0
+		_save_progress("주기 저장")
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED:
+			handle_application_paused()
+		NOTIFICATION_APPLICATION_RESUMED:
+			handle_application_resumed()
+		NOTIFICATION_WM_GO_BACK_REQUEST:
+			if handle_back_request():
+				get_tree().quit()
+		NOTIFICATION_WM_CLOSE_REQUEST:
+			if _session != null:
+				_save_progress("창 닫기", false)
+			get_tree().quit()
+
+
+func _build_hosts() -> void:
+	var background := ColorRect.new()
+	background.name = "AppBackground"
+	background.color = UI.COLOR_BACKGROUND
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(background)
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	_safe_margin = MarginContainer.new()
+	_safe_margin.name = "SafeArea"
+	_safe_margin.unique_name_in_owner = true
+	add_child(_safe_margin)
+	_safe_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var stack := Control.new()
+	stack.name = "AppStack"
+	_safe_margin.add_child(stack)
+	stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	_screen_host = Control.new()
+	_screen_host.name = "ScreenHost"
+	_screen_host.unique_name_in_owner = true
+	stack.add_child(_screen_host)
+	_screen_host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_overlay_host = Control.new()
+	_overlay_host.name = "OverlayHost"
+	_overlay_host.unique_name_in_owner = true
+	_overlay_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stack.add_child(_overlay_host)
+	_overlay_host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
+func _start_boot() -> void:
+	_show_boot()
+	var started_at_msec := Time.get_ticks_msec()
+	var load_result: SaveLoadResult = _save_repository.load()
+	var elapsed_msec := Time.get_ticks_msec() - started_at_msec
+	if elapsed_msec >= POLICY.BOOT_STATUS_DELAY_MSEC:
+		await get_tree().process_frame
+	_route_from_load_result(load_result)
+	_started = true
+
+
+func _route_from_load_result(load_result: SaveLoadResult) -> void:
+	match load_result.status:
+		SaveLoadResult.Status.NOT_FOUND:
+			_session = null
+			_show_first_start()
+		SaveLoadResult.Status.LOADED:
+			_restore_primary(load_result)
+		SaveLoadResult.Status.RECOVERED_BACKUP, SaveLoadResult.Status.CORRUPT, SaveLoadResult.Status.NEWER_SCHEMA:
+			_recovery_result = load_result
+			_session = null
+			_show_save_recovery()
+		_:
+			push_error("Unknown SaveLoadResult status: %s" % load_result.status)
+			_recovery_result = load_result
+			_session = null
+			_show_save_recovery()
+
+
+func _restore_primary(load_result: SaveLoadResult) -> void:
+	var candidate := GameSession.new()
+	var restore_errors := candidate.restore_state(load_result.session_data)
+	if not restore_errors.is_empty():
+		var backup_result: SaveLoadResult = _save_repository.load_backup()
+		if backup_result.has_session_candidate():
+			var backup_candidate := GameSession.new()
+			var backup_errors := backup_candidate.restore_state(backup_result.session_data)
+			if backup_errors.is_empty():
+				backup_result.errors.append("Primary session data failed validation.")
+				for error_message: String in restore_errors:
+					backup_result.errors.append("primary session: %s" % error_message)
+				_recovery_result = backup_result
+				_show_save_recovery()
+				return
+			for error_message: String in backup_errors:
+				backup_result.errors.append("backup session: %s" % error_message)
+		_recovery_result = backup_result
+		if _recovery_result.status != SaveLoadResult.Status.NEWER_SCHEMA:
+			_recovery_result.status = SaveLoadResult.Status.CORRUPT
+		for error_message: String in restore_errors:
+			_recovery_result.errors.append("primary session: %s" % error_message)
+		_show_save_recovery()
+		return
+
+	_session = candidate
+	_last_gameplay_tab = load_result.last_gameplay_tab
+	_last_saved_at_unix = load_result.saved_at_unix
+	_show_operations_room()
+	_apply_offline_progress(load_result.saved_at_unix)
+
+
+func _show_boot() -> void:
+	_close_overlay()
+	var view := BOOT_SCENE.instantiate() as AppShellBootView
+	assert(view != null, "Boot scene must instantiate as AppShellBootView.")
+	view.configure("근무 기록 확인 중…")
+	_set_screen(SCREEN_BOOT, view)
+
+
+func _show_first_start(error_message: String = "") -> void:
+	_close_overlay()
+	var view := FIRST_SHIFT_SCENE.instantiate() as AppShellFirstShiftView
+	assert(view != null, "First-start scene must instantiate as AppShellFirstShiftView.")
+	view.first_shift_requested.connect(_on_first_shift_requested)
+	view.settings_requested.connect(_show_settings)
+	_set_screen(SCREEN_FIRST_START, view)
+	view.set_error(error_message)
+
+
+func _show_operations_room() -> void:
+	_close_overlay()
+	var view := OPERATIONS_ROOM_SCENE.instantiate() as AppShellOperationsRoomView
+	assert(view != null, "Operations scene must instantiate as AppShellOperationsRoomView.")
+	view.configure(_make_operations_data())
+	view.continue_requested.connect(_show_gameplay)
+	view.manual_requested.connect(_show_manual)
+	view.settings_requested.connect(_show_settings)
+	_set_screen(SCREEN_OPERATIONS_ROOM, view)
+
+
+func _show_gameplay() -> void:
+	if _session == null:
+		push_error("Gameplay cannot open without an active GameSession.")
+		return
+	_close_overlay()
+	var view: MAIN_VIEW_SCRIPT = MAIN_VIEW_SCENE.instantiate() as MAIN_VIEW_SCRIPT
+	assert(view != null, "Gameplay scene must instantiate as MainView.")
+	view.apply_accessibility(
+		_settings.screen_shake_enabled,
+		_settings.reduced_flashing,
+		_settings.reduced_motion
+	)
+	var configured: bool = view.configure(_session, _audio_director)
+	if not configured:
+		push_error("Gameplay view rejected its AppRoot configuration.")
+		_show_save_recovery_for_runtime_error("현장 화면을 구성하지 못했습니다.")
+		return
+	view.set_active_tab(_last_gameplay_tab)
+	view.operations_room_requested.connect(_on_gameplay_operations_requested)
+	view.settings_requested.connect(_show_settings)
+	view.version_update_requested.connect(_show_version_update_confirm)
+	view.session_changed.connect(_on_session_changed)
+	view.active_tab_changed.connect(_on_active_tab_changed)
+	_gameplay_view = view
+	_set_screen(SCREEN_GAMEPLAY, view)
+
+
+func _show_save_recovery() -> void:
+	_close_overlay()
+	var view := SAVE_RECOVERY_SCENE.instantiate() as AppShellSaveRecoveryView
+	assert(view != null, "Recovery scene must instantiate as AppShellSaveRecoveryView.")
+	var newer := _recovery_result != null and (
+		_recovery_result.status == SaveLoadResult.Status.NEWER_SCHEMA
+	)
+	var backup_available := _recovery_result != null and (
+		_recovery_result.status == SaveLoadResult.Status.RECOVERED_BACKUP
+	)
+	var title_text := "[오류] 근무 기록에 문제가 있습니다."
+	var detail_text := "현재 기록과 백업을 모두 읽을 수 없습니다."
+	if newer:
+		title_text = "[업데이트 필요] 근무 기록을 열 수 없습니다."
+		detail_text = "이 기록을 만든 버전보다 현재 게임이 오래되었습니다. 게임 업데이트가 필요합니다."
+	elif backup_available:
+		detail_text = "가장 최근 기록을 읽을 수 없습니다. 이전 백업은 사용할 수 있습니다."
+	var backup_label := ""
+	if backup_available:
+		backup_label = "복구 시점 · %s" % Time.get_datetime_string_from_unix_time(
+			_recovery_result.saved_at_unix, true
+		)
+	view.configure(title_text, detail_text, backup_available, backup_label, newer)
+	view.backup_restore_requested.connect(_on_backup_restore_requested)
+	view.retry_requested.connect(_on_recovery_retry_requested)
+	view.new_shift_requested.connect(_on_new_shift_requested)
+	_set_screen(SCREEN_SAVE_RECOVERY, view)
+
+
+func _show_save_recovery_for_runtime_error(message: String) -> void:
+	_recovery_result = SaveLoadResult.new()
+	_recovery_result.status = SaveLoadResult.Status.CORRUPT
+	_recovery_result.errors.append(message)
+	_session = null
+	_show_save_recovery()
+
+
+func _set_screen(screen_id: StringName, view: Control) -> void:
+	assert(view != null, "Screen view cannot be null.")
+	_replace_host_child(_screen_host, view)
+	_screen_id = screen_id
+	if screen_id != SCREEN_GAMEPLAY:
+		_gameplay_view = null
+
+
+func _show_overlay(overlay_id: StringName, view: Control) -> void:
+	assert(view != null, "Overlay view cannot be null.")
+	_replace_host_child(_overlay_host, view)
+	_overlay_id = overlay_id
+
+
+func _close_overlay() -> void:
+	if _overlay_host != null:
+		_clear_host(_overlay_host)
+	_overlay_id = OVERLAY_NONE
+
+
+func _replace_host_child(host: Control, child: Control) -> void:
+	_clear_host(host)
+	host.add_child(child)
+	child.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
+func _clear_host(host: Control) -> void:
+	for child: Node in host.get_children():
+		host.remove_child(child)
+		child.queue_free()
+
+
+func _show_settings() -> void:
+	var view := SETTINGS_SCENE.instantiate() as AppShellSettingsView
+	assert(view != null, "Settings scene must instantiate as AppShellSettingsView.")
+	view.configure(
+		_settings_view_data(),
+		_combined_save_status(),
+		_save_has_error or _settings_has_error,
+		_is_vibration_supported()
+	)
+	view.set_manual_available(_session != null)
+	view.close_requested.connect(_close_overlay)
+	view.music_volume_changed.connect(_on_music_volume_changed)
+	view.sfx_volume_changed.connect(_on_sfx_volume_changed)
+	view.vibration_changed.connect(_on_vibration_changed)
+	view.screen_shake_changed.connect(_on_screen_shake_changed)
+	view.reduced_flashes_changed.connect(_on_reduced_flashes_changed)
+	view.reduced_motion_changed.connect(_on_reduced_motion_changed)
+	view.save_retry_requested.connect(_on_save_retry_requested)
+	view.manual_requested.connect(_show_manual)
+	view.reset_records_requested.connect(_on_reset_records_requested)
+	_show_overlay(OVERLAY_SETTINGS, view)
+
+
+func _show_version_update_confirm() -> void:
+	if _session == null:
+		return
+	var snapshot := _session.snapshot()
+	if not bool(snapshot.get("prestige_available", false)):
+		push_error("Version update was requested while it is locked.")
+		return
+	var view := VERSION_UPDATE_SCENE.instantiate() as AppShellVersionUpdateConfirmView
+	assert(view != null, "Version update scene must instantiate with its product script.")
+	view.confirm_requested.connect(_on_version_update_confirmed)
+	view.cancel_requested.connect(_close_overlay)
+	_show_overlay(OVERLAY_VERSION_UPDATE_CONFIRM, view)
+
+
+func _show_run_summary() -> void:
+	var view := RUN_SUMMARY_SCENE.instantiate() as AppShellRunSummaryView
+	assert(view != null, "Run summary scene must instantiate with its product script.")
+	if not view.configure(_run_summary_data):
+		push_error("Run summary data failed product-view validation.")
+		return
+	view.continue_requested.connect(_on_run_summary_continue_requested)
+	_show_overlay(OVERLAY_RUN_SUMMARY, view)
+
+
+func _show_onboarding(step: int = 0) -> void:
+	if _session == null:
+		return
+	if _screen_id != SCREEN_GAMEPLAY:
+		_show_gameplay()
+	_onboarding_step = clampi(step, 0, AppShellOnboardingView.STEP_COUNT - 1)
+	var view := ONBOARDING_SCENE.instantiate() as AppShellOnboardingView
+	assert(view != null, "Onboarding scene must instantiate with its product script.")
+	view.configure(_onboarding_step)
+	view.advance_requested.connect(_on_onboarding_advance_requested)
+	view.diagnosis_requested.connect(_on_onboarding_diagnosis_requested)
+	view.skip_requested.connect(_on_onboarding_skip_requested)
+	_show_overlay(OVERLAY_ONBOARDING, view)
+
+
+func _show_manual() -> void:
+	_close_overlay()
+	_show_onboarding(0)
+
+
+func _show_offline_report() -> void:
+	if _pending_offline_report.is_empty():
+		return
+	var data: OfflineReportViewData = OFFLINE_DATA_SCRIPT.new(
+		int(_pending_offline_report["absence_seconds"]),
+		float(_pending_offline_report["recovered_bits"]),
+		int(_pending_offline_report["stage_from"]),
+		int(_pending_offline_report["stage_to"]),
+		bool(_pending_offline_report["has_bottleneck"]),
+		int(_pending_offline_report["bottleneck_stage"]),
+		String(_pending_offline_report["bottleneck_cause"]),
+		bool(_pending_offline_report["reached_cap"])
+	)
+	var view := OFFLINE_REPORT_SCENE.instantiate() as AppShellOfflineReportView
+	assert(view != null, "Offline report scene must instantiate with its product script.")
+	view.configure(data)
+	view.bottleneck_requested.connect(_on_offline_bottleneck_requested)
+	view.continue_requested.connect(_on_offline_continue_requested)
+	view.operations_room_requested.connect(_on_offline_operations_requested)
+	_pending_offline_report = {}
+	_show_overlay(OVERLAY_OFFLINE_REPORT, view)
+
+
+func _on_first_shift_requested() -> void:
+	var candidate := GameSession.new()
+	_session = candidate
+	_last_gameplay_tab = 0
+	_last_saved_at_unix = 0
+	var save_error := _save_progress("첫 근무 최초 저장", false)
+	if save_error != OK:
+		_session = null
+		_show_first_start("최초 저장에 실패했습니다. 저장 공간을 확인한 뒤 다시 시도하세요.")
+		return
+	_show_gameplay()
+	if not _settings.onboarding_completed:
+		_show_onboarding(0)
+
+
+func _on_gameplay_operations_requested() -> void:
+	_capture_gameplay_tab()
+	_show_operations_room()
+	_save_progress("운영실 진입")
+
+
+func _on_session_changed() -> void:
+	_save_progress("현장 상태 변경")
+
+
+func _on_active_tab_changed(tab_index: int) -> void:
+	if tab_index < POLICY.GAMEPLAY_TAB_MIN or tab_index > POLICY.GAMEPLAY_TAB_MAX:
+		push_error("Gameplay emitted invalid tab index %d." % tab_index)
+		return
+	_last_gameplay_tab = tab_index
+	_save_progress("현장 탭 변경")
+
+
+func _on_backup_restore_requested() -> void:
+	if _recovery_result == null or not _recovery_result.has_session_candidate():
+		_set_recovery_view_error("사용할 수 있는 백업 후보가 없습니다.")
+		return
+	var candidate := GameSession.new()
+	var restore_errors := candidate.restore_state(_recovery_result.session_data)
+	if not restore_errors.is_empty():
+		_set_recovery_view_error("백업 세션 검증 실패: %s" % "; ".join(restore_errors))
+		return
+	var promote_error := _save_repository.promote_backup()
+	if promote_error != OK:
+		_set_recovery_view_error("백업 파일 복구 실패 (오류 %d)" % promote_error)
+		return
+	_session = candidate
+	_last_gameplay_tab = _recovery_result.last_gameplay_tab
+	_last_saved_at_unix = _recovery_result.saved_at_unix
+	_show_operations_room()
+	_apply_offline_progress(_recovery_result.saved_at_unix)
+
+
+func _on_recovery_retry_requested() -> void:
+	_route_from_load_result(_save_repository.load())
+
+
+func _on_new_shift_requested() -> void:
+	var clear_error := _save_repository.clear_records()
+	if clear_error != OK:
+		_set_recovery_view_error("근무 기록 삭제 실패 (오류 %d)" % clear_error)
+		return
+	_session = null
+	_recovery_result = null
+	_last_saved_at_unix = 0
+	_background_started_at_unix = 0
+	_audio_snapshot = {}
+	_save_has_error = false
+	_save_status = "새 근무 저장 전"
+	_show_first_start()
+
+
+func _on_version_update_confirmed() -> void:
+	if _session == null:
+		return
+	var before_state := _session.export_state()
+	var before_snapshot := _session.snapshot()
+	if not _session.prestige():
+		_set_version_view_error(String(_session.snapshot().get("last_error", "업데이트 실행 실패")))
+		return
+	var save_error := _save_progress("버전 업데이트", false)
+	if save_error != OK:
+		var rollback_errors := _session.restore_state(before_state)
+		if not rollback_errors.is_empty():
+			push_error("Version update rollback failed: %s" % "; ".join(rollback_errors))
+			_show_save_recovery_for_runtime_error("버전 업데이트 원복에 실패했습니다.")
+			return
+		_set_version_view_error("저장에 실패해 업데이트를 실행하지 않았습니다.")
+		return
+	_run_summary_data = _make_run_summary_data(before_snapshot, _session.snapshot())
+	_audio_director.play_cue(&"version_update")
+	_show_run_summary()
+
+
+func _on_run_summary_continue_requested() -> void:
+	_close_overlay()
+	if _screen_id != SCREEN_GAMEPLAY:
+		_show_gameplay()
+
+
+func _on_offline_bottleneck_requested() -> void:
+	_close_overlay()
+	_show_gameplay()
+	if _gameplay_view != null:
+		_gameplay_view.set_active_tab(1)
+		_last_gameplay_tab = 1
+		_save_progress("정체 지점 확인")
+
+
+func _on_offline_continue_requested() -> void:
+	_close_overlay()
+	_show_gameplay()
+
+
+func _on_offline_operations_requested() -> void:
+	_close_overlay()
+	_show_operations_room()
+
+
+func _on_onboarding_advance_requested() -> void:
+	if _onboarding_step >= AppShellOnboardingView.STEP_COUNT - 1:
+		_complete_onboarding()
+		return
+	_show_onboarding(_onboarding_step + 1)
+
+
+func _on_onboarding_diagnosis_requested() -> void:
+	if _gameplay_view != null:
+		_gameplay_view.set_active_tab(1)
+		_last_gameplay_tab = 1
+		_save_progress("온보딩 진단 보기")
+	_show_onboarding(_onboarding_step + 1)
+
+
+func _on_onboarding_skip_requested() -> void:
+	_complete_onboarding()
+
+
+func _complete_onboarding() -> void:
+	_settings.onboarding_completed = true
+	_save_settings("온보딩 완료")
+	_close_overlay()
+
+
+func _on_music_volume_changed(value: int) -> void:
+	_settings.music_volume = float(value) / 100.0
+	_audio_director.set_music_volume_percent(value)
+	_save_settings("배경음악 설정")
+
+
+func _on_sfx_volume_changed(value: int) -> void:
+	_settings.sfx_volume = float(value) / 100.0
+	_audio_director.set_sfx_volume_percent(value)
+	_save_settings("효과음 설정")
+
+
+func _on_vibration_changed(enabled: bool) -> void:
+	if not _is_vibration_supported():
+		return
+	_settings.vibration_enabled = enabled
+	_save_settings("진동 설정")
+
+
+func _on_screen_shake_changed(enabled: bool) -> void:
+	_settings.screen_shake_enabled = enabled
+	_apply_gameplay_accessibility()
+	_save_settings("화면 흔들림 설정")
+
+
+func _on_reduced_flashes_changed(enabled: bool) -> void:
+	_settings.reduced_flashing = enabled
+	_apply_gameplay_accessibility()
+	_save_settings("점멸 설정")
+
+
+func _on_reduced_motion_changed(enabled: bool) -> void:
+	_settings.reduced_motion = enabled
+	_apply_gameplay_accessibility()
+	_save_settings("동작 설정")
+
+
+func _apply_gameplay_accessibility() -> void:
+	if _gameplay_view == null:
+		return
+	_gameplay_view.apply_accessibility(
+		_settings.screen_shake_enabled,
+		_settings.reduced_flashing,
+		_settings.reduced_motion
+	)
+
+
+func _on_save_retry_requested() -> void:
+	if _session != null:
+		_save_progress("사용자 저장 재시도")
+	_save_settings("사용자 설정 저장 재시도")
+	_refresh_settings_view()
+
+
+func _on_reset_records_requested() -> void:
+	var clear_error := _save_repository.clear_records()
+	if clear_error != OK:
+		_save_has_error = true
+		_save_status = "근무 기록 삭제 실패 (오류 %d)" % clear_error
+		_refresh_settings_view()
+		return
+	_session = null
+	_pending_offline_report = {}
+	_last_saved_at_unix = 0
+	_background_started_at_unix = 0
+	_audio_snapshot = {}
+	_save_has_error = false
+	_save_status = "새 근무 저장 전"
+	_close_overlay()
+	_show_first_start()
+
+
+func _set_recovery_view_error(message: String) -> void:
+	var view := _screen_host.get_child(0) as AppShellSaveRecoveryView if _screen_host.get_child_count() > 0 else null
+	if view != null:
+		view.set_error(message)
+
+
+func _set_version_view_error(message: String) -> void:
+	var view := _overlay_host.get_child(0) as AppShellVersionUpdateConfirmView if _overlay_host.get_child_count() > 0 else null
+	if view != null:
+		view.set_error(message)
+
+
+func _make_operations_data() -> OperationsRoomViewData:
+	assert(_session != null, "Operations data requires an active session.")
+	var snapshot := _session.snapshot()
+	var diagnosis := snapshot.get("diagnosis", {}) as Dictionary
+	var slots := snapshot.get("patch_slots", []) as Array
+	var equipped_count := 0
+	for slot_value: Variant in slots:
+		if not String(slot_value).is_empty():
+			equipped_count += 1
+	var save_state := OperationsRoomViewData.SaveState.SAVED
+	if _save_has_error:
+		save_state = OperationsRoomViewData.SaveState.ERROR
+	return OperationsRoomViewData.new(
+		int(snapshot["run_count"]) + 1,
+		true,
+		"자동 운영 중",
+		int(snapshot["stage"]),
+		String(diagnosis.get("title", "진단 정보 없음")),
+		equipped_count,
+		int(snapshot["unlocked_patch_slots"]),
+		_next_goal(snapshot),
+		_save_status,
+		save_state
+	)
+
+
+func _next_goal(snapshot: Dictionary) -> String:
+	if bool(snapshot.get("prestige_available", false)):
+		return "버전 업데이트 실행"
+	var stage := int(snapshot.get("stage", 1))
+	if stage < 10:
+		return "감시견 · ST 10"
+	return "최종 감시견 · ST 20"
+
+
+func _refresh_operations_room() -> void:
+	if _screen_id != SCREEN_OPERATIONS_ROOM or _session == null:
+		return
+	if _screen_host.get_child_count() == 0:
+		return
+	var view := _screen_host.get_child(0) as AppShellOperationsRoomView
+	if view != null:
+		view.configure(_make_operations_data())
+
+
+func _make_run_summary_data(before: Dictionary, after: Dictionary) -> Dictionary:
+	var slots := before.get("patch_slots", []) as Array
+	var patch_count := 0
+	for slot_value: Variant in slots:
+		if not String(slot_value).is_empty():
+			patch_count += 1
+	var diagnosis := before.get("diagnosis", {}) as Dictionary
+	return {
+		"new_run_number": int(after["run_count"]) + 1,
+		"patch_note_gain": int(after["patch_notes"]) - int(before["patch_notes"]),
+		"previous_highest_stage": int(before["stage"]),
+		"bottleneck": String(diagnosis.get("title", "운영 안정")),
+		"used_patch_count": patch_count,
+		"next_goal": "첫 보스 도달 시간 25% 단축",
+	}
+
+
+func _apply_offline_progress(baseline_unix: int) -> void:
+	if _session == null:
+		return
+	var now_unix := _now_unix()
+	var raw_elapsed := maxi(0, now_unix - baseline_unix)
+	var applied_seconds := mini(raw_elapsed, POLICY.OFFLINE_CAP_SECONDS)
+	var reached_cap := raw_elapsed > POLICY.OFFLINE_CAP_SECONDS
+	var before := _session.snapshot()
+	var remaining := float(applied_seconds)
+	while remaining > 0.0:
+		var step := minf(remaining, POLICY.OFFLINE_TICK_CHUNK_SECONDS)
+		_session.tick(step)
+		remaining -= step
+	var after := _session.snapshot()
+	var stage_changed := int(after["stage"]) != int(before["stage"])
+	var mode_changed := String(after["mode"]) != String(before["mode"])
+	var recovered_bits := maxf(0.0, float(after["bits"]) - float(before["bits"]))
+	var visible_progress := recovered_bits > 0.000001 or stage_changed or mode_changed
+	var should_report := visible_progress and (
+		raw_elapsed >= POLICY.OFFLINE_REPORT_THRESHOLD_SECONDS
+		or stage_changed
+		or mode_changed
+		or reached_cap
+	)
+	var previous_pending := _pending_offline_report.duplicate(true)
+	var next_report: Dictionary = {}
+	if should_report:
+		var diagnosis := after.get("diagnosis", {}) as Dictionary
+		var severity := String(diagnosis.get("severity", "info"))
+		var has_bottleneck := severity in ["warning", "critical"]
+		next_report = {
+			"absence_seconds": raw_elapsed,
+			"recovered_bits": recovered_bits,
+			"stage_from": int(before["stage"]),
+			"stage_to": int(after["stage"]),
+			"has_bottleneck": has_bottleneck,
+			"bottleneck_stage": int(after["stage"]) if has_bottleneck else 0,
+			"bottleneck_cause": String(diagnosis.get("evidence", "")) if has_bottleneck else "",
+			"reached_cap": reached_cap,
+		}
+	_pending_offline_report = _merge_offline_reports(previous_pending, next_report)
+	var save_error := _save_progress("오프라인 진행 반영", false)
+	if save_error == OK and not _pending_offline_report.is_empty():
+		_show_offline_report()
+
+
+func _merge_offline_reports(previous: Dictionary, current: Dictionary) -> Dictionary:
+	if previous.is_empty():
+		return current
+	if current.is_empty():
+		return previous
+	var current_has_bottleneck := bool(current["has_bottleneck"])
+	return {
+		"absence_seconds": int(previous["absence_seconds"]) + int(current["absence_seconds"]),
+		"recovered_bits": float(previous["recovered_bits"]) + float(current["recovered_bits"]),
+		"stage_from": int(previous["stage_from"]),
+		"stage_to": int(current["stage_to"]),
+		"has_bottleneck": current_has_bottleneck or bool(previous["has_bottleneck"]),
+		"bottleneck_stage": (
+			int(current["bottleneck_stage"])
+			if current_has_bottleneck
+			else int(previous["bottleneck_stage"])
+		),
+		"bottleneck_cause": (
+			String(current["bottleneck_cause"])
+			if current_has_bottleneck
+			else String(previous["bottleneck_cause"])
+		),
+		"reached_cap": bool(previous["reached_cap"]) or bool(current["reached_cap"]),
+	}
+
+
+func _save_progress(reason: String, reveal_pending_report: bool = true) -> Error:
+	if _session == null:
+		return ERR_UNCONFIGURED
+	var saved_at := maxi(_last_saved_at_unix, _now_unix())
+	var save_error := _save_repository.save(
+		_session.export_state(),
+		saved_at,
+		_last_gameplay_tab
+	)
+	if save_error != OK:
+		_save_has_error = true
+		_save_status = "저장되지 않음 · %s (오류 %d)" % [reason, save_error]
+		_refresh_save_status_views()
+		return save_error
+	_last_saved_at_unix = saved_at
+	_save_has_error = false
+	_save_status = "방금 저장됨 · %s" % reason
+	_refresh_save_status_views()
+	if reveal_pending_report and not _pending_offline_report.is_empty():
+		_show_offline_report()
+	return OK
+
+
+func _refresh_save_status_views() -> void:
+	_refresh_operations_room()
+	_refresh_settings_view()
+	if _screen_id == SCREEN_GAMEPLAY and _gameplay_view != null:
+		_gameplay_view.set_save_warning(_save_status if _save_has_error else "")
+
+
+func _capture_gameplay_tab() -> void:
+	if _gameplay_view == null:
+		return
+	_last_gameplay_tab = clampi(
+		_gameplay_view.get_active_tab(), POLICY.GAMEPLAY_TAB_MIN, POLICY.GAMEPLAY_TAB_MAX
+	)
+
+
+func _sync_audio() -> void:
+	if _session == null or _audio_director == null:
+		return
+	var next_snapshot := _session.snapshot()
+	_audio_director.sync_snapshot(_audio_snapshot, next_snapshot)
+	_audio_snapshot = next_snapshot
+
+
+func _load_settings() -> void:
+	var load_result := _settings_repository.load()
+	match load_result.status:
+		SettingsRepository.LoadStatus.NOT_FOUND:
+			_settings = AppSettings.new()
+			var create_error := _settings_repository.create_defaults()
+			if create_error != OK:
+				_settings_has_error = true
+				_settings_status = "기본 설정 저장 실패 (오류 %d)" % create_error
+			else:
+				_settings_status = "기본 설정 저장됨"
+		SettingsRepository.LoadStatus.LOADED:
+			_settings = load_result.settings
+			_settings_status = "설정 저장 정상"
+		SettingsRepository.LoadStatus.CORRUPT:
+			_settings = AppSettings.new()
+			_settings_has_error = true
+			_settings_status = "설정 파일 손상 · 원본을 덮어쓰지 않음"
+		SettingsRepository.LoadStatus.NEWER_SCHEMA:
+			_settings = AppSettings.new()
+			_settings_has_error = true
+			_settings_status = "더 새로운 설정 파일 · 게임 업데이트 필요"
+		_:
+			_settings = AppSettings.new()
+			_settings_has_error = true
+			_settings_status = "알 수 없는 설정 로드 상태"
+
+
+func _save_settings(reason: String) -> Error:
+	var save_error := _settings_repository.save(_settings)
+	if save_error != OK:
+		_settings_has_error = true
+		_settings_status = "%s 저장 실패 (오류 %d)" % [reason, save_error]
+		_refresh_settings_view()
+		return save_error
+	_settings_has_error = false
+	_settings_status = "%s 저장됨" % reason
+	_refresh_settings_view()
+	return OK
+
+
+func _apply_audio_settings() -> void:
+	_audio_director.set_music_enabled(true)
+	_audio_director.set_sfx_enabled(true)
+	_audio_director.set_music_volume_percent(int(round(_settings.music_volume * 100.0)))
+	_audio_director.set_sfx_volume_percent(int(round(_settings.sfx_volume * 100.0)))
+
+
+func _settings_view_data() -> Dictionary:
+	return {
+		"music_volume_percent": int(round(_settings.music_volume * 100.0)),
+		"sfx_volume_percent": int(round(_settings.sfx_volume * 100.0)),
+		"vibration_enabled": _settings.vibration_enabled,
+		"screen_shake_enabled": _settings.screen_shake_enabled,
+		"reduced_flashes": _settings.reduced_flashing,
+		"reduced_motion": _settings.reduced_motion,
+	}
+
+
+func _combined_save_status() -> String:
+	if _save_has_error and _settings_has_error:
+		return "%s · %s" % [_save_status, _settings_status]
+	if _save_has_error:
+		return _save_status
+	if _settings_has_error:
+		return _settings_status
+	return "%s · %s" % [_save_status, _settings_status]
+
+
+func _refresh_settings_view() -> void:
+	if _overlay_id != OVERLAY_SETTINGS or _overlay_host.get_child_count() == 0:
+		return
+	var view := _overlay_host.get_child(0) as AppShellSettingsView
+	if view != null:
+		view.configure(
+			_settings_view_data(),
+			_combined_save_status(),
+			_save_has_error or _settings_has_error,
+			_is_vibration_supported()
+		)
+		view.set_manual_available(_session != null)
+
+
+func _is_vibration_supported() -> bool:
+	return OS.get_name() == "Android"
+
+
+func _update_safe_area() -> void:
+	if OS.get_name() in ["Android", "iOS"]:
+		_apply_safe_area(DisplayServer.get_display_safe_area(), get_window().size)
+	else:
+		_apply_safe_area(Rect2i(Vector2i.ZERO, get_window().size), get_window().size)
+
+
+func _apply_safe_area(safe_rect: Rect2i, window_size: Vector2i) -> void:
+	if _safe_margin == null:
+		return
+	if window_size.x <= 0 or window_size.y <= 0 or safe_rect.size.x <= 0 or safe_rect.size.y <= 0:
+		UI.add_margins(_safe_margin, 0, 0, 0, 0)
+		return
+	var scale_x := UI.LOGICAL_SIZE.x / float(window_size.x)
+	var scale_y := UI.LOGICAL_SIZE.y / float(window_size.y)
+	var safe_end := safe_rect.position + safe_rect.size
+	var left := maxi(0, int(round(float(safe_rect.position.x) * scale_x)))
+	var top := maxi(0, int(round(float(safe_rect.position.y) * scale_y)))
+	var right := maxi(0, int(round(float(window_size.x - safe_end.x) * scale_x)))
+	var bottom := maxi(0, int(round(float(window_size.y - safe_end.y) * scale_y)))
+	left = mini(left, int(UI.LOGICAL_SIZE.x / 2.0))
+	right = mini(right, int(UI.LOGICAL_SIZE.x / 2.0))
+	top = mini(top, int(UI.LOGICAL_SIZE.y / 2.0))
+	bottom = mini(bottom, int(UI.LOGICAL_SIZE.y / 2.0))
+	UI.add_margins(_safe_margin, left, right, top, bottom)
+
+
+func _now_unix() -> int:
+	var value: Variant = _clock.call("now_unix")
+	assert(typeof(value) == TYPE_INT, "Clock now_unix() must return an int.")
+	return int(value)

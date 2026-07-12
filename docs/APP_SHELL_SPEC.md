@@ -414,7 +414,11 @@ game/persistence/save_load_result.gd
 
 ```gdscript
 SaveRepository.load() -> SaveLoadResult
-SaveRepository.save(session_data: Dictionary, saved_at_unix: int) -> Error
+SaveRepository.save(
+    session_data: Dictionary,
+    saved_at_unix: int,
+    last_gameplay_tab: int
+) -> Error
 
 GameSession.export_state() -> Dictionary
 GameSession.restore_state(data: Dictionary) -> PackedStringArray
