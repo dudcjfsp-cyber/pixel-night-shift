@@ -255,6 +255,7 @@ func _build_hosts() -> void:
 	_overlay_host = Control.new()
 	_overlay_host.name = "OverlayHost"
 	_overlay_host.unique_name_in_owner = true
+	_overlay_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stack.add_child(_overlay_host)
 	_overlay_host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 

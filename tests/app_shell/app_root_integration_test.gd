@@ -99,7 +99,7 @@ func _test_main_and_first_shift() -> void:
 	var first_button := app.find_child("PrimaryActionButton", true, false) as Button
 	_check(first_button != null, "first shift must expose its primary action")
 	if first_button != null:
-		first_button.pressed.emit()
+		await _click_button(first_button)
 		await _wait_frames(3)
 	_check(app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY, "first save success must enter gameplay")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_ONBOARDING, "first gameplay must open onboarding")
@@ -108,6 +108,12 @@ func _test_main_and_first_shift() -> void:
 	var saved := repository.load()
 	_check(saved.status == SaveLoadResult.Status.LOADED, "first shift must save before gameplay")
 	_check(saved.last_gameplay_tab == 0, "first shift must explicitly save gameplay tab 0")
+	var skip_button := app.find_child("SkipButton", true, false) as Button
+	_check(skip_button != null, "onboarding must expose its skip action")
+	if skip_button != null:
+		await _click_button(skip_button)
+		await _wait_frames(2)
+	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "overlay controls must accept real pointer clicks")
 	await _unmount(app)
 
 	var fail_dir := _case_dir("first_shift_failure")
@@ -646,6 +652,21 @@ func _unmount(app: AppRoot) -> void:
 
 func _wait_frames(count: int) -> void:
 	for _frame: int in range(count):
+		await process_frame
+
+
+func _click_button(button: Button) -> void:
+	var click_position := button.get_global_rect().get_center()
+	var motion := InputEventMouseMotion.new()
+	motion.position = click_position
+	root.push_input(motion, true)
+	await process_frame
+	for is_pressed: bool in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.position = click_position
+		event.pressed = is_pressed
+		root.push_input(event, true)
 		await process_frame
 
 
