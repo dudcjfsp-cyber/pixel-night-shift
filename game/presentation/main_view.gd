@@ -1,7 +1,12 @@
+class_name MainView
 extends Control
 
-const GAME_SESSION_SCRIPT: GDScript = preload("res://game/app/game_session.gd")
-const AUDIO_DIRECTOR_SCRIPT: GDScript = preload("res://game/presentation/audio_director.gd")
+signal operations_room_requested
+signal settings_requested
+signal version_update_requested
+signal session_changed
+signal active_tab_changed(tab_index: int)
+
 const BATTLE_LANE_VIEW_SCRIPT: GDScript = preload("res://game/presentation/battle_lane_view.gd")
 const OPERATOR_UPGRADE_EFFECT_SCRIPT: GDScript = preload(
 	"res://game/presentation/operator_upgrade_effect.gd"
@@ -46,9 +51,14 @@ const REQUIRED_SNAPSHOT_KEYS: PackedStringArray = [
 	"last_error",
 ]
 
-var _session: Variant = null
-var _audio_director: Variant = null
+var _session: GameSession
+var _audio_director: AudioDirector
+var _configured := false
 var _snapshot: Dictionary = {}
+var _save_warning := ""
+var _screen_shake_enabled := true
+var _reduced_flashes := false
+var _reduced_motion := false
 var _active_tab: int = TAB_OPERATORS
 var _selected_patch_slot: int = 0
 var _selected_patch_id: String = ""
@@ -60,8 +70,6 @@ var _run_label: Label
 var _bits_label: Label
 var _notes_label: Label
 var _stage_label: Label
-var _music_button: Button
-var _sfx_button: Button
 var _battle_lane: BattleLaneView
 var _diagnosis_title_label: Label
 var _diagnosis_evidence_label: Label
@@ -93,6 +101,65 @@ var _button_selected_style: StyleBoxFlat
 var _button_disabled_style: StyleBoxFlat
 
 
+func configure(session: GameSession, audio_director: AudioDirector) -> bool:
+	if is_inside_tree():
+		push_error("MainView.configure() must be called before the view enters the tree.")
+		return false
+	if _configured:
+		push_error("MainView.configure() can only be called once.")
+		return false
+	if session == null:
+		push_error("MainView.configure() requires a GameSession.")
+		return false
+	if audio_director == null:
+		push_error("MainView.configure() requires an AudioDirector.")
+		return false
+	_session = session
+	_audio_director = audio_director
+	_configured = true
+	return true
+
+
+func get_active_tab() -> int:
+	return _active_tab
+
+
+func set_active_tab(tab_index: int) -> bool:
+	if tab_index < TAB_OPERATORS or tab_index > TAB_VERSION:
+		push_error("Unknown gameplay tab index: %d" % tab_index)
+		return false
+	_show_tab(tab_index, false)
+	return true
+
+
+func refresh_from_session() -> void:
+	if not _configured:
+		push_error("MainView must be configured before it can refresh.")
+		return
+	if _feedback_label == null:
+		push_error("MainView cannot refresh before its interface is built.")
+		return
+	_refresh_from_session()
+
+
+func set_save_warning(message: String) -> void:
+	_save_warning = message
+	if is_node_ready() and _feedback_time_left <= 0.0:
+		_refresh_feedback_from_snapshot()
+
+
+func apply_accessibility(
+	screen_shake_enabled: bool,
+	reduced_flashes: bool,
+	reduced_motion: bool
+) -> void:
+	_screen_shake_enabled = screen_shake_enabled
+	_reduced_flashes = reduced_flashes
+	_reduced_motion = reduced_motion
+	if _battle_lane != null:
+		_battle_lane.configure_accessibility(_reduced_flashes, _reduced_motion)
+
+
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var asset_errors: PackedStringArray = ASSETS.initialize()
@@ -101,12 +168,9 @@ func _ready() -> void:
 		set_process(false)
 		return
 	_build_styles()
-	_audio_director = AUDIO_DIRECTOR_SCRIPT.new()
-	add_child(_audio_director)
 	_build_interface()
-	_session = GAME_SESSION_SCRIPT.new()
-	if _session == null:
-		_show_feedback("초기화 실패: GameSession을 만들지 못했습니다.", true)
+	if not _configured:
+		_show_feedback("초기화 실패: AppRoot가 현장 의존성을 전달하지 않았습니다.", true)
 		set_process(false)
 		return
 	_refresh_from_session()
@@ -129,10 +193,9 @@ func _show_asset_initialization_failure(errors: PackedStringArray) -> void:
 
 
 func _process(delta_seconds: float) -> void:
-	if _session == null:
+	if not _configured:
 		return
 
-	_session.tick(delta_seconds)
 	_refresh_time_left -= delta_seconds
 	_feedback_time_left = maxf(0.0, _feedback_time_left - delta_seconds)
 
@@ -161,10 +224,17 @@ func _build_interface() -> void:
 	_add_margins(safe_margin, 8, 8, 8, 8)
 	add_child(safe_margin)
 	safe_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var scroll := ScrollContainer.new()
+	scroll.name = "GameplayScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	safe_margin.add_child(scroll)
 
 	_main_column = VBoxContainer.new()
+	_main_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_main_column.add_theme_constant_override("separation", 4)
-	safe_margin.add_child(_main_column)
+	scroll.add_child(_main_column)
 
 	_build_header()
 	_build_resource_bar()
@@ -176,7 +246,7 @@ func _build_interface() -> void:
 
 func _build_header() -> void:
 	var row := HBoxContainer.new()
-	row.custom_minimum_size.y = 44.0
+	row.custom_minimum_size.y = 48.0
 	row.add_theme_constant_override("separation", 4)
 	_main_column.add_child(row)
 
@@ -193,16 +263,19 @@ func _build_header() -> void:
 	_run_label.add_theme_color_override("font_color", COLOR_MUTED)
 	title_column.add_child(_run_label)
 
-	_music_button = _make_compact_button("♪\nON")
-	_music_button.tooltip_text = "배경음악 켜기/끄기"
-	_music_button.pressed.connect(_on_music_toggled)
-	row.add_child(_music_button)
-	_set_button_selected(_music_button, true)
-	_sfx_button = _make_compact_button("FX\nON")
-	_sfx_button.tooltip_text = "효과음 켜기/끄기"
-	_sfx_button.pressed.connect(_on_sfx_toggled)
-	row.add_child(_sfx_button)
-	_set_button_selected(_sfx_button, true)
+	var operations_button := _make_button("운영실", 10)
+	operations_button.name = "OperationsRoomButton"
+	operations_button.custom_minimum_size = Vector2(64.0, 48.0)
+	operations_button.tooltip_text = "야간 운영실로 이동"
+	operations_button.pressed.connect(_on_operations_room_pressed)
+	row.add_child(operations_button)
+
+	var settings_button := _make_button("설정", 10)
+	settings_button.name = "SettingsButton"
+	settings_button.custom_minimum_size = Vector2(56.0, 48.0)
+	settings_button.tooltip_text = "소리와 접근성 설정 열기"
+	settings_button.pressed.connect(_on_settings_pressed)
+	row.add_child(settings_button)
 
 
 func _build_resource_bar() -> void:
@@ -229,6 +302,7 @@ func _build_resource_bar() -> void:
 
 func _build_battle_panel() -> void:
 	_battle_lane = BATTLE_LANE_VIEW_SCRIPT.new()
+	_battle_lane.configure_accessibility(_reduced_flashes, _reduced_motion)
 	_main_column.add_child(_battle_lane)
 
 
@@ -270,14 +344,15 @@ func _build_diagnosis_panel() -> void:
 
 func _build_tabs() -> void:
 	var tab_row := HBoxContainer.new()
-	tab_row.custom_minimum_size.y = 44.0
+	tab_row.custom_minimum_size.y = 48.0
 	tab_row.add_theme_constant_override("separation", 4)
 	_main_column.add_child(tab_row)
 
 	var labels: PackedStringArray = ["요원 강화", "패치 보드", "버전 업데이트"]
 	for index: int in range(labels.size()):
 		var button := _make_button(labels[index])
-		button.custom_minimum_size.y = 44.0
+		button.name = "GameplayTabButton%d" % index
+		button.custom_minimum_size.y = 48.0
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(_on_tab_pressed.bind(index))
 		tab_row.add_child(button)
@@ -291,7 +366,7 @@ func _build_tabs() -> void:
 	_build_operator_page(page_host)
 	_build_patch_page(page_host)
 	_build_version_page(page_host)
-	_show_tab(TAB_OPERATORS)
+	_show_tab(_active_tab, false)
 
 
 func _build_operator_page(page_host: Control) -> void:
@@ -403,6 +478,7 @@ func _build_version_page(page_host: Control) -> void:
 	_prestige_detail_label.add_theme_color_override("font_color", COLOR_TEXT)
 	prestige_column.add_child(_prestige_detail_label)
 	_prestige_button = _make_button("버전 업데이트 잠김", 11)
+	_prestige_button.name = "VersionUpdateButton"
 	_prestige_button.pressed.connect(_on_prestige_pressed)
 	prestige_column.add_child(_prestige_button)
 
@@ -436,7 +512,6 @@ func _refresh_from_session() -> void:
 	_refresh_patches()
 	_refresh_version_page()
 	_refresh_tab_styles()
-	_audio_director.sync_snapshot(previous_snapshot, _snapshot)
 
 
 func _validate_snapshot(data: Dictionary) -> String:
@@ -721,6 +796,10 @@ func _refresh_tab_styles() -> void:
 func _refresh_feedback_from_snapshot() -> void:
 	if _snapshot.is_empty():
 		return
+	if not _save_warning.is_empty():
+		_feedback_label.text = "[저장 오류] %s" % _save_warning
+		_feedback_label.add_theme_color_override("font_color", COLOR_RED)
+		return
 	var last_error := String(_snapshot["last_error"])
 	if not last_error.is_empty():
 		_feedback_label.text = "[오류] %s" % last_error
@@ -744,25 +823,24 @@ func _on_diagnosis_action_pressed() -> void:
 	_show_feedback("진단 근거와 패치의 장단점을 비교하세요.", false)
 
 
-func _on_music_toggled() -> void:
-	var enabled := bool(_audio_director.toggle_music())
-	_music_button.text = "♪\nON" if enabled else "♪\nOFF"
-	_set_button_selected(_music_button, enabled)
+func _on_operations_room_pressed() -> void:
+	_audio_director.play_cue(&"ui_move")
+	operations_room_requested.emit()
 
 
-func _on_sfx_toggled() -> void:
-	var enabled := bool(_audio_director.toggle_sfx())
-	_sfx_button.text = "FX\nON" if enabled else "FX\nOFF"
-	_set_button_selected(_sfx_button, enabled)
-	if enabled:
-		_audio_director.play_cue(&"ui_confirm")
+func _on_settings_pressed() -> void:
+	_audio_director.play_cue(&"ui_move")
+	settings_requested.emit()
 
 
-func _show_tab(tab_index: int) -> void:
+func _show_tab(tab_index: int, notify_change: bool = true) -> void:
+	var changed := _active_tab != tab_index
 	_active_tab = tab_index
 	for index: int in range(_pages.size()):
 		_pages[index].visible = index == tab_index
 	_refresh_tab_styles()
+	if changed and notify_change:
+		active_tab_changed.emit(_active_tab)
 
 
 func _on_upgrade_pressed(operator_id: String) -> void:
@@ -813,11 +891,8 @@ func _on_buy_legacy_pressed() -> void:
 
 
 func _on_prestige_pressed() -> void:
-	var succeeded := bool(_session.prestige())
-	if succeeded:
-		_selected_patch_slot = 0
-		_selected_patch_id = ""
-	_finish_command(succeeded, "버전 업데이트 완료 · 새 야간근무를 시작합니다.", &"version_update")
+	_audio_director.play_cue(&"ui_confirm")
+	version_update_requested.emit()
 
 
 func _finish_command(
@@ -827,6 +902,7 @@ func _finish_command(
 ) -> void:
 	_refresh_from_session()
 	if succeeded:
+		session_changed.emit()
 		_audio_director.play_cue(success_cue)
 		_show_feedback(success_message, false)
 		return
@@ -868,7 +944,8 @@ func _play_operator_upgrade_visual(operator_id: String, dps_delta: float) -> voi
 	assert(_operator_rows.has(operator_id), "Missing operator row: %s" % operator_id)
 	var row_data: Dictionary = _operator_rows[operator_id]
 	var upgrade_effect: Variant = row_data["upgrade_effect"]
-	upgrade_effect.play(dps_delta)
+	if not _reduced_motion and not _reduced_flashes:
+		upgrade_effect.play(dps_delta)
 	_battle_lane.play_operator_upgrade(StringName(operator_id))
 
 
@@ -985,12 +1062,6 @@ func _make_texture_rect(size_pixels: int) -> TextureRect:
 	texture_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return texture_rect
-
-
-func _make_compact_button(text_value: String) -> Button:
-	var button := _make_button(text_value, 8)
-	button.custom_minimum_size = Vector2(44.0, 44.0)
-	return button
 
 
 func _make_button(text_value: String, font_size: int = 11) -> Button:

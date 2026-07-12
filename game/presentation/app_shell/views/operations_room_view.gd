@@ -63,7 +63,7 @@ func _ready() -> void:
 
 
 func _build_interface() -> void:
-	var column: VBoxContainer = UI.attach_screen_frame(self, UI.GAP_MEDIUM)
+	var column: VBoxContainer = UI.attach_scrollable_screen_frame(self, UI.GAP_MEDIUM)
 	_build_header(column)
 
 	var artwork_panel: PanelContainer = UI.make_panel(UI.COLOR_DEEP, UI.COLOR_BORDER, 1, 0)

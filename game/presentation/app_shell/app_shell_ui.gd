@@ -33,7 +33,6 @@ const TITLE_SIZE := 20
 
 
 static func attach_screen_frame(owner: Control, separation: int = GAP_MEDIUM) -> VBoxContainer:
-	owner.custom_minimum_size = LOGICAL_SIZE
 	owner.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	var background := ColorRect.new()
@@ -59,6 +58,40 @@ static func attach_screen_frame(owner: Control, separation: int = GAP_MEDIUM) ->
 	column.name = "ScreenColumn"
 	column.add_theme_constant_override("separation", separation)
 	safe_margin.add_child(column)
+	return column
+
+
+static func attach_scrollable_screen_frame(
+	owner: Control,
+	separation: int = GAP_MEDIUM
+) -> VBoxContainer:
+	owner.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+
+	var background := ColorRect.new()
+	background.name = "ScreenBackground"
+	background.color = COLOR_BACKGROUND
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	owner.add_child(background)
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var safe_margin := MarginContainer.new()
+	safe_margin.name = "SafeContent"
+	add_margins(safe_margin, CONTENT_MARGIN, CONTENT_MARGIN, CONTENT_MARGIN, CONTENT_MARGIN)
+	owner.add_child(safe_margin)
+	safe_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "ScreenScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	safe_margin.add_child(scroll)
+
+	var column := VBoxContainer.new()
+	column.name = "ScreenColumn"
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", separation)
+	scroll.add_child(column)
 	return column
 
 

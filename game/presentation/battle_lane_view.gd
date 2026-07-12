@@ -79,6 +79,23 @@ var _enemy_hp_label: Label
 var _timer_label: Label
 var _hit_feedback_time_left: float = 0.0
 var _enemy_base_modulate := Color.WHITE
+var _reduced_flashes := false
+var _reduced_motion := false
+
+
+func configure_accessibility(reduced_flashes: bool, reduced_motion: bool) -> void:
+	_reduced_flashes = reduced_flashes
+	_reduced_motion = reduced_motion
+	if not is_node_ready():
+		return
+	if _reduced_flashes or _reduced_motion:
+		_clear_transient_effects()
+	if _reduced_motion:
+		for playback_value: Variant in _operator_playbacks.values():
+			var playback: PortraitPlayback = playback_value
+			playback.play(&"idle")
+		if _enemy_playback != null:
+			_enemy_playback.play(&"idle")
 
 
 func _ready() -> void:
@@ -89,21 +106,25 @@ func _ready() -> void:
 
 
 func _process(delta_seconds: float) -> void:
-	for playback_value: Variant in _operator_playbacks.values():
-		var playback: PortraitPlayback = playback_value
-		playback.advance(delta_seconds)
-	if _enemy_playback != null:
-		_enemy_playback.advance(delta_seconds)
+	if not _reduced_motion:
+		for playback_value: Variant in _operator_playbacks.values():
+			var playback: PortraitPlayback = playback_value
+			playback.advance(delta_seconds)
+		if _enemy_playback != null:
+			_enemy_playback.advance(delta_seconds)
 	_hit_feedback_time_left = maxf(0.0, _hit_feedback_time_left - delta_seconds)
 	if _hit_feedback_time_left <= 0.0 and is_instance_valid(_enemy_portrait):
 		_enemy_portrait.modulate = _enemy_base_modulate
-	_update_operator_upgrade_effects(delta_seconds)
+	if not _reduced_motion and not _reduced_flashes:
+		_update_operator_upgrade_effects(delta_seconds)
 
 
 func play_operator_upgrade(operator_id: StringName) -> void:
 	var key := String(operator_id)
 	if not _operator_portraits.has(key):
 		push_error("Missing battle portrait for operator '%s'." % operator_id)
+		return
+	if _reduced_motion or _reduced_flashes:
 		return
 	var portrait: TextureRect = _operator_portraits[key]
 	portrait.pivot_offset = Vector2(portrait.size.x * 0.5, portrait.size.y)
@@ -262,10 +283,27 @@ func _show_damage_feedback(previous_snapshot: Dictionary, snapshot: Dictionary) 
 	var current_enemy: Dictionary = snapshot["enemy"]
 	if float(current_enemy["hp"]) >= float(previous_enemy["hp"]):
 		return
-	_hit_feedback_time_left = 0.18
-	_enemy_portrait.modulate = Color("ff9ca6")
-	if _enemy_playback != null:
+	if not _reduced_flashes:
+		_hit_feedback_time_left = 0.18
+		_enemy_portrait.modulate = Color("ff9ca6")
+	if _enemy_playback != null and not _reduced_motion:
 		_enemy_playback.play(&"hurt")
+
+
+func _clear_transient_effects() -> void:
+	_hit_feedback_time_left = 0.0
+	if is_instance_valid(_enemy_portrait):
+		_enemy_portrait.modulate = _enemy_base_modulate
+	for operator_id_value: Variant in _operator_upgrade_times.keys():
+		var operator_id := String(operator_id_value)
+		if not _operator_portraits.has(operator_id):
+			continue
+		var portrait := _operator_portraits[operator_id] as TextureRect
+		portrait.scale = Vector2.ONE
+		portrait.z_index = 0
+		if _operator_base_modulates.has(operator_id):
+			portrait.modulate = _operator_base_modulates[operator_id]
+	_operator_upgrade_times.clear()
 
 
 func _bind_enemy(asset_id: StringName, stage: int, is_boss: bool, mode: String) -> void:

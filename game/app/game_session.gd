@@ -1,6 +1,36 @@
 class_name GameSession
 extends RefCounted
 
+const PROTOTYPE_MAX_STAGE := 20
+const EQUIPPED_PATCH_SLOT_COUNT := 3
+const MAX_SAFE_JSON_INTEGER := 9007199254740991
+const SAVE_COMPARISON_EPSILON := 0.000001
+const SAVE_STATE_KEYS: Array[String] = [
+	"stage",
+	"highest_stage",
+	"bits",
+	"patch_notes",
+	"run_count",
+	"legacy_cache_level",
+	"operator_levels",
+	"unlocked_operator_ids",
+	"discovered_patch_ids",
+	"equipped_patch_ids",
+	"unlocked_patch_slots",
+	"enemy_index",
+	"enemy_health",
+	"boss_elapsed",
+	"boss_recovery_count",
+	"boss_recovered_health",
+	"boss_debuff_applied",
+	"boss_failure_count",
+	"is_maintenance",
+	"maintenance_cycles_remaining",
+	"can_prestige",
+	"free_patch_swaps",
+	"status_message",
+]
+
 var _catalog: ContentCatalog
 var _state: GameState
 var _last_error: String = ""
@@ -234,6 +264,127 @@ func get_patch_preview(slot_index: int, patch_id: StringName) -> Dictionary:
 	}
 
 
+func export_state() -> Dictionary:
+	var operator_levels: Dictionary = {}
+	for definition: OperatorDefinition in _catalog.operators:
+		operator_levels[String(definition.id)] = int(
+			_state.operator_levels.get(definition.id, 0)
+		)
+
+	var unlocked_operator_ids: Array[String] = []
+	for operator_id: StringName in _state.unlocked_operator_ids:
+		unlocked_operator_ids.append(String(operator_id))
+	var discovered_patch_ids: Array[String] = []
+	for patch_id: StringName in _state.discovered_patch_ids:
+		discovered_patch_ids.append(String(patch_id))
+	var equipped_patch_ids: Array[String] = []
+	for patch_id: StringName in _state.equipped_patch_ids:
+		equipped_patch_ids.append(String(patch_id))
+
+	return {
+		"stage": _state.stage,
+		"highest_stage": _state.highest_stage,
+		"bits": _state.bits,
+		"patch_notes": _state.patch_notes,
+		"run_count": _state.run_count,
+		"legacy_cache_level": _state.legacy_cache_level,
+		"operator_levels": operator_levels,
+		"unlocked_operator_ids": unlocked_operator_ids,
+		"discovered_patch_ids": discovered_patch_ids,
+		"equipped_patch_ids": equipped_patch_ids,
+		"unlocked_patch_slots": _state.unlocked_patch_slots,
+		"enemy_index": _state.enemy_index,
+		"enemy_health": _state.enemy_health,
+		"boss_elapsed": _state.boss_elapsed,
+		"boss_recovery_count": _state.boss_recovery_count,
+		"boss_recovered_health": _state.boss_recovered_health,
+		"boss_debuff_applied": _state.boss_debuff_applied,
+		"boss_failure_count": _state.boss_failure_count,
+		"is_maintenance": _state.is_maintenance,
+		"maintenance_cycles_remaining": _state.maintenance_cycles_remaining,
+		"can_prestige": _state.can_prestige,
+		"free_patch_swaps": _state.free_patch_swaps,
+		"status_message": _state.status_message,
+	}
+
+
+func restore_state(data: Dictionary) -> PackedStringArray:
+	var errors: Array[String] = []
+	_validate_save_keys(data, errors)
+
+	var candidate := GameState.new()
+	candidate.stage = _read_save_int(
+		data, "stage", 1, PROTOTYPE_MAX_STAGE, errors
+	)
+	candidate.highest_stage = _read_save_int(
+		data, "highest_stage", 1, PROTOTYPE_MAX_STAGE, errors
+	)
+	candidate.bits = _read_save_float(data, "bits", 0.0, -1.0, errors)
+	candidate.patch_notes = _read_save_int(data, "patch_notes", 0, -1, errors)
+	candidate.run_count = _read_save_int(data, "run_count", 0, -1, errors)
+	candidate.legacy_cache_level = _read_save_int(
+		data,
+		"legacy_cache_level",
+		0,
+		_catalog.balance.max_legacy_cache_level,
+		errors
+	)
+	candidate.operator_levels = _read_operator_levels(data, errors)
+	candidate.unlocked_operator_ids = _read_unlocked_operator_ids(data, errors)
+	candidate.discovered_patch_ids = _read_discovered_patch_ids(data, errors)
+	candidate.equipped_patch_ids = _read_equipped_patch_ids(data, errors)
+	candidate.unlocked_patch_slots = _read_save_int(
+		data, "unlocked_patch_slots", 0, EQUIPPED_PATCH_SLOT_COUNT, errors
+	)
+	candidate.enemy_index = _read_save_int(
+		data, "enemy_index", 1, _catalog.balance.normal_enemy_count, errors
+	)
+	candidate.enemy_health = _read_save_float(
+		data, "enemy_health", 0.0, -1.0, errors
+	)
+	candidate.boss_elapsed = _read_save_float(
+		data, "boss_elapsed", 0.0, _catalog.balance.boss_time_limit, errors
+	)
+	candidate.boss_recovery_count = _read_save_int(
+		data, "boss_recovery_count", 0, -1, errors
+	)
+	candidate.boss_recovered_health = _read_save_float(
+		data, "boss_recovered_health", 0.0, -1.0, errors
+	)
+	candidate.boss_debuff_applied = _read_save_bool(
+		data, "boss_debuff_applied", errors
+	)
+	candidate.boss_failure_count = _read_save_int(
+		data, "boss_failure_count", 0, -1, errors
+	)
+	candidate.is_maintenance = _read_save_bool(data, "is_maintenance", errors)
+	candidate.maintenance_cycles_remaining = _read_save_int(
+		data,
+		"maintenance_cycles_remaining",
+		0,
+		_catalog.balance.maintenance_cycles,
+		errors
+	)
+	candidate.can_prestige = _read_save_bool(data, "can_prestige", errors)
+	candidate.free_patch_swaps = _read_save_int(
+		data, "free_patch_swaps", 0, 1, errors
+	)
+	candidate.status_message = _read_save_string(
+		data, "status_message", false, errors
+	)
+
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	_validate_save_candidate(candidate, errors)
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	_state = candidate
+	_last_error = ""
+	return PackedStringArray()
+
+
 func _is_unlocked_slot(slot_index: int) -> bool:
 	return slot_index >= 0 and slot_index < _state.unlocked_patch_slots
 
@@ -297,3 +448,443 @@ func _accept() -> bool:
 func _reject(message: String) -> bool:
 	_last_error = message
 	return false
+
+
+func _validate_save_keys(data: Dictionary, errors: Array[String]) -> void:
+	for key: String in SAVE_STATE_KEYS:
+		if not data.has(key):
+			errors.append("session.%s: required field is missing" % key)
+	for raw_key: Variant in data.keys():
+		if typeof(raw_key) != TYPE_STRING:
+			errors.append("session: save field names must be strings")
+			continue
+		var key := String(raw_key)
+		if not SAVE_STATE_KEYS.has(key):
+			errors.append("session.%s: unexpected field" % key)
+
+
+func _read_save_int(
+	data: Dictionary,
+	key: String,
+	minimum: int,
+	maximum: int,
+	errors: Array[String]
+) -> int:
+	if not data.has(key):
+		return minimum
+	var raw_value: Variant = data[key]
+	if typeof(raw_value) != TYPE_INT and typeof(raw_value) != TYPE_FLOAT:
+		errors.append("session.%s: integer is required" % key)
+		return minimum
+	var numeric_value := float(raw_value)
+	if (
+		not is_finite(numeric_value)
+		or floor(numeric_value) != numeric_value
+		or numeric_value > float(MAX_SAFE_JSON_INTEGER)
+	):
+		errors.append("session.%s: JSON-safe integer is required" % key)
+		return minimum
+	var value := int(numeric_value)
+	if value < minimum or (maximum >= minimum and value > maximum):
+		var range_text := "%d or greater" % minimum
+		if maximum >= minimum:
+			range_text = "%d..%d" % [minimum, maximum]
+		errors.append("session.%s: value must be within %s" % [key, range_text])
+	return value
+
+
+func _read_save_float(
+	data: Dictionary,
+	key: String,
+	minimum: float,
+	maximum: float,
+	errors: Array[String]
+) -> float:
+	if not data.has(key):
+		return minimum
+	var raw_value: Variant = data[key]
+	if typeof(raw_value) != TYPE_INT and typeof(raw_value) != TYPE_FLOAT:
+		errors.append("session.%s: finite number is required" % key)
+		return minimum
+	var value := float(raw_value)
+	if not is_finite(value):
+		errors.append("session.%s: finite number is required" % key)
+		return minimum
+	if value < minimum or (maximum >= minimum and value > maximum):
+		var range_text := "%s or greater" % minimum
+		if maximum >= minimum:
+			range_text = "%s..%s" % [minimum, maximum]
+		errors.append("session.%s: value must be within %s" % [key, range_text])
+	return value
+
+
+func _read_save_bool(
+	data: Dictionary,
+	key: String,
+	errors: Array[String]
+) -> bool:
+	if not data.has(key):
+		return false
+	if typeof(data[key]) != TYPE_BOOL:
+		errors.append("session.%s: boolean is required" % key)
+		return false
+	return bool(data[key])
+
+
+func _read_save_string(
+	data: Dictionary,
+	key: String,
+	allow_empty: bool,
+	errors: Array[String]
+) -> String:
+	if not data.has(key):
+		return ""
+	if typeof(data[key]) != TYPE_STRING:
+		errors.append("session.%s: string is required" % key)
+		return ""
+	var value := String(data[key])
+	if not allow_empty and value.strip_edges().is_empty():
+		errors.append("session.%s: non-empty string is required" % key)
+	return value
+
+
+func _read_operator_levels(data: Dictionary, errors: Array[String]) -> Dictionary:
+	var result: Dictionary = {}
+	if not data.has("operator_levels"):
+		return result
+	if typeof(data["operator_levels"]) != TYPE_DICTIONARY:
+		errors.append("session.operator_levels: object is required")
+		return result
+
+	var raw_levels := data["operator_levels"] as Dictionary
+	var seen_ids: Dictionary = {}
+	for raw_key: Variant in raw_levels.keys():
+		if typeof(raw_key) != TYPE_STRING:
+			errors.append("session.operator_levels: operator ids must be strings")
+			continue
+		var operator_text := String(raw_key)
+		var operator_id := StringName(operator_text)
+		if not _catalog.has_operator(operator_id):
+			errors.append(
+				"session.operator_levels.%s: unknown operator id" % operator_text
+			)
+			continue
+		seen_ids[operator_text] = true
+		var raw_level: Variant = raw_levels[raw_key]
+		if typeof(raw_level) != TYPE_INT and typeof(raw_level) != TYPE_FLOAT:
+			errors.append(
+				"session.operator_levels.%s: non-negative integer is required"
+				% operator_text
+			)
+			continue
+		var numeric_level := float(raw_level)
+		if (
+			not is_finite(numeric_level)
+			or floor(numeric_level) != numeric_level
+			or numeric_level < 0.0
+			or numeric_level > float(MAX_SAFE_JSON_INTEGER)
+		):
+			errors.append(
+				"session.operator_levels.%s: non-negative JSON-safe integer is required"
+				% operator_text
+			)
+			continue
+		var level := int(numeric_level)
+		result[operator_id] = level
+
+	for definition: OperatorDefinition in _catalog.operators:
+		var operator_text := String(definition.id)
+		if not seen_ids.has(operator_text):
+			errors.append(
+				"session.operator_levels.%s: required operator is missing"
+				% operator_text
+			)
+	return result
+
+
+func _read_unlocked_operator_ids(
+	data: Dictionary,
+	errors: Array[String]
+) -> Array[StringName]:
+	var result: Array[StringName] = []
+	if not data.has("unlocked_operator_ids"):
+		return result
+	if typeof(data["unlocked_operator_ids"]) != TYPE_ARRAY:
+		errors.append("session.unlocked_operator_ids: array is required")
+		return result
+
+	var seen_ids: Dictionary = {}
+	for index: int in (data["unlocked_operator_ids"] as Array).size():
+		var raw_id: Variant = (data["unlocked_operator_ids"] as Array)[index]
+		if typeof(raw_id) != TYPE_STRING or String(raw_id).is_empty():
+			errors.append(
+				"session.unlocked_operator_ids[%d]: non-empty string is required"
+				% index
+			)
+			continue
+		var operator_text := String(raw_id)
+		var operator_id := StringName(operator_text)
+		if not _catalog.has_operator(operator_id):
+			errors.append(
+				"session.unlocked_operator_ids[%d]: unknown operator id '%s'"
+				% [index, operator_text]
+			)
+			continue
+		if seen_ids.has(operator_text):
+			errors.append(
+				"session.unlocked_operator_ids[%d]: duplicate operator id '%s'"
+				% [index, operator_text]
+			)
+			continue
+		seen_ids[operator_text] = true
+		result.append(operator_id)
+	return result
+
+
+func _read_discovered_patch_ids(
+	data: Dictionary,
+	errors: Array[String]
+) -> Array[StringName]:
+	var result: Array[StringName] = []
+	if not data.has("discovered_patch_ids"):
+		return result
+	if typeof(data["discovered_patch_ids"]) != TYPE_ARRAY:
+		errors.append("session.discovered_patch_ids: array is required")
+		return result
+
+	var seen_ids: Dictionary = {}
+	for index: int in (data["discovered_patch_ids"] as Array).size():
+		var raw_id: Variant = (data["discovered_patch_ids"] as Array)[index]
+		if typeof(raw_id) != TYPE_STRING or String(raw_id).is_empty():
+			errors.append(
+				"session.discovered_patch_ids[%d]: non-empty string is required"
+				% index
+			)
+			continue
+		var patch_text := String(raw_id)
+		var patch_id := StringName(patch_text)
+		if not _catalog.has_patch(patch_id):
+			errors.append(
+				"session.discovered_patch_ids[%d]: unknown patch id '%s'"
+				% [index, patch_text]
+			)
+			continue
+		if seen_ids.has(patch_text):
+			errors.append(
+				"session.discovered_patch_ids[%d]: duplicate patch id '%s'"
+				% [index, patch_text]
+			)
+			continue
+		seen_ids[patch_text] = true
+		result.append(patch_id)
+	return result
+
+
+func _read_equipped_patch_ids(
+	data: Dictionary,
+	errors: Array[String]
+) -> Array[StringName]:
+	var result: Array[StringName] = []
+	if not data.has("equipped_patch_ids"):
+		return result
+	if typeof(data["equipped_patch_ids"]) != TYPE_ARRAY:
+		errors.append("session.equipped_patch_ids: array is required")
+		return result
+
+	var raw_ids := data["equipped_patch_ids"] as Array
+	if raw_ids.size() != EQUIPPED_PATCH_SLOT_COUNT:
+		errors.append(
+			"session.equipped_patch_ids: exactly %d slots are required"
+			% EQUIPPED_PATCH_SLOT_COUNT
+		)
+	var seen_ids: Dictionary = {}
+	for index: int in raw_ids.size():
+		var raw_id: Variant = raw_ids[index]
+		if typeof(raw_id) != TYPE_STRING:
+			errors.append(
+				"session.equipped_patch_ids[%d]: string is required" % index
+			)
+			continue
+		var patch_text := String(raw_id)
+		if patch_text.is_empty():
+			result.append(&"")
+			continue
+		var patch_id := StringName(patch_text)
+		if not _catalog.has_patch(patch_id):
+			errors.append(
+				"session.equipped_patch_ids[%d]: unknown patch id '%s'"
+				% [index, patch_text]
+			)
+			continue
+		if seen_ids.has(patch_text):
+			errors.append(
+				"session.equipped_patch_ids[%d]: duplicate patch id '%s'"
+				% [index, patch_text]
+			)
+			continue
+		seen_ids[patch_text] = true
+		result.append(patch_id)
+	return result
+
+
+func _validate_save_candidate(state: GameState, errors: Array[String]) -> void:
+	_validate_progression_save_state(state, errors)
+	_validate_equipped_patch_save_state(state, errors)
+	_validate_combat_save_state(state, errors)
+
+
+func _validate_progression_save_state(
+	state: GameState,
+	errors: Array[String]
+) -> void:
+	if state.highest_stage < state.stage:
+		errors.append("session.highest_stage: cannot be lower than current stage")
+	if state.run_count == 0 and state.highest_stage != state.stage:
+		errors.append(
+			"session.highest_stage: first-run highest stage must equal current stage"
+		)
+	if state.run_count > 0 and state.highest_stage != PROTOTYPE_MAX_STAGE:
+		errors.append(
+			"session.highest_stage: a later run requires a completed stage 20"
+		)
+
+	var expected_patch_notes := (
+		state.run_count
+		- state.legacy_cache_level * _catalog.balance.legacy_cache_cost
+	)
+	if state.patch_notes != expected_patch_notes:
+		errors.append(
+			"session.patch_notes: value is inconsistent with runs and legacy cache"
+		)
+
+	for definition: OperatorDefinition in _catalog.operators:
+		var should_be_unlocked := (
+			state.run_count > 0 or state.stage >= definition.unlock_stage
+		)
+		var is_unlocked := state.unlocked_operator_ids.has(definition.id)
+		if is_unlocked != should_be_unlocked:
+			errors.append(
+				"session.unlocked_operator_ids: '%s' has an inconsistent unlock state"
+				% definition.id
+			)
+		var level := int(state.operator_levels[definition.id])
+		if (is_unlocked and level < 1) or (not is_unlocked and level != 0):
+			errors.append(
+				"session.operator_levels.%s: level is inconsistent with unlock state"
+				% definition.id
+			)
+		var dps := ProgressionRules.operator_dps(definition, level)
+		var upgrade_cost := ProgressionRules.operator_upgrade_cost(
+			level, definition.base_cost, definition.cost_growth
+		)
+		if not is_finite(dps) or not is_finite(upgrade_cost):
+			errors.append(
+				"session.operator_levels.%s: derived values must remain finite"
+				% definition.id
+			)
+
+	for definition: PatchDefinition in _catalog.patches:
+		var should_be_discovered := state.highest_stage >= definition.unlock_stage
+		if state.discovered_patch_ids.has(definition.id) != should_be_discovered:
+			errors.append(
+				"session.discovered_patch_ids: '%s' has an inconsistent discovery state"
+				% definition.id
+			)
+
+	var expected_unlocked_slots := 0
+	for unlock_stage: int in _catalog.balance.patch_slot_unlock_stages:
+		if state.highest_stage >= unlock_stage:
+			expected_unlocked_slots += 1
+	if state.unlocked_patch_slots != expected_unlocked_slots:
+		errors.append(
+			"session.unlocked_patch_slots: value is inconsistent with highest stage"
+		)
+
+
+func _validate_equipped_patch_save_state(
+	state: GameState,
+	errors: Array[String]
+) -> void:
+	for slot_index: int in state.equipped_patch_ids.size():
+		var patch_id := state.equipped_patch_ids[slot_index]
+		if slot_index >= state.unlocked_patch_slots and patch_id != &"":
+			errors.append(
+				"session.equipped_patch_ids[%d]: locked slots must be empty"
+				% slot_index
+			)
+		if patch_id != &"" and not state.discovered_patch_ids.has(patch_id):
+			errors.append(
+				"session.equipped_patch_ids[%d]: patch must be discovered"
+				% slot_index
+			)
+
+
+func _validate_combat_save_state(state: GameState, errors: Array[String]) -> void:
+	var is_boss_stage := ProgressionRules.is_boss_stage(state.stage)
+	if state.is_maintenance:
+		if not is_boss_stage:
+			errors.append("session.is_maintenance: maintenance requires a boss stage")
+		if state.maintenance_cycles_remaining < 1:
+			errors.append(
+				"session.maintenance_cycles_remaining: active maintenance needs a cycle"
+			)
+		if state.boss_failure_count < 1:
+			errors.append(
+				"session.boss_failure_count: maintenance requires a boss failure"
+			)
+		if state.can_prestige:
+			errors.append("session.can_prestige: maintenance cannot be complete")
+	elif state.maintenance_cycles_remaining != 0:
+		errors.append(
+			"session.maintenance_cycles_remaining: inactive maintenance must be zero"
+		)
+
+	if state.can_prestige:
+		if state.stage != PROTOTYPE_MAX_STAGE:
+			errors.append("session.can_prestige: only stage 20 can be complete")
+		if not is_zero_approx(state.enemy_health):
+			errors.append("session.enemy_health: completed stage 20 must have zero health")
+	elif state.enemy_health <= 0.0:
+		errors.append("session.enemy_health: active combat requires positive health")
+
+	if is_boss_stage and not state.is_maintenance and state.enemy_index != 1:
+		errors.append("session.enemy_index: active boss stages use enemy index 1")
+	if not is_boss_stage:
+		if not is_zero_approx(state.boss_elapsed):
+			errors.append("session.boss_elapsed: non-boss stages must reset boss time")
+		if state.boss_recovery_count != 0:
+			errors.append(
+				"session.boss_recovery_count: non-boss stages must reset recoveries"
+			)
+		if not is_zero_approx(state.boss_recovered_health):
+			errors.append(
+				"session.boss_recovered_health: non-boss stages must reset recovery"
+			)
+		if state.boss_debuff_applied:
+			errors.append("session.boss_debuff_applied: non-boss stage cannot be debuffed")
+
+	if state.stage != PROTOTYPE_MAX_STAGE and state.boss_debuff_applied:
+		errors.append("session.boss_debuff_applied: only stage 20 uses the debuff")
+	if (
+		state.boss_debuff_applied
+		and state.boss_elapsed + SAVE_COMPARISON_EPSILON
+		< _catalog.balance.stage_20_debuff_time
+	):
+		errors.append(
+			"session.boss_debuff_applied: debuff cannot precede its trigger time"
+		)
+	if state.boss_recovered_health > 0.0 and state.boss_recovery_count == 0:
+		errors.append(
+			"session.boss_recovered_health: recovered health requires a recovery event"
+		)
+	if state.free_patch_swaps > 0 and state.boss_failure_count == 0:
+		errors.append("session.free_patch_swaps: free swaps require a boss failure")
+
+	var max_health := ProgressionRules.current_enemy_max_hp(state, _catalog)
+	if not is_finite(max_health) or max_health <= 0.0:
+		errors.append("session: current enemy maximum health must remain finite")
+	elif state.enemy_health > max_health + SAVE_COMPARISON_EPSILON:
+		errors.append("session.enemy_health: value exceeds current maximum health")
+	var total_dps := ProgressionRules.total_dps(state, _catalog)
+	if not is_finite(total_dps):
+		errors.append("session.operator_levels: total damage must remain finite")

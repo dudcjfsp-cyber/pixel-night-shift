@@ -11,6 +11,7 @@ const ARTWORK_SLOT_SCRIPT: GDScript = preload(
 
 var _artwork_slot: ARTWORK_SLOT_SCRIPT
 var _artwork: Texture2D
+var _error_label: Label
 
 
 func _ready() -> void:
@@ -22,6 +23,13 @@ func set_artwork(texture: Texture2D) -> void:
 	_artwork = texture
 	if _artwork_slot != null:
 		_artwork_slot.set_artwork(_artwork)
+
+
+func set_error(message: String) -> void:
+	if _error_label == null:
+		return
+	_error_label.visible = not message.is_empty()
+	_error_label.text = "[오류] %s" % message if not message.is_empty() else ""
 
 
 func _build_interface() -> void:
@@ -62,6 +70,14 @@ func _build_interface() -> void:
 	description.custom_minimum_size.y = 62.0
 	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_column.add_child(description)
+
+	_error_label = UI.make_label("", UI.SUPPORT_SIZE, UI.COLOR_DANGER, true)
+	_error_label.name = "ErrorLabel"
+	_error_label.unique_name_in_owner = true
+	_error_label.custom_minimum_size.y = 28.0
+	_error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_error_label.visible = false
+	message_column.add_child(_error_label)
 
 	var primary_button: Button = UI.make_button(
 		"첫 근무 시작", &"primary", UI.PRIMARY_HEIGHT

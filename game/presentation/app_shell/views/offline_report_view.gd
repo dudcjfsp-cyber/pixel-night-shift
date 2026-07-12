@@ -45,7 +45,6 @@ func configuration_error() -> String:
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	custom_minimum_size = UI.LOGICAL_SIZE
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_build_interface()
 	if _data != null:
@@ -74,7 +73,6 @@ func _build_interface() -> void:
 	)
 	panel.name = "ModalPanel"
 	panel.unique_name_in_owner = true
-	panel.custom_minimum_size.x = 328.0
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.add_child(panel)
 

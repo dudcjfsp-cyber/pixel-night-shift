@@ -1,3 +1,4 @@
+class_name AudioDirector
 extends Node
 
 const MUSIC_STREAMS := {
@@ -32,6 +33,8 @@ const SFX_PLAYER_COUNT := 6
 
 var _music_enabled := true
 var _sfx_enabled := true
+var _music_volume_percent := 100
+var _sfx_volume_percent := 100
 var _music_key: StringName = &""
 var _music_player: AudioStreamPlayer
 var _sfx_players: Array[AudioStreamPlayer] = []
@@ -111,25 +114,52 @@ func play_cue(cue: StringName) -> void:
 
 
 func toggle_music() -> bool:
-	_music_enabled = not _music_enabled
+	set_music_enabled(not _music_enabled)
+	return _music_enabled
+
+
+func toggle_sfx() -> bool:
+	set_sfx_enabled(not _sfx_enabled)
+	return _sfx_enabled
+
+
+func set_music_enabled(enabled: bool) -> void:
+	_music_enabled = enabled
 	if not _playback_available:
-		return _music_enabled
+		return
 	_ensure_players()
 	if _music_enabled:
 		_start_current_music()
 	else:
 		_music_player.stop()
-	return _music_enabled
 
 
-func toggle_sfx() -> bool:
-	_sfx_enabled = not _sfx_enabled
+func set_sfx_enabled(enabled: bool) -> void:
+	_sfx_enabled = enabled
 	if not _playback_available:
-		return _sfx_enabled
+		return
+	_ensure_players()
 	if not _sfx_enabled:
 		for player: AudioStreamPlayer in _sfx_players:
 			player.stop()
-	return _sfx_enabled
+
+
+func set_music_volume_percent(volume_percent: int) -> bool:
+	if volume_percent < 0 or volume_percent > 100:
+		push_error("Music volume must be between 0 and 100, got %d." % volume_percent)
+		return false
+	_music_volume_percent = volume_percent
+	_apply_music_volume()
+	return true
+
+
+func set_sfx_volume_percent(volume_percent: int) -> bool:
+	if volume_percent < 0 or volume_percent > 100:
+		push_error("SFX volume must be between 0 and 100, got %d." % volume_percent)
+		return false
+	_sfx_volume_percent = volume_percent
+	_apply_sfx_volume()
+	return true
 
 
 func is_music_enabled() -> bool:
@@ -138,6 +168,14 @@ func is_music_enabled() -> bool:
 
 func is_sfx_enabled() -> bool:
 	return _sfx_enabled
+
+
+func get_music_volume_percent() -> int:
+	return _music_volume_percent
+
+
+func get_sfx_volume_percent() -> int:
+	return _sfx_volume_percent
 
 
 func _ensure_players() -> void:
@@ -156,6 +194,27 @@ func _ensure_players() -> void:
 		player.bus = &"SFX"
 		add_child(player)
 		_sfx_players.append(player)
+	_apply_music_volume()
+	_apply_sfx_volume()
+
+
+func _apply_music_volume() -> void:
+	if not is_instance_valid(_music_player):
+		return
+	_music_player.volume_db = _volume_percent_to_db(_music_volume_percent)
+
+
+func _apply_sfx_volume() -> void:
+	var volume_db := _volume_percent_to_db(_sfx_volume_percent)
+	for player: AudioStreamPlayer in _sfx_players:
+		if is_instance_valid(player):
+			player.volume_db = volume_db
+
+
+func _volume_percent_to_db(volume_percent: int) -> float:
+	if volume_percent == 0:
+		return -80.0
+	return linear_to_db(float(volume_percent) / 100.0)
 
 
 func _set_music(next_key: StringName) -> void:
