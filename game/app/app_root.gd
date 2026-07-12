@@ -821,7 +821,7 @@ func _make_run_summary_data(before: Dictionary, after: Dictionary) -> Dictionary
 		"previous_highest_stage": int(before["stage"]),
 		"bottleneck": String(diagnosis.get("title", "운영 안정")),
 		"used_patch_count": patch_count,
-		"next_goal": "첫 보스 도달 시간을 이전 회차보다 단축하세요.",
+		"next_goal": "첫 보스 도달 시간 25% 단축",
 	}
 
 

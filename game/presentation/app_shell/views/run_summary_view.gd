@@ -63,13 +63,16 @@ func _build_interface() -> void:
 	UI.add_margins(outer, 16, 16, 12, 12)
 	add_child(outer)
 	outer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var center := CenterContainer.new()
+	var center := VBoxContainer.new()
+	center.add_theme_constant_override("separation", UI.GAP_MEDIUM)
 	outer.add_child(center)
+	center.add_child(UI.make_spacer())
 	var panel: PanelContainer = UI.make_panel(UI.COLOR_PANEL_RAISED, UI.COLOR_SAFE, 2, 14)
 	panel.name = "ModalPanel"
 	panel.unique_name_in_owner = true
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.add_child(panel)
+	center.add_child(UI.make_spacer())
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", UI.GAP_MEDIUM)
 	panel.add_child(column)

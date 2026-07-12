@@ -61,6 +61,20 @@ func load() -> SettingsLoadResult:
 		result.status = LoadStatus.NEWER_SCHEMA
 		return result
 	if read_result.kind != EnvelopeKind.CURRENT:
+		var rollback_absolute := _absolute_path(ROLLBACK_FILE_NAME)
+		if FileAccess.file_exists(rollback_absolute):
+			var recovery := _recover_interrupted_replace(rollback_absolute, absolute_path)
+			if recovery.is_loaded():
+				push_warning(
+					"Recovered settings from rollback after invalid primary: %s"
+					% "; ".join(read_result.errors)
+				)
+				return recovery
+			var combined_errors := PackedStringArray()
+			_append_prefixed_errors(combined_errors, "primary", read_result.errors)
+			_append_prefixed_errors(combined_errors, "rollback", recovery.errors)
+			recovery.errors = combined_errors
+			return recovery
 		result.status = LoadStatus.CORRUPT
 		if result.errors.is_empty():
 			result.errors.append("Settings file is invalid.")
@@ -188,6 +202,15 @@ func _recover_interrupted_replace(
 		if result.errors.is_empty():
 			result.errors.append("Interrupted settings rollback is invalid.")
 		return result
+	if FileAccess.file_exists(settings_absolute):
+		var remove_error := _remove_if_exists(settings_absolute)
+		if remove_error != OK:
+			result.status = LoadStatus.CORRUPT
+			result.errors.append(
+				"Unable to remove invalid settings before rollback restore: error %d"
+				% remove_error
+			)
+			return result
 	var restore_error := DirAccess.copy_absolute(rollback_absolute, settings_absolute)
 	if restore_error != OK:
 		result.status = LoadStatus.CORRUPT
@@ -299,3 +322,15 @@ func _is_integer_number(value: Variant) -> bool:
 		return false
 	var numeric := float(value)
 	return is_finite(numeric) and numeric == float(int(numeric))
+
+
+func _append_prefixed_errors(
+	target: PackedStringArray,
+	prefix: String,
+	source: PackedStringArray
+) -> void:
+	if source.is_empty():
+		target.append("%s: settings file is invalid" % prefix)
+		return
+	for message: String in source:
+		target.append("%s: %s" % [prefix, message])

@@ -66,8 +66,10 @@ func _build_interface() -> void:
 	add_child(safe_margin)
 	safe_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	var center := CenterContainer.new()
+	var center := VBoxContainer.new()
+	center.add_theme_constant_override("separation", UI.GAP_MEDIUM)
 	safe_margin.add_child(center)
+	center.add_child(UI.make_spacer())
 	var panel: PanelContainer = UI.make_panel(
 		UI.COLOR_PANEL_RAISED, UI.COLOR_INFO, 2, 14
 	)
@@ -75,6 +77,7 @@ func _build_interface() -> void:
 	panel.unique_name_in_owner = true
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.add_child(panel)
+	center.add_child(UI.make_spacer())
 
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", UI.GAP_MEDIUM)

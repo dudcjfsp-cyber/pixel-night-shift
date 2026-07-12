@@ -1,6 +1,7 @@
 extends SceneTree
 
 const APP_ROOT_SCENE: PackedScene = preload("res://game/app/app_root.tscn")
+const PRESENTATION_ASSETS: GDScript = preload("res://game/presentation/presentation_assets.gd")
 const TEST_ROOT := "user://app_root_integration_tests"
 const STEP_SECONDS := 0.25
 
@@ -78,6 +79,7 @@ func _check(condition: bool, message: String) -> void:
 
 
 func _test_main_and_first_shift() -> void:
+	_check(PRESENTATION_ASSETS.initialize().is_empty(), "active presentation assets must initialize")
 	_check(
 		String(ProjectSettings.get_setting("application/run/main_scene"))
 			== "res://game/app/app_root.tscn",
@@ -101,6 +103,7 @@ func _test_main_and_first_shift() -> void:
 		await _wait_frames(3)
 	_check(app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY, "first save success must enter gameplay")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_ONBOARDING, "first gameplay must open onboarding")
+	_check(app.find_child("OperationsRoomButton", true, false) is Button, "configured gameplay UI must finish building")
 	_check_touch_targets(app, "onboarding")
 	var saved := repository.load()
 	_check(saved.status == SaveLoadResult.Status.LOADED, "first shift must save before gameplay")
@@ -141,12 +144,17 @@ func _test_same_session_navigation() -> void:
 		_check(app.session_snapshot() == before_view_process, "MainView must not tick the GameSession")
 		app._process(10.0)
 		_check(app.session_snapshot() != before_view_process, "AppRoot must own real-time GameSession ticks")
-		gameplay.call("set_active_tab", 1)
-		gameplay.emit_signal("active_tab_changed", 1)
+		var patches_tab := gameplay.find_child("GameplayTabButton1", true, false) as Button
+		_check(patches_tab != null, "gameplay must expose its patch tab button")
+		if patches_tab != null:
+			patches_tab.pressed.emit()
 		await _wait_frames(1)
 	_check(app.last_gameplay_tab() == 1, "gameplay tab selection must be retained by AppRoot")
 	if gameplay != null:
-		gameplay.emit_signal("operations_room_requested")
+		var operations_button := gameplay.find_child("OperationsRoomButton", true, false) as Button
+		_check(operations_button != null, "gameplay must expose its operations button")
+		if operations_button != null:
+			operations_button.pressed.emit()
 	await _wait_frames(2)
 	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "gameplay must return to operations")
 	_check(app.session_instance_id() == identity, "operations navigation must keep the same GameSession")
@@ -164,6 +172,28 @@ func _test_same_session_navigation() -> void:
 	_check(app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY, "operations primary action must return to gameplay")
 	_check(app.session_instance_id() == identity, "gameplay return must keep the same GameSession")
 	_check(app.last_gameplay_tab() == 1, "gameplay return must restore the selected tab")
+	_emit_button(app, "SettingsButton")
+	await _wait_frames(1)
+	var replay_manual := app.find_child("ManualButton", true, false) as Button
+	_check(replay_manual != null and not replay_manual.disabled, "manual replay must enable with an active session")
+	if replay_manual != null:
+		replay_manual.pressed.emit()
+	await _wait_frames(1)
+	_check("운영 매뉴얼 1 / 3" in _visible_text(app), "manual replay must start at step one")
+	_emit_button(app, "PrimaryActionButton")
+	await _wait_frames(1)
+	_check("운영 매뉴얼 2 / 3" in _visible_text(app), "onboarding must advance to diagnosis")
+	_emit_button(app, "PrimaryActionButton")
+	await _wait_frames(1)
+	_check("운영 매뉴얼 3 / 3" in _visible_text(app), "diagnosis action must advance to judgment")
+	_check(app.last_gameplay_tab() == 1, "diagnosis onboarding action must focus and save the patch tab")
+	_emit_button(app, "PrimaryActionButton")
+	await _wait_frames(1)
+	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "third onboarding action must close the manual")
+	_check(
+		SettingsRepository.new(base_dir).load().settings.onboarding_completed,
+		"onboarding completion must persist in the separate settings file"
+	)
 	await _unmount(app)
 
 
@@ -412,20 +442,32 @@ func _test_version_update_atomicity() -> void:
 	await _wait_frames(2)
 	var gameplay := _host_child(app, "ScreenHost")
 	var before := app.session_snapshot()
-	gameplay.emit_signal("version_update_requested")
+	var update_button := gameplay.find_child("VersionUpdateButton", true, false) as Button
+	_check(update_button != null and not update_button.disabled, "ready gameplay must enable version update")
+	if update_button != null:
+		update_button.pressed.emit()
 	await _wait_frames(1)
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_VERSION_UPDATE_CONFIRM, "prestige request must open confirmation")
 	_check_touch_targets(app, "version update confirmation")
+	_emit_button(app, "CancelButton")
+	await _wait_frames(1)
+	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "update cancel must return to gameplay")
+	_check(app.session_snapshot() == before, "update cancel must not change the session")
+	if update_button != null:
+		update_button.pressed.emit()
+	await _wait_frames(1)
 	repository.fail_next = true
 	_emit_button(app, "ConfirmButton")
 	await _wait_frames(2)
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_VERSION_UPDATE_CONFIRM, "failed update save must keep confirmation")
 	_check(app.session_snapshot() == before, "failed update save must atomically restore the prior run")
 	_check("저장에 실패" in _visible_text(app), "failed update must explain rollback")
+	_check(_loaded_snapshot_matches(repository, before), "failed update must keep the prior durable record")
 	_emit_button(app, "ConfirmButton")
 	await _wait_frames(2)
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_RUN_SUMMARY, "successful update save must show summary")
 	_check_touch_targets(app, "run summary")
+	_check(("STAGE %02d" % int(before["stage"])) in _visible_text(app), "run summary must use the pre-update snapshot")
 	var after := app.session_snapshot()
 	_check(int(after["run_count"]) == int(before["run_count"]) + 1, "successful update must increment run count once")
 	_check(int(after["patch_notes"]) == int(before["patch_notes"]) + 1, "successful update must grant one patch note")
@@ -455,12 +497,23 @@ func _test_settings_back_and_safe_area() -> void:
 	_check(audio != null and audio.get_music_volume_percent() == 25, "music volume must apply immediately")
 	var saved_settings := settings_repository.load()
 	_check(saved_settings.is_loaded() and is_equal_approx(saved_settings.settings.music_volume, 0.25), "music volume must persist separately")
+	_emit_button(app, "ReducedMotionButton")
+	await _wait_frames(1)
+	_check(settings_repository.load().settings.reduced_motion, "reduced motion must persist immediately")
 	_check(not app.handle_back_request(), "Back on overlay must be handled in-app")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "Back must close the active overlay first")
 	_emit_button(app, "PrimaryActionButton")
 	await _wait_frames(2)
 	_emit_button(app, "SkipButton")
 	await _wait_frames(1)
+	var lane := app.find_child("BattleLaneView", true, false) as BattleLaneView
+	var portrait := app.find_child("OperatorPortrait_debugger", true, false) as TextureRect
+	_check(lane != null and portrait != null and portrait.texture is AtlasTexture, "gameplay must expose animated sprite playback")
+	if lane != null and portrait != null and portrait.texture is AtlasTexture:
+		var before_region := (portrait.texture as AtlasTexture).region
+		lane._process(1.0)
+		var after_region := (portrait.texture as AtlasTexture).region
+		_check(after_region == before_region, "reduced motion must freeze repeated sprite playback")
 	_check(not app.handle_back_request(), "Back from gameplay must return to operations")
 	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "gameplay Back must show operations")
 	_check(app.handle_back_request(), "Back from operations must request system exit")
@@ -516,6 +569,54 @@ func _test_settings_back_and_safe_area() -> void:
 	_check(recovered_settings.is_loaded(), "interrupted settings replace must recover the previous file")
 	_check(is_equal_approx(recovered_settings.settings.music_volume, 0.35), "settings recovery must preserve user choices")
 	_check(FileAccess.file_exists(atomic_repo.settings_path()), "settings recovery must restore the primary file")
+	_check(
+		DirAccess.copy_absolute(
+			ProjectSettings.globalize_path(atomic_repo.settings_path()),
+			ProjectSettings.globalize_path(atomic_repo.rollback_path())
+		) == OK,
+		"settings rollback fixture must be recreated"
+	)
+	_write_text(atomic_repo.settings_path(), "{\"schema_version\": 1")
+	var recovered_corrupt_primary := atomic_repo.load()
+	_check(recovered_corrupt_primary.is_loaded(), "valid rollback must recover a partial primary")
+	_check(
+		is_equal_approx(recovered_corrupt_primary.settings.music_volume, 0.35),
+		"partial-primary recovery must preserve rollback settings"
+	)
+	_check(not FileAccess.file_exists(atomic_repo.rollback_path()), "successful recovery must clean the rollback artifact")
+	_check(atomic_repo.load().is_loaded(), "restored settings primary must load again")
+
+	var newer_primary_dir := _case_dir("settings_newer_primary")
+	_clean_case(newer_primary_dir)
+	var newer_primary_repo := SettingsRepository.new(newer_primary_dir)
+	_check(newer_primary_repo.save(custom_settings) == OK, "newer-primary fixture must save")
+	_check(
+		DirAccess.copy_absolute(
+			ProjectSettings.globalize_path(newer_primary_repo.settings_path()),
+			ProjectSettings.globalize_path(newer_primary_repo.rollback_path())
+		) == OK,
+		"newer-primary rollback fixture must copy"
+	)
+	_write_json(newer_primary_repo.settings_path(), {
+		"schema_version": SettingsRepository.CURRENT_SCHEMA_VERSION + 1,
+		"settings": custom_settings.to_dictionary(),
+	})
+	_check(
+		newer_primary_repo.load().status == SettingsRepository.LoadStatus.NEWER_SCHEMA,
+		"newer primary settings must not auto-downgrade to an older rollback"
+	)
+
+	var double_corrupt_dir := _case_dir("settings_double_corrupt")
+	_clean_case(double_corrupt_dir)
+	var double_corrupt_repo := SettingsRepository.new(double_corrupt_dir)
+	_check(double_corrupt_repo.save(custom_settings) == OK, "double-corrupt fixture must save")
+	_write_text(double_corrupt_repo.settings_path(), "broken-primary")
+	_write_text(double_corrupt_repo.rollback_path(), "broken-rollback")
+	var double_corrupt := double_corrupt_repo.load()
+	var combined_errors := "\n".join(double_corrupt.errors)
+	_check(double_corrupt.status == SettingsRepository.LoadStatus.CORRUPT, "two corrupt settings files must stay corrupt")
+	_check("primary:" in combined_errors, "corrupt settings must retain the primary error")
+	_check("rollback:" in combined_errors, "corrupt settings must retain the rollback error")
 
 
 func _mount_app(
@@ -655,5 +756,19 @@ func _saved_update_matches(app: AppRoot, repository: SaveRepository) -> bool:
 	var active_snapshot := app.session_snapshot()
 	for key: String in ["stage", "bits", "patch_notes", "run_count", "patch_slots", "unlocked_patch_slots"]:
 		if saved_snapshot.get(key) != active_snapshot.get(key):
+			return false
+	return true
+
+
+func _loaded_snapshot_matches(repository: SaveRepository, expected: Dictionary) -> bool:
+	var load_result := repository.load()
+	if not load_result.has_session_candidate():
+		return false
+	var restored := GameSession.new()
+	if not restored.restore_state(load_result.session_data).is_empty():
+		return false
+	var actual := restored.snapshot()
+	for key: String in ["stage", "bits", "patch_notes", "run_count", "patch_slots", "unlocked_patch_slots"]:
+		if actual.get(key) != expected.get(key):
 			return false
 	return true

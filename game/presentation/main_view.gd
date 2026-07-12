@@ -302,6 +302,7 @@ func _build_resource_bar() -> void:
 
 func _build_battle_panel() -> void:
 	_battle_lane = BATTLE_LANE_VIEW_SCRIPT.new()
+	_battle_lane.name = "BattleLaneView"
 	_battle_lane.configure_accessibility(_reduced_flashes, _reduced_motion)
 	_main_column.add_child(_battle_lane)
 
