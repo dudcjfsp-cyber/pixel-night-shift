@@ -1,0 +1,109 @@
+{
+  "balance": {
+    "max_stage": 10,
+    "normal_enemy_count": 3,
+    "hp_per_level": 0.12,
+    "revive_fraction": 0.5,
+    "damage_growth": 1.10
+  },
+  "diagnosis": {
+    "ttk_regression_fraction": 0.15,
+    "team_hp_loss_fraction": 0.5,
+    "recovery_delay_seconds": 3.0,
+    "minimum_uptime_fraction": 0.75,
+    "patch_bits_regression_fraction": 0.20,
+    "boss_heal_regression_fraction": 0.08
+  },
+  "operators": [
+    {
+      "id": "debugger",
+      "role_name": "전열 안정화",
+      "base_hp": 200.0,
+      "attack_interval": 1.0,
+      "recovery_duration": 8.0,
+      "threat_weight": 4.0,
+      "outgoing_multiplier": 0.85,
+      "damage_exponent_multiplier": 0.30,
+      "incoming_multiplier": 0.70,
+      "boss_multiplier": 1.0,
+      "team_interval_multiplier": 1.0
+    },
+    {
+      "id": "build_engineer",
+      "role_name": "보스 화력",
+      "base_hp": 160.0,
+      "attack_interval": 1.5,
+      "recovery_duration": 7.0,
+      "threat_weight": 2.0,
+      "outgoing_multiplier": 1.0,
+      "damage_exponent_multiplier": 1.0,
+      "incoming_multiplier": 1.0,
+      "boss_multiplier": 1.35,
+      "team_interval_multiplier": 1.0
+    },
+    {
+      "id": "sprite_artist",
+      "role_name": "팀 템포",
+      "base_hp": 125.0,
+      "attack_interval": 0.75,
+      "recovery_duration": 6.0,
+      "threat_weight": 1.0,
+      "outgoing_multiplier": 1.0,
+      "damage_exponent_multiplier": 1.0,
+      "incoming_multiplier": 1.0,
+      "boss_multiplier": 1.0,
+      "team_interval_multiplier": 0.90
+    },
+    {
+      "id": "qa_imp",
+      "role_name": "자동 복구",
+      "base_hp": 140.0,
+      "attack_interval": 1.2,
+      "recovery_duration": 5.0,
+      "threat_weight": 1.0,
+      "outgoing_multiplier": 0.75,
+      "damage_exponent_multiplier": 1.0,
+      "incoming_multiplier": 1.0,
+      "boss_multiplier": 1.0,
+      "team_interval_multiplier": 1.0,
+      "repair_interval": 3.0,
+      "repair_reduction": 1.25
+    }
+  ],
+  "enemies": [
+    {
+      "id": "broken_pixel",
+      "display_name": "깨진 픽셀",
+      "pattern": "focused",
+      "attack_interval": 2.4,
+      "attack_damage": 15.0
+    },
+    {
+      "id": "infinite_loop",
+      "display_name": "무한 루프",
+      "pattern": "burst",
+      "attack_interval": 3.2,
+      "attack_damage": 9.0,
+      "burst_count": 3,
+      "burst_gap": 0.25
+    },
+    {
+      "id": "missing_resource",
+      "display_name": "누락 리소스",
+      "pattern": "aoe",
+      "attack_interval": 3.6,
+      "attack_damage": 11.0
+    },
+    {
+      "id": "watchdog_process",
+      "display_name": "감시견 프로세스",
+      "pattern": "watchdog",
+      "poll_interval": 2.0,
+      "poll_damage": 14.0,
+      "special_interval": 6.0,
+      "special_damage": 28.0,
+      "rollback_interval": 8.0,
+      "rollback_fraction": 0.12
+    }
+  ]
+}
