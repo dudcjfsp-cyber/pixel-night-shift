@@ -32,12 +32,19 @@ const RUN_SUMMARY_SCENE: PackedScene = preload(
 const ONBOARDING_SCENE: PackedScene = preload(
 	"res://game/presentation/app_shell/views/onboarding_view.tscn"
 )
+const COMBAT_V2_RESULT_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/combat_v2_result_view.tscn"
+)
 const OPERATIONS_DATA_SCRIPT: GDScript = preload(
 	"res://game/presentation/app_shell/view_data/operations_room_view_data.gd"
 )
 const OFFLINE_DATA_SCRIPT: GDScript = preload(
 	"res://game/presentation/app_shell/view_data/offline_report_view_data.gd"
 )
+const COMBAT_V2_RESULT_DATA_SCRIPT: GDScript = preload(
+	"res://game/presentation/app_shell/view_data/combat_v2_result_view_data.gd"
+)
+const COMBAT_V2_LAUNCH_OPTION := "--combat-v2-test"
 
 const SCREEN_NONE: StringName = &"none"
 const SCREEN_BOOT: StringName = &"boot"
@@ -45,6 +52,7 @@ const SCREEN_FIRST_START: StringName = &"first_start"
 const SCREEN_OPERATIONS_ROOM: StringName = &"operations_room"
 const SCREEN_GAMEPLAY: StringName = &"gameplay"
 const SCREEN_SAVE_RECOVERY: StringName = &"save_recovery"
+const SCREEN_COMBAT_V2_RESULT: StringName = &"combat_v2_result"
 
 const OVERLAY_NONE: StringName = &"none"
 const OVERLAY_OFFLINE_REPORT: StringName = &"offline_report"
@@ -57,10 +65,12 @@ const AUDIO_REFRESH_SECONDS := 0.12
 const OPERATIONS_REFRESH_SECONDS := 0.25
 
 var _save_repository: SaveRepository
+var _combat_v2_save_repository: CombatV2TestSaveRepository
 var _settings_repository: SettingsRepository
 var _clock: Variant = null
 var _services_configured := false
-var _session: GameSession
+var _session: Variant = null
+var _combat_v2_test_mode := false
 var _audio_director: AudioDirector
 var _settings: AppSettings
 
@@ -93,7 +103,9 @@ var _audio_snapshot: Dictionary = {}
 func configure_services(
 	save_repository: SaveRepository,
 	settings_repository: SettingsRepository,
-	clock: Variant
+	clock: Variant,
+	combat_v2_save_repository: CombatV2TestSaveRepository = null,
+	combat_v2_test_mode: bool = false
 ) -> bool:
 	if is_inside_tree() or _services_configured:
 		push_error("AppRoot services must be configured once before entering the tree.")
@@ -105,8 +117,10 @@ func configure_services(
 		push_error("AppRoot clock must expose now_unix().")
 		return false
 	_save_repository = save_repository
+	_combat_v2_save_repository = combat_v2_save_repository
 	_settings_repository = settings_repository
 	_clock = clock
+	_combat_v2_test_mode = combat_v2_test_mode
 	_services_configured = true
 	return true
 
@@ -135,6 +149,14 @@ func save_has_error() -> bool:
 	return _save_has_error
 
 
+func is_combat_v2_test_mode() -> bool:
+	return _combat_v2_test_mode
+
+
+func active_save_base_dir() -> String:
+	return String(_active_save_repository().base_dir())
+
+
 func handle_back_request() -> bool:
 	if _overlay_id != OVERLAY_NONE:
 		_close_overlay()
@@ -144,7 +166,7 @@ func handle_back_request() -> bool:
 		if recovery_view != null and recovery_view.is_confirming_new_shift():
 			recovery_view.show_new_shift_confirmation(false)
 			return false
-	if _screen_id == SCREEN_GAMEPLAY:
+	if _screen_id in [SCREEN_GAMEPLAY, SCREEN_COMBAT_V2_RESULT]:
 		_show_operations_room()
 		_save_progress("현장에서 운영실로 이동")
 		return false
@@ -170,7 +192,11 @@ func handle_application_resumed() -> void:
 	_backgrounded = false
 	_close_overlay()
 	if _session != null:
-		_apply_offline_progress(_background_started_at_unix)
+		if _combat_v2_test_mode:
+			_save_status = "Combat V2 오프라인 진행 미지원 · 상태 보존"
+			_refresh_save_status_views()
+		else:
+			_apply_offline_progress(_background_started_at_unix)
 
 
 func apply_safe_area(safe_rect: Rect2i, window_size: Vector2i) -> void:
@@ -184,6 +210,9 @@ func _ready() -> void:
 		_save_repository = SaveRepository.new()
 		_settings_repository = SettingsRepository.new()
 		_clock = SystemClock.new()
+		_combat_v2_test_mode = _launch_option_enabled()
+	if _combat_v2_test_mode and _combat_v2_save_repository == null:
+		_combat_v2_save_repository = CombatV2TestSaveRepository.new()
 	_build_hosts()
 	_load_settings()
 	_audio_director = AudioDirector.new()
@@ -200,6 +229,10 @@ func _process(delta_seconds: float) -> void:
 	if not _started or _backgrounded or _session == null:
 		return
 	_session.tick(delta_seconds)
+	if _combat_v2_test_mode and _screen_id == SCREEN_GAMEPLAY and _session.is_complete():
+		_save_progress("Combat V2 테스트 완료", false)
+		_show_combat_v2_result()
+		return
 	_save_elapsed += delta_seconds
 	_audio_refresh_left -= delta_seconds
 	_operations_refresh_left -= delta_seconds
@@ -263,7 +296,7 @@ func _build_hosts() -> void:
 func _start_boot() -> void:
 	_show_boot()
 	var started_at_msec := Time.get_ticks_msec()
-	var load_result: SaveLoadResult = _save_repository.load()
+	var load_result: SaveLoadResult = _active_save_repository().load()
 	var elapsed_msec := Time.get_ticks_msec() - started_at_msec
 	if elapsed_msec >= POLICY.BOOT_STATUS_DELAY_MSEC:
 		await get_tree().process_frame
@@ -290,13 +323,13 @@ func _route_from_load_result(load_result: SaveLoadResult) -> void:
 
 
 func _restore_primary(load_result: SaveLoadResult) -> void:
-	var candidate := GameSession.new()
-	var restore_errors := candidate.restore_state(load_result.session_data)
+	var candidate: Variant = _make_session()
+	var restore_errors: PackedStringArray = candidate.restore_state(load_result.session_data)
 	if not restore_errors.is_empty():
-		var backup_result: SaveLoadResult = _save_repository.load_backup()
+		var backup_result: SaveLoadResult = _active_save_repository().load_backup()
 		if backup_result.has_session_candidate():
-			var backup_candidate := GameSession.new()
-			var backup_errors := backup_candidate.restore_state(backup_result.session_data)
+			var backup_candidate: Variant = _make_session()
+			var backup_errors: PackedStringArray = backup_candidate.restore_state(backup_result.session_data)
 			if backup_errors.is_empty():
 				backup_result.errors.append("Primary session data failed validation.")
 				for error_message: String in restore_errors:
@@ -318,7 +351,10 @@ func _restore_primary(load_result: SaveLoadResult) -> void:
 	_last_gameplay_tab = load_result.last_gameplay_tab
 	_last_saved_at_unix = load_result.saved_at_unix
 	_show_operations_room()
-	_apply_offline_progress(load_result.saved_at_unix)
+	if _combat_v2_test_mode:
+		_save_status = "Combat V2 테스트 저장 복구됨 · 오프라인 진행 미지원"
+	else:
+		_apply_offline_progress(load_result.saved_at_unix)
 
 
 func _show_boot() -> void:
@@ -354,6 +390,9 @@ func _show_gameplay() -> void:
 	if _session == null:
 		push_error("Gameplay cannot open without an active GameSession.")
 		return
+	if _combat_v2_test_mode and _session.is_complete():
+		_show_combat_v2_result()
+		return
 	_close_overlay()
 	var view: MAIN_VIEW_SCRIPT = MAIN_VIEW_SCENE.instantiate() as MAIN_VIEW_SCRIPT
 	assert(view != null, "Gameplay scene must instantiate as MainView.")
@@ -370,11 +409,28 @@ func _show_gameplay() -> void:
 	view.set_active_tab(_last_gameplay_tab)
 	view.operations_room_requested.connect(_on_gameplay_operations_requested)
 	view.settings_requested.connect(_show_settings)
-	view.version_update_requested.connect(_show_version_update_confirm)
+	if not _combat_v2_test_mode:
+		view.version_update_requested.connect(_show_version_update_confirm)
 	view.session_changed.connect(_on_session_changed)
 	view.active_tab_changed.connect(_on_active_tab_changed)
 	_gameplay_view = view
 	_set_screen(SCREEN_GAMEPLAY, view)
+
+
+func _show_combat_v2_result() -> void:
+	if not _combat_v2_test_mode or _session == null or not _session.is_complete():
+		push_error("Combat V2 result requires a completed V2 test session.")
+		return
+	_close_overlay()
+	var data: CombatV2ResultViewData = COMBAT_V2_RESULT_DATA_SCRIPT.new(_session.result_data())
+	var view := COMBAT_V2_RESULT_SCENE.instantiate() as CombatV2ResultView
+	assert(view != null, "Combat V2 result scene must instantiate with its product script.")
+	if not view.configure(data):
+		_show_save_recovery_for_runtime_error("Combat V2 결과 화면을 구성하지 못했습니다.")
+		return
+	view.operations_room_requested.connect(_show_operations_room)
+	view.restart_requested.connect(_on_combat_v2_restart_requested)
+	_set_screen(SCREEN_COMBAT_V2_RESULT, view)
 
 
 func _show_save_recovery() -> void:
@@ -470,9 +526,9 @@ func _show_settings() -> void:
 
 
 func _show_version_update_confirm() -> void:
-	if _session == null:
+	if _session == null or _combat_v2_test_mode:
 		return
-	var snapshot := _session.snapshot()
+	var snapshot: Dictionary = _session.snapshot()
 	if not bool(snapshot.get("prestige_available", false)):
 		push_error("Version update was requested while it is locked.")
 		return
@@ -494,7 +550,7 @@ func _show_run_summary() -> void:
 
 
 func _show_onboarding(step: int = 0) -> void:
-	if _session == null:
+	if _session == null or _combat_v2_test_mode:
 		return
 	if _screen_id != SCREEN_GAMEPLAY:
 		_show_gameplay()
@@ -537,7 +593,7 @@ func _show_offline_report() -> void:
 
 
 func _on_first_shift_requested() -> void:
-	var candidate := GameSession.new()
+	var candidate: Variant = _make_session()
 	_session = candidate
 	_last_gameplay_tab = 0
 	_last_saved_at_unix = 0
@@ -546,8 +602,11 @@ func _on_first_shift_requested() -> void:
 		_session = null
 		_show_first_start("최초 저장에 실패했습니다. 저장 공간을 확인한 뒤 다시 시도하세요.")
 		return
-	_show_gameplay()
-	if not _settings.onboarding_completed:
+	if _combat_v2_test_mode:
+		_show_operations_room()
+	else:
+		_show_gameplay()
+	if not _combat_v2_test_mode and not _settings.onboarding_completed:
 		_show_onboarding(0)
 
 
@@ -569,16 +628,34 @@ func _on_active_tab_changed(tab_index: int) -> void:
 	_save_progress("현장 탭 변경")
 
 
+func _on_combat_v2_restart_requested() -> void:
+	if not _combat_v2_test_mode:
+		return
+	var clear_error: Error = _active_save_repository().clear_records()
+	if clear_error != OK:
+		_show_save_recovery_for_runtime_error(
+			"Combat V2 테스트 저장 초기화 실패 (오류 %d)" % clear_error
+		)
+		return
+	_session = _make_session()
+	_last_gameplay_tab = 0
+	_last_saved_at_unix = 0
+	if _save_progress("Combat V2 테스트 새로 시작", false) != OK:
+		_show_save_recovery_for_runtime_error("Combat V2 새 테스트를 저장하지 못했습니다.")
+		return
+	_show_gameplay()
+
+
 func _on_backup_restore_requested() -> void:
 	if _recovery_result == null or not _recovery_result.has_session_candidate():
 		_set_recovery_view_error("사용할 수 있는 백업 후보가 없습니다.")
 		return
-	var candidate := GameSession.new()
-	var restore_errors := candidate.restore_state(_recovery_result.session_data)
+	var candidate: Variant = _make_session()
+	var restore_errors: PackedStringArray = candidate.restore_state(_recovery_result.session_data)
 	if not restore_errors.is_empty():
 		_set_recovery_view_error("백업 세션 검증 실패: %s" % "; ".join(restore_errors))
 		return
-	var promote_error := _save_repository.promote_backup()
+	var promote_error: Error = _active_save_repository().promote_backup()
 	if promote_error != OK:
 		_set_recovery_view_error("백업 파일 복구 실패 (오류 %d)" % promote_error)
 		return
@@ -586,15 +663,16 @@ func _on_backup_restore_requested() -> void:
 	_last_gameplay_tab = _recovery_result.last_gameplay_tab
 	_last_saved_at_unix = _recovery_result.saved_at_unix
 	_show_operations_room()
-	_apply_offline_progress(_recovery_result.saved_at_unix)
+	if not _combat_v2_test_mode:
+		_apply_offline_progress(_recovery_result.saved_at_unix)
 
 
 func _on_recovery_retry_requested() -> void:
-	_route_from_load_result(_save_repository.load())
+	_route_from_load_result(_active_save_repository().load())
 
 
 func _on_new_shift_requested() -> void:
-	var clear_error := _save_repository.clear_records()
+	var clear_error: Error = _active_save_repository().clear_records()
 	if clear_error != OK:
 		_set_recovery_view_error("근무 기록 삭제 실패 (오류 %d)" % clear_error)
 		return
@@ -609,16 +687,16 @@ func _on_new_shift_requested() -> void:
 
 
 func _on_version_update_confirmed() -> void:
-	if _session == null:
+	if _session == null or _combat_v2_test_mode:
 		return
-	var before_state := _session.export_state()
-	var before_snapshot := _session.snapshot()
+	var before_state: Dictionary = _session.export_state()
+	var before_snapshot: Dictionary = _session.snapshot()
 	if not _session.prestige():
 		_set_version_view_error(String(_session.snapshot().get("last_error", "업데이트 실행 실패")))
 		return
 	var save_error := _save_progress("버전 업데이트", false)
 	if save_error != OK:
-		var rollback_errors := _session.restore_state(before_state)
+		var rollback_errors: PackedStringArray = _session.restore_state(before_state)
 		if not rollback_errors.is_empty():
 			push_error("Version update rollback failed: %s" % "; ".join(rollback_errors))
 			_show_save_recovery_for_runtime_error("버전 업데이트 원복에 실패했습니다.")
@@ -735,7 +813,7 @@ func _on_save_retry_requested() -> void:
 
 
 func _on_reset_records_requested() -> void:
-	var clear_error := _save_repository.clear_records()
+	var clear_error: Error = _active_save_repository().clear_records()
 	if clear_error != OK:
 		_save_has_error = true
 		_save_status = "근무 기록 삭제 실패 (오류 %d)" % clear_error
@@ -766,7 +844,7 @@ func _set_version_view_error(message: String) -> void:
 
 func _make_operations_data() -> OperationsRoomViewData:
 	assert(_session != null, "Operations data requires an active session.")
-	var snapshot := _session.snapshot()
+	var snapshot: Dictionary = _session.snapshot()
 	var diagnosis := snapshot.get("diagnosis", {}) as Dictionary
 	var slots := snapshot.get("patch_slots", []) as Array
 	var equipped_count := 0
@@ -779,18 +857,25 @@ func _make_operations_data() -> OperationsRoomViewData:
 	return OperationsRoomViewData.new(
 		int(snapshot["run_count"]) + 1,
 		true,
-		"자동 운영 중",
+		"Combat V2 테스트 · 자동 전투" if _combat_v2_test_mode else "자동 운영 중",
 		int(snapshot["stage"]),
 		String(diagnosis.get("title", "진단 정보 없음")),
 		equipped_count,
 		int(snapshot["unlocked_patch_slots"]),
 		_next_goal(snapshot),
 		_save_status,
-		save_state
+		save_state,
+		(
+			"V2 결과 보기"
+			if _combat_v2_test_mode and bool(snapshot["combat_v2_complete"])
+			else "Combat V2 테스트 진입" if _combat_v2_test_mode else "현장 복귀"
+		)
 	)
 
 
 func _next_goal(snapshot: Dictionary) -> String:
+	if _combat_v2_test_mode:
+		return "테스트 결과 확인" if bool(snapshot["combat_v2_complete"]) else "Watchdog · ST 10"
 	if bool(snapshot.get("prestige_available", false)):
 		return "버전 업데이트 실행"
 	var stage := int(snapshot.get("stage", 1))
@@ -829,17 +914,20 @@ func _make_run_summary_data(before: Dictionary, after: Dictionary) -> Dictionary
 func _apply_offline_progress(baseline_unix: int) -> void:
 	if _session == null:
 		return
+	if _combat_v2_test_mode:
+		push_error("Combat V2 test mode does not support offline progression.")
+		return
 	var now_unix := _now_unix()
 	var raw_elapsed := maxi(0, now_unix - baseline_unix)
 	var applied_seconds := mini(raw_elapsed, POLICY.OFFLINE_CAP_SECONDS)
 	var reached_cap := raw_elapsed > POLICY.OFFLINE_CAP_SECONDS
-	var before := _session.snapshot()
+	var before: Dictionary = _session.snapshot()
 	var remaining := float(applied_seconds)
 	while remaining > 0.0:
 		var step := minf(remaining, POLICY.OFFLINE_TICK_CHUNK_SECONDS)
 		_session.tick(step)
 		remaining -= step
-	var after := _session.snapshot()
+	var after: Dictionary = _session.snapshot()
 	var stage_changed := int(after["stage"]) != int(before["stage"])
 	var mode_changed := String(after["mode"]) != String(before["mode"])
 	var recovered_bits := maxf(0.0, float(after["bits"]) - float(before["bits"]))
@@ -902,7 +990,7 @@ func _save_progress(reason: String, reveal_pending_report: bool = true) -> Error
 	if _session == null:
 		return ERR_UNCONFIGURED
 	var saved_at := maxi(_last_saved_at_unix, _now_unix())
-	var save_error := _save_repository.save(
+	var save_error: Error = _active_save_repository().save(
 		_session.export_state(),
 		saved_at,
 		_last_gameplay_tab
@@ -936,10 +1024,33 @@ func _capture_gameplay_tab() -> void:
 	)
 
 
+func _make_session() -> Variant:
+	if _combat_v2_test_mode:
+		return CombatV2IntegrationSession.new()
+	return GameSession.new()
+
+
+func _active_save_repository() -> Variant:
+	if _combat_v2_test_mode:
+		assert(
+			_combat_v2_save_repository != null,
+			"Combat V2 test mode requires its isolated save repository."
+		)
+		return _combat_v2_save_repository
+	assert(_save_repository != null, "Production mode requires the production save repository.")
+	return _save_repository
+
+
+func _launch_option_enabled() -> bool:
+	return OS.get_cmdline_args().has(COMBAT_V2_LAUNCH_OPTION) or (
+		OS.get_cmdline_user_args().has(COMBAT_V2_LAUNCH_OPTION)
+	)
+
+
 func _sync_audio() -> void:
 	if _session == null or _audio_director == null:
 		return
-	var next_snapshot := _session.snapshot()
+	var next_snapshot: Dictionary = _session.snapshot()
 	_audio_director.sync_snapshot(_audio_snapshot, next_snapshot)
 	_audio_snapshot = next_snapshot
 

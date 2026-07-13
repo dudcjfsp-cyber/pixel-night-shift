@@ -309,6 +309,20 @@ func debug_state_copy() -> CombatV2State:
 	return _state.deep_clone()
 
 
+func export_state() -> Dictionary:
+	return CombatV2StateDto.export_state(_state)
+
+
+func restore_state(data: Dictionary) -> PackedStringArray:
+	var restore_result := CombatV2StateDto.restore_candidate(data, _catalog)
+	if not restore_result.errors.is_empty():
+		return restore_result.errors.duplicate()
+	assert(restore_result.state != null, "Validated Combat V2 restore must produce a state")
+	_state = restore_result.state
+	_last_error = ""
+	return PackedStringArray()
+
+
 func _is_unlocked_slot(slot_index: int) -> bool:
 	return slot_index >= 0 and slot_index < _state.progression.unlocked_patch_slots
 
