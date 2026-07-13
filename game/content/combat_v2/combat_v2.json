@@ -3,7 +3,11 @@
     "max_stage": 10,
     "normal_enemy_count": 3,
     "hp_per_level": 0.12,
-    "revive_fraction": 0.5,
+    "revive_fraction": 0.4,
+    "qa_recovery_delay": 5.0,
+    "emergency_redeploy_delay": 2.0,
+    "emergency_cost_fraction": 0.8,
+    "maintenance_seconds": 6.0,
     "damage_growth": 1.10
   },
   "diagnosis": {
@@ -20,7 +24,6 @@
       "role_name": "전열 안정화",
       "base_hp": 200.0,
       "attack_interval": 1.0,
-      "recovery_duration": 8.0,
       "threat_weight": 4.0,
       "outgoing_multiplier": 0.85,
       "damage_exponent_multiplier": 0.30,
@@ -33,7 +36,6 @@
       "role_name": "보스 화력",
       "base_hp": 160.0,
       "attack_interval": 1.5,
-      "recovery_duration": 7.0,
       "threat_weight": 2.0,
       "outgoing_multiplier": 1.0,
       "damage_exponent_multiplier": 1.0,
@@ -46,7 +48,6 @@
       "role_name": "팀 템포",
       "base_hp": 125.0,
       "attack_interval": 0.75,
-      "recovery_duration": 6.0,
       "threat_weight": 1.0,
       "outgoing_multiplier": 1.0,
       "damage_exponent_multiplier": 1.0,
@@ -59,15 +60,12 @@
       "role_name": "자동 복구",
       "base_hp": 140.0,
       "attack_interval": 1.2,
-      "recovery_duration": 5.0,
       "threat_weight": 1.0,
       "outgoing_multiplier": 0.75,
       "damage_exponent_multiplier": 1.0,
       "incoming_multiplier": 1.0,
       "boss_multiplier": 1.0,
-      "team_interval_multiplier": 1.0,
-      "repair_interval": 3.0,
-      "repair_reduction": 1.25
+      "team_interval_multiplier": 1.0
     }
   ],
   "enemies": [

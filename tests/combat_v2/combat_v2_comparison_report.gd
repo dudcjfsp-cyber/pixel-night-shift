@@ -56,7 +56,9 @@ func _run() -> void:
 			passed = false
 
 	if passed:
-		passed = _check_anti_debugger(results)
+		var anti_debugger_passed := _check_anti_debugger(results)
+		_report_product_risks(results)
+		passed = anti_debugger_passed
 	quit(0 if passed else 1)
 
 
@@ -86,6 +88,9 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 	var next_decision := 0.0
 	var stage_10_arrival := INF
 	var maintenance_entries := 0
+	var command_spent_bits := 0.0
+	var initial_bits := 0.0
+	var has_initial_bits := false
 	var previous_mode := ""
 	var last_snapshot: Dictionary = {}
 
@@ -101,9 +106,21 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 					"; ".join(validation_errors),
 				]
 			)
+		if is_v2 and (
+			int(last_snapshot["paid_redeploy_count"]) != 0
+			or float(last_snapshot["emergency_spent_bits"]) > EPSILON
+		):
+			return _invalid_result(
+				engine,
+				policy,
+				"non-interactive policy triggered paid emergency redeploy"
+			)
 
 		var stage := int(last_snapshot["stage"])
 		var mode := String(last_snapshot["mode"])
+		if not has_initial_bits:
+			initial_bits = float(last_snapshot["bits"])
+			has_initial_bits = true
 		if stage >= 10 and not is_finite(stage_10_arrival):
 			stage_10_arrival = elapsed
 		if mode == "maintenance" and previous_mode != "maintenance":
@@ -113,12 +130,12 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 		if _is_complete(last_snapshot, is_v2):
 			if not is_finite(stage_10_arrival):
 				return _invalid_result(engine, policy, "completion preceded stage 10 arrival")
-			if is_v2 and int(last_snapshot["boss_failure_count"]) != maintenance_entries:
+			if is_v2 and int(last_snapshot["failure_count"]) != maintenance_entries:
 				return _invalid_result(
 					engine,
 					policy,
-					"observed %d maintenance entries but snapshot reports %d boss failures"
-					% [maintenance_entries, int(last_snapshot["boss_failure_count"])]
+					"observed %d maintenance entries but snapshot reports %d total failures"
+					% [maintenance_entries, int(last_snapshot["failure_count"])]
 				)
 			return _completed_result(
 				engine,
@@ -128,10 +145,13 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 				maintenance_entries,
 				last_snapshot,
 				catalog,
-				is_v2
+				is_v2,
+				initial_bits,
+				command_spent_bits
 			)
 
 		if elapsed + EPSILON >= next_decision:
+			var bits_before_decision := float(last_snapshot["bits"])
 			var decision_error := _apply_decision(session, last_snapshot, policy, catalog)
 			if not decision_error.is_empty():
 				return _invalid_result(
@@ -139,6 +159,27 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 					policy,
 					"decision failed at %.2fs: %s" % [elapsed, decision_error]
 				)
+			var post_decision_snapshot: Dictionary = session.snapshot()
+			var post_decision_errors := _validate_snapshot(post_decision_snapshot, is_v2)
+			if not post_decision_errors.is_empty():
+				return _invalid_result(
+					engine,
+					policy,
+					"invalid post-decision snapshot at %.2fs: %s" % [
+						elapsed,
+						"; ".join(post_decision_errors),
+					]
+				)
+			var bits_after_decision := float(post_decision_snapshot["bits"])
+			if bits_after_decision > bits_before_decision + EPSILON:
+				return _invalid_result(
+					engine,
+					policy,
+					"decision unexpectedly awarded %.2f bits" % (
+						bits_after_decision - bits_before_decision
+					)
+				)
+			command_spent_bits += maxf(0.0, bits_before_decision - bits_after_decision)
 			next_decision += DECISION_INTERVAL
 
 		session.tick(STEP)
@@ -188,6 +229,9 @@ static func _sync_product_patch(session: Variant, snapshot: Dictionary) -> Strin
 
 	var replacing := not String(slots[0]).is_empty()
 	var preview: Dictionary = session.get_patch_preview(0, desired_id)
+	var preview_error := _validate_patch_preview(preview)
+	if not preview_error.is_empty():
+		return "invalid patch preview for %s: %s" % [desired_id, preview_error]
 	if not bool(preview["can_equip"]):
 		return "unlocked patch preview rejected a valid replacement: %s" % desired_id
 	if float(snapshot["bits"]) + EPSILON < float(preview["cost"]):
@@ -198,6 +242,17 @@ static func _sync_product_patch(session: Variant, snapshot: Dictionary) -> Strin
 			"replacement" if replacing else "free",
 			desired_id,
 		]
+	return ""
+
+
+static func _validate_patch_preview(preview: Dictionary) -> String:
+	for key: String in ["can_equip", "cost"]:
+		if not preview.has(key):
+			return "%s is required" % key
+	if typeof(preview["can_equip"]) != TYPE_BOOL:
+		return "can_equip must be boolean"
+	if not _is_finite_number(preview["cost"]) or float(preview["cost"]) < 0.0:
+		return "cost must be a non-negative finite number"
 	return ""
 
 
@@ -267,7 +322,7 @@ static func _choose_from_diagnosis(
 ) -> StringName:
 	var diagnosis := snapshot["diagnosis"] as Dictionary
 	var kind := String(diagnosis["kind"])
-	if kind in ["incoming_damage", "recovery_delay", "recovery_wait", "maintenance"]:
+	if kind in ["incoming_damage", "recovery_delay", "maintenance"]:
 		for operator_id: StringName in RECOVERY_PRIORITY:
 			if affordable.has(operator_id):
 				return operator_id
@@ -314,9 +369,28 @@ static func _completed_result(
 	maintenance_entries: int,
 	snapshot: Dictionary,
 	catalog: ContentCatalog,
-	is_v2: bool
+	is_v2: bool,
+	initial_bits: float,
+	command_spent_bits: float
 ) -> Dictionary:
 	var economics := _reconstruct_economics(snapshot, catalog)
+	var normal_failures := 0
+	var boss_failures := maintenance_entries
+	var total_failures := maintenance_entries
+	var qa_rescues := 0
+	var paid_redeploys := 0
+	var emergency_spent_bits := 0.0
+	var gross_bits := float(snapshot["bits"]) - initial_bits + command_spent_bits
+	var net_bits := float(snapshot["bits"])
+	if is_v2:
+		normal_failures = int(snapshot["normal_failure_count"])
+		boss_failures = int(snapshot["boss_failure_count"])
+		total_failures = int(snapshot["failure_count"])
+		qa_rescues = int(snapshot["qa_rescue_count"])
+		paid_redeploys = int(snapshot["paid_redeploy_count"])
+		emergency_spent_bits = float(snapshot["emergency_spent_bits"])
+		gross_bits = float(snapshot["gross_bits"])
+		net_bits = float(snapshot["net_bits"])
 	var result := {
 		"valid": true,
 		"error": "",
@@ -327,6 +401,14 @@ static func _completed_result(
 		"stage_10_arrival": stage_10_arrival,
 		"clear_time": elapsed,
 		"maintenance_entries": maintenance_entries,
+		"normal_failures": normal_failures,
+		"boss_failures": boss_failures,
+		"total_failures": total_failures,
+		"qa_rescues": qa_rescues,
+		"paid_redeploys": paid_redeploys,
+		"emergency_spent_bits": emergency_spent_bits,
+		"gross_bits": gross_bits,
+		"net_bits": net_bits,
 		"leftover_bits": float(snapshot["bits"]),
 		"investment": float(economics["investment"]),
 		"total_value": float(economics["total_value"]),
@@ -338,6 +420,13 @@ static func _completed_result(
 		"operator_down_seconds": {},
 	}
 	if is_v2:
+		if paid_redeploys != 0 or emergency_spent_bits > EPSILON:
+			return _invalid_result(
+				engine,
+				policy,
+				"non-interactive policy spent emergency redeploy resources "
+				+ "(count=%d, bits=%.2f)" % [paid_redeploys, emergency_spent_bits]
+			)
 		var counters := _v2_operator_counters(snapshot)
 		result["operator_uptime"] = counters["operator_uptime"]
 		result["operator_down_count"] = counters["operator_down_count"]
@@ -423,7 +512,18 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 	if is_v2:
 		_require_fields(
 			snapshot,
-			["boss_failure_count", "combat_metrics"],
+			[
+				"failure_count",
+				"normal_failure_count",
+				"boss_failure_count",
+				"last_failure_reason",
+				"qa_rescue_count",
+				"paid_redeploy_count",
+				"emergency_spent_bits",
+				"gross_bits",
+				"net_bits",
+				"combat_metrics",
+			],
 			"snapshot",
 			errors
 		)
@@ -450,11 +550,20 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 	if typeof(snapshot["prestige_available"]) != TYPE_BOOL:
 		errors.append("snapshot.prestige_available must be boolean")
 	if is_v2:
-		if (
-			typeof(snapshot["boss_failure_count"]) != TYPE_INT
-			or int(snapshot["boss_failure_count"]) < 0
-		):
-			errors.append("snapshot.boss_failure_count must be a non-negative integer")
+		for key: String in [
+			"failure_count",
+			"normal_failure_count",
+			"boss_failure_count",
+			"qa_rescue_count",
+			"paid_redeploy_count",
+		]:
+			if typeof(snapshot[key]) != TYPE_INT or int(snapshot[key]) < 0:
+				errors.append("snapshot.%s must be a non-negative integer" % key)
+		for key: String in ["emergency_spent_bits", "gross_bits", "net_bits"]:
+			if not _is_finite_number(snapshot[key]) or float(snapshot[key]) < 0.0:
+				errors.append("snapshot.%s must be a non-negative finite number" % key)
+		if typeof(snapshot["last_failure_reason"]) != TYPE_STRING:
+			errors.append("snapshot.last_failure_reason must be a string")
 		if typeof(snapshot["combat_metrics"]) != TYPE_DICTIONARY:
 			errors.append("snapshot.combat_metrics must be a dictionary")
 	if not errors.is_empty():
@@ -463,7 +572,17 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 	_validate_operator_rows(snapshot["operators"] as Array, is_v2, errors)
 	_validate_patch_rows(snapshot["patches"] as Array, errors)
 	if is_v2:
-		_validate_combat_metrics(snapshot["combat_metrics"] as Dictionary, errors)
+		_validate_combat_metrics(snapshot, errors)
+		if absf(float(snapshot["net_bits"]) - float(snapshot["bits"])) > EPSILON:
+			errors.append("snapshot.net_bits must equal snapshot.bits")
+		if float(snapshot["gross_bits"]) + EPSILON < float(snapshot["net_bits"]):
+			errors.append("snapshot.gross_bits must not be less than snapshot.net_bits")
+		if int(snapshot["failure_count"]) != (
+			int(snapshot["normal_failure_count"]) + int(snapshot["boss_failure_count"])
+		):
+			errors.append(
+				"snapshot.failure_count must equal normal_failure_count + boss_failure_count"
+			)
 	var diagnosis := snapshot["diagnosis"] as Dictionary
 	_require_fields(diagnosis, ["kind"], "snapshot.diagnosis", errors)
 	if diagnosis.has("kind") and (
@@ -475,9 +594,10 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 
 
 static func _validate_combat_metrics(
-	metrics: Dictionary,
+	snapshot: Dictionary,
 	errors: PackedStringArray
 ) -> void:
+	var metrics := snapshot["combat_metrics"] as Dictionary
 	var numeric_fields: Array[String] = [
 		"total_elapsed",
 		"damage_taken",
@@ -486,6 +606,12 @@ static func _validate_combat_metrics(
 		"boss_healed",
 		"enemies_defeated",
 		"stages_cleared",
+		"failure_count",
+		"normal_failure_count",
+		"boss_failure_count",
+		"qa_rescue_count",
+		"paid_redeploy_count",
+		"emergency_spent_bits",
 	]
 	_require_fields(metrics, numeric_fields, "snapshot.combat_metrics", errors)
 	if not _has_fields(metrics, numeric_fields):
@@ -494,6 +620,20 @@ static func _validate_combat_metrics(
 		if not _is_finite_number(metrics[key]) or float(metrics[key]) < 0.0:
 			errors.append(
 				"snapshot.combat_metrics.%s must be a non-negative finite number" % key
+			)
+	for key: String in [
+		"failure_count",
+		"normal_failure_count",
+		"boss_failure_count",
+		"qa_rescue_count",
+		"paid_redeploy_count",
+		"emergency_spent_bits",
+	]:
+		if not metrics.has(key) or not snapshot.has(key):
+			continue
+		if absf(float(metrics[key]) - float(snapshot[key])) > EPSILON:
+			errors.append(
+				"snapshot.combat_metrics.%s must match snapshot.%s" % [key, key]
 			)
 
 
@@ -602,8 +742,8 @@ static func _invalid_result(engine: String, policy: String, error: String) -> Di
 
 static func _print_table(results: Array[Dictionary]) -> void:
 	print(
-		"ENGINE  POLICY             ST10(s)  CLEAR(s)  FAIL  BITS   VALUE  "
-		+ "LEVELS          V2 UPTIME             V2 DOWNS"
+		"ENGINE  POLICY             ST10(s)  CLEAR(s)  NF  BF  TF  QA  PAID  "
+		+ "SPENT   GROSS  NET    VALUE  LEVELS          V2 UPTIME             V2 DOWNS"
 	)
 	for result: Dictionary in results:
 		if not bool(result["valid"]):
@@ -618,13 +758,19 @@ static func _print_table(results: Array[Dictionary]) -> void:
 		if String(result["engine"]) == "V2":
 			uptime_text = _uptime_text(result["operator_uptime"] as Dictionary)
 			downs_text = _downs_text(result["operator_down_count"] as Dictionary)
-		print("%-7s %-18s %7.2f  %8.2f  %4d  %5.0f  %5.0f  %-15s %-21s %s" % [
+		print("%-7s %-18s %7.2f  %8.2f  %2d  %2d  %2d  %2d  %4d  %6.0f  %5.0f  %5.0f  %5.0f  %-15s %-21s %s" % [
 			String(result["engine"]),
 			String(result["policy"]),
 			float(result["stage_10_arrival"]),
 			float(result["clear_time"]),
-			int(result["maintenance_entries"]),
-			float(result["leftover_bits"]),
+			int(result["normal_failures"]),
+			int(result["boss_failures"]),
+			int(result["total_failures"]),
+			int(result["qa_rescues"]),
+			int(result["paid_redeploys"]),
+			float(result["emergency_spent_bits"]),
+			float(result["gross_bits"]),
+			float(result["net_bits"]),
 			float(result["total_value"]),
 			_levels_text(result["operator_levels"] as Dictionary),
 			uptime_text,
@@ -678,18 +824,18 @@ static func _check_anti_debugger(results: Array[Dictionary]) -> bool:
 		var candidate := v2_results[policy] as Dictionary
 		var no_slower := float(focus["clear_time"]) <= float(candidate["clear_time"]) + EPSILON
 		var no_more_failures := (
-			int(focus["maintenance_entries"]) <= int(candidate["maintenance_entries"])
+			int(focus["total_failures"]) <= int(candidate["total_failures"])
 		)
 		var no_less_value := float(focus["total_value"]) + EPSILON >= float(candidate["total_value"])
 		dominates_all = dominates_all and no_slower and no_more_failures and no_less_value
 		strict_any = strict_any or (
 			float(focus["clear_time"]) < float(candidate["clear_time"]) - EPSILON
-			or int(focus["maintenance_entries"]) < int(candidate["maintenance_entries"])
+			or int(focus["total_failures"]) < int(candidate["total_failures"])
 			or float(focus["total_value"]) > float(candidate["total_value"]) + EPSILON
 		)
 		if (
 			float(candidate["clear_time"]) <= float(focus["clear_time"]) * 0.90 + EPSILON
-			or int(candidate["maintenance_entries"]) <= int(focus["maintenance_entries"]) - 1
+			or int(candidate["total_failures"]) <= int(focus["total_failures"]) - 1
 		):
 			threshold_pass = true
 
@@ -705,3 +851,84 @@ static func _check_anti_debugger(results: Array[Dictionary]) -> bool:
 	if passed:
 		print("PASS: debugger_focus is not dominant and a non-focus policy meets the 10%/failure margin")
 	return passed
+
+
+static func _report_product_risks(results: Array[Dictionary]) -> void:
+	var v2_results: Dictionary = {}
+	for result: Dictionary in results:
+		if String(result["engine"]) == "V2" and bool(result["valid"]):
+			v2_results[String(result["policy"])] = result
+	if v2_results.size() != POLICIES.size():
+		print("RISK CHECK SKIPPED: product risks require every valid V2 policy result")
+		return
+
+	var focus := v2_results["debugger_focus"] as Dictionary
+	var balanced := v2_results["balanced"] as Dictionary
+	var diagnosis := v2_results["diagnosis_follow"] as Dictionary
+	var focus_time := float(focus["clear_time"])
+	var balanced_time := float(balanced["clear_time"])
+	var diagnosis_time := float(diagnosis["clear_time"])
+	var time_gap_from_focus := absf(diagnosis_time - focus_time)
+	var focus_debugger_share := float(
+		(focus["operator_investment_share"] as Dictionary)["debugger"]
+	)
+	var diagnosis_debugger_share := float(
+		(diagnosis["operator_investment_share"] as Dictionary)["debugger"]
+	)
+	var diagnosis_similar_to_focus := (
+		time_gap_from_focus <= maxf(focus_time * 0.05, STEP) + EPSILON
+		and int(diagnosis["total_failures"]) == int(focus["total_failures"])
+		and absf(diagnosis_debugger_share - focus_debugger_share) <= 0.10 + EPSILON
+	)
+	var diagnosis_worse_than_balanced := (
+		diagnosis_time > balanced_time * 1.10 + EPSILON
+		or int(diagnosis["total_failures"]) >= int(balanced["total_failures"]) + 1
+	)
+	if diagnosis_similar_to_focus:
+		print(
+			"RISK: diagnosis_follow is meaningfully indistinct from debugger_focus "
+			+ "(clear %.2fs vs %.2fs, failures %d vs %d, debugger share %.0f%% vs %.0f%%)"
+			% [
+				diagnosis_time,
+				focus_time,
+				int(diagnosis["total_failures"]),
+				int(focus["total_failures"]),
+				diagnosis_debugger_share * 100.0,
+				focus_debugger_share * 100.0,
+			]
+		)
+	if diagnosis_worse_than_balanced:
+		print(
+			(
+				"RISK: diagnosis_follow materially trails balanced "
+				+ "(clear %.2fs vs %.2fs, failures %d vs %d, levels %s vs %s). "
+				+ "CAUSE: the comparison policy's offense heuristic scores base DPS growth, "
+				+ "so it overvalues debugger levels despite the V2 role exponent."
+			) % [
+				diagnosis_time,
+				balanced_time,
+				int(diagnosis["total_failures"]),
+				int(balanced["total_failures"]),
+				_levels_text(diagnosis["operator_levels"] as Dictionary),
+				_levels_text(balanced["operator_levels"] as Dictionary),
+			]
+		)
+	if not diagnosis_similar_to_focus and not diagnosis_worse_than_balanced:
+		print(
+			"PASS: diagnosis_follow is distinct from debugger_focus and within the "
+			+ "10%/failure margin of balanced"
+		)
+
+	var all_zero_boss_failures := true
+	for policy: String in POLICIES:
+		all_zero_boss_failures = (
+			all_zero_boss_failures
+			and int((v2_results[policy] as Dictionary)["boss_failures"]) == 0
+		)
+	if all_zero_boss_failures:
+		print(
+			"RISK: boss failures are zero for every V2 policy; boss pressure may be "
+			+ "too low to validate the failure/retry loop in representative runs"
+		)
+	else:
+		print("PASS: at least one V2 policy experiences a boss failure")

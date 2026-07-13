@@ -7,7 +7,9 @@ const REQUIRED_PATCH_IDS: Array[StringName] = [
 ]
 const ROOT_KEYS: Array[String] = ["balance", "diagnosis", "operators", "enemies"]
 const BALANCE_KEYS: Array[String] = [
-	"max_stage", "normal_enemy_count", "hp_per_level", "revive_fraction", "damage_growth"
+	"max_stage", "normal_enemy_count", "hp_per_level", "revive_fraction",
+	"qa_recovery_delay", "emergency_redeploy_delay", "emergency_cost_fraction",
+	"maintenance_seconds", "damage_growth",
 ]
 const DIAGNOSIS_KEYS: Array[String] = [
 	"ttk_regression_fraction",
@@ -22,28 +24,12 @@ const OPERATOR_KEYS: Array[String] = [
 	"role_name",
 	"base_hp",
 	"attack_interval",
-	"recovery_duration",
 	"threat_weight",
 	"outgoing_multiplier",
 	"damage_exponent_multiplier",
 	"incoming_multiplier",
 	"boss_multiplier",
 	"team_interval_multiplier",
-]
-const QA_OPERATOR_KEYS: Array[String] = [
-	"id",
-	"role_name",
-	"base_hp",
-	"attack_interval",
-	"recovery_duration",
-	"threat_weight",
-	"outgoing_multiplier",
-	"damage_exponent_multiplier",
-	"incoming_multiplier",
-	"boss_multiplier",
-	"team_interval_multiplier",
-	"repair_interval",
-	"repair_reduction",
 ]
 const STANDARD_ENEMY_KEYS: Array[String] = [
 	"id", "display_name", "pattern", "attack_interval", "attack_damage"
@@ -171,6 +157,18 @@ static func _parse_balance(data: Dictionary, result: LoadResult) -> CombatV2Cata
 	profile.revive_fraction = _required_fraction(
 		data, "revive_fraction", "combat_v2.balance", result
 	)
+	profile.qa_recovery_delay = _required_positive_float(
+		data, "qa_recovery_delay", "combat_v2.balance", result
+	)
+	profile.emergency_redeploy_delay = _required_positive_float(
+		data, "emergency_redeploy_delay", "combat_v2.balance", result
+	)
+	profile.emergency_cost_fraction = _required_fraction(
+		data, "emergency_cost_fraction", "combat_v2.balance", result
+	)
+	profile.maintenance_seconds = _required_positive_float(
+		data, "maintenance_seconds", "combat_v2.balance", result
+	)
 	profile.damage_growth = _required_positive_float(
 		data, "damage_growth", "combat_v2.balance", result
 	)
@@ -228,10 +226,7 @@ static func _parse_operators(
 		var id_text := _required_string(data, "id", context, result)
 		var role_name := _required_string(data, "role_name", context, result)
 		var operator_id := StringName(id_text)
-		if operator_id == &"qa_imp":
-			_validate_keys(data, QA_OPERATOR_KEYS, context, result)
-		else:
-			_validate_keys(data, OPERATOR_KEYS, context, result)
+		_validate_keys(data, OPERATOR_KEYS, context, result)
 		if not CombatV2Catalog.STABLE_OPERATOR_IDS.has(operator_id):
 			result.errors.append("%s.id: unknown operator '%s'" % [context, id_text])
 		if seen_ids.has(operator_id):
@@ -241,9 +236,6 @@ static func _parse_operators(
 
 		var base_hp := _required_positive_float(data, "base_hp", context, result)
 		var attack_interval := _required_positive_float(data, "attack_interval", context, result)
-		var recovery_duration := _required_positive_float(
-			data, "recovery_duration", context, result
-		)
 		var threat_weight := _required_positive_float(data, "threat_weight", context, result)
 		var outgoing_multiplier := _required_positive_float(
 			data, "outgoing_multiplier", context, result
@@ -265,13 +257,6 @@ static func _parse_operators(
 		if team_interval_multiplier > 1.0:
 			result.errors.append("%s.team_interval_multiplier: must not exceed 1" % context)
 
-		var repair_interval := 0.0
-		var repair_reduction := 0.0
-		if operator_id == &"qa_imp":
-			repair_interval = _required_positive_float(data, "repair_interval", context, result)
-			repair_reduction = _required_positive_float(data, "repair_reduction", context, result)
-			if repair_reduction >= repair_interval:
-				result.errors.append("%s.repair_reduction: must be less than repair_interval" % context)
 		if result.errors.size() != start_error_count:
 			continue
 		seen_ids[operator_id] = true
@@ -280,15 +265,12 @@ static func _parse_operators(
 			role_name,
 			base_hp,
 			attack_interval,
-			recovery_duration,
 			threat_weight,
 			outgoing_multiplier,
 			damage_exponent_multiplier,
 			incoming_multiplier,
 			boss_multiplier,
-			team_interval_multiplier,
-			repair_interval,
-			repair_reduction
+			team_interval_multiplier
 		))
 	return profiles
 

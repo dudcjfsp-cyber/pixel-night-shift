@@ -5,6 +5,12 @@ const EPSILON := 0.000001
 const MAX_EVENTS_PER_ADVANCE := 2000000
 const QA_OPERATOR_ID := &"qa_imp"
 const WATCHDOG_ID := &"watchdog_process"
+const RECOVERY_SOURCE_QA := &"qa"
+const RECOVERY_SOURCE_EMERGENCY := &"emergency"
+const RECOVERY_SOURCE_PRIORITY: Array[StringName] = [
+	RECOVERY_SOURCE_QA,
+	RECOVERY_SOURCE_EMERGENCY,
+]
 
 
 static func initialize_new_run(state: CombatV2State, catalog: CombatV2Catalog) -> void:
@@ -21,11 +27,20 @@ static func initialize_new_run(state: CombatV2State, catalog: CombatV2Catalog) -
 	state.total_down_count = 0
 	state.total_down_time = 0.0
 	state.total_boss_healed = 0.0
+	state.attempt_serial = 1
+	state.maintenance_remaining = 0.0
+	state.normal_failure_count = 0
+	state.last_failure_reason = &""
+	state.qa_rescue_count = 0
+	state.paid_redeploy_count = 0
+	state.emergency_spent_bits = 0.0
+	state.total_bits_earned = 0.0
 	state.reset_stage_metrics()
 	ProgressionRules.refresh_unlocks(state.progression, catalog.base_catalog)
 	for profile: CombatV2Catalog.OperatorProfile in catalog.operators:
 		state.operators.append(CombatV2State.OperatorRuntime.new(profile.id))
 	_reset_boss_attempt(state)
+	_reset_stage_recovery_state(state)
 	reset_team_full(state, catalog)
 	_initialize_encounter(state, catalog)
 	state.progression.status_message = "Combat V2 shift started."
@@ -79,6 +94,121 @@ static func operator_max_hp(
 	if level <= 0:
 		return 0.0
 	return profile.base_hp * (1.0 + catalog.balance.hp_per_level * float(level - 1))
+
+
+static func emergency_redeploy_cost(
+	state: CombatV2State,
+	catalog: CombatV2Catalog
+) -> float:
+	var cheapest := INF
+	for definition: OperatorDefinition in catalog.base_catalog.operators:
+		if not _is_unlocked(state, definition.id):
+			continue
+		var level := int(state.progression.operator_levels.get(definition.id, 0))
+		var next_cost := ProgressionRules.operator_upgrade_cost(
+			level, definition.base_cost, definition.cost_growth
+		)
+		cheapest = minf(cheapest, next_cost)
+	assert(is_finite(cheapest), "Emergency redeploy requires an unlocked operator")
+	return maxf(1.0, ceilf(cheapest * catalog.balance.emergency_cost_fraction))
+
+
+static func emergency_redeploy_status(
+	state: CombatV2State,
+	catalog: CombatV2Catalog,
+	operator_id: StringName
+) -> Dictionary:
+	var cost := emergency_redeploy_cost(state, catalog)
+	var status := {
+		"available": false,
+		"eligible": false,
+		"affordable": state.progression.bits + EPSILON >= cost,
+		"remaining": 0 if state.emergency_redeploy_used else 1,
+		"cost": cost,
+		"target_id": operator_id,
+		"error": "",
+	}
+	if state.progression.can_prestige or state.progression.is_maintenance:
+		status.error = "Combat is not accepting emergency redeploy commands."
+		return status
+	if state.progression.enemy_health <= EPSILON or all_down(state):
+		status.error = "The encounter attempt has already ended."
+		return status
+	if state.emergency_redeploy_used:
+		status.error = "Emergency redeploy has already been used this attempt."
+		return status
+	var runtime := state.get_operator(operator_id)
+	if runtime == null:
+		status.error = "Unknown Combat V2 operator."
+		return status
+	if not _is_unlocked(state, operator_id):
+		status.error = "Operator is not unlocked."
+		return status
+	if runtime.current_hp > EPSILON:
+		status.error = "Operator is not down."
+		return status
+	if runtime.recovery_source != &"" or runtime.recovery_remaining > EPSILON:
+		status.error = "Operator already has a recovery scheduled."
+		return status
+	status.eligible = true
+	if not bool(status.affordable):
+		status.error = "Not enough bits for emergency redeploy."
+		return status
+	status.available = true
+	return status
+
+
+static func emergency_redeploy_overview(
+	state: CombatV2State,
+	catalog: CombatV2Catalog
+) -> Dictionary:
+	var cost := emergency_redeploy_cost(state, catalog)
+	var available := false
+	var eligible_targets: Array[String] = []
+	for operator_id: StringName in CombatV2Catalog.STABLE_OPERATOR_IDS:
+		var status := emergency_redeploy_status(state, catalog, operator_id)
+		if bool(status.eligible):
+			eligible_targets.append(String(operator_id))
+		available = available or bool(status.available)
+	return {
+		"cost": cost,
+		"available": available,
+		"affordable": state.progression.bits + EPSILON >= cost,
+		"remaining": 0 if state.emergency_redeploy_used else 1,
+		"reserved_operator_id": String(state.emergency_redeploy_target_id),
+		"eligible_targets": eligible_targets,
+	}
+
+
+static func request_emergency_redeploy(
+	state: CombatV2State,
+	catalog: CombatV2Catalog,
+	operator_id: StringName
+) -> Dictionary:
+	var result := emergency_redeploy_status(state, catalog, operator_id)
+	result["succeeded"] = false
+	if not bool(result.available):
+		return result
+	var runtime := state.get_operator(operator_id)
+	assert(runtime != null, "Validated emergency redeploy target must exist")
+	var cost := float(result.cost)
+	state.progression.bits -= cost
+	state.emergency_spent_bits += cost
+	state.emergency_redeploy_used = true
+	state.emergency_redeploy_target_id = operator_id
+	state.paid_redeploy_count += 1
+	runtime.recovery_source = RECOVERY_SOURCE_EMERGENCY
+	runtime.recovery_remaining = catalog.balance.emergency_redeploy_delay
+	state.record_event(&"emergency_redeploy_requested", {
+		"target_id": operator_id,
+		"cost": cost,
+		"delay": catalog.balance.emergency_redeploy_delay,
+	})
+	result.succeeded = true
+	result.remaining = 0
+	result.available = false
+	result.error = ""
+	return result
 
 
 static func operator_attack_interval(
@@ -195,15 +325,16 @@ static func reset_team_full(state: CombatV2State, catalog: CombatV2Catalog) -> v
 			runtime.current_hp = 0.0
 			runtime.attack_remaining = INF
 			runtime.recovery_remaining = 0.0
+			runtime.recovery_source = &""
 			continue
 		runtime.current_hp = operator_max_hp(state, catalog, runtime.operator_id)
 		runtime.recovery_remaining = 0.0
+		runtime.recovery_source = &""
 	for runtime: CombatV2State.OperatorRuntime in state.operators:
 		if runtime.is_active():
 			runtime.attack_remaining = operator_attack_interval(
 				state, catalog, runtime.operator_id
 			)
-	_reset_qa_pulse(state, catalog)
 
 
 static func preserve_operator_health_ratio(
@@ -239,13 +370,15 @@ static func current_enemy_profile(
 		var watchdog: CombatV2Catalog.EnemyProfile = catalog.get_enemy(WATCHDOG_ID)
 		assert(watchdog != null, "Combat V2 watchdog profile is missing")
 		return watchdog
-	var combat_stage := state.progression.stage - 1 if state.progression.is_maintenance else state.progression.stage
+	var combat_stage := state.progression.stage
 	var normal_index := posmod(combat_stage - 1, 3)
 	assert(catalog.enemies.size() > normal_index, "Combat V2 normal enemy profiles are incomplete")
 	return catalog.enemies[normal_index]
 
 
 static func _next_event_time(state: CombatV2State, catalog: CombatV2Catalog) -> float:
+	if state.progression.is_maintenance:
+		return maxf(0.0, state.maintenance_remaining)
 	if state.progression.enemy_health <= EPSILON:
 		return 0.0
 	var next_event := INF
@@ -254,11 +387,6 @@ static func _next_event_time(state: CombatV2State, catalog: CombatV2Catalog) -> 
 			next_event = minf(next_event, runtime.attack_remaining)
 		elif _is_unlocked(state, runtime.operator_id) and runtime.recovery_remaining > 0.0:
 			next_event = minf(next_event, runtime.recovery_remaining)
-	var qa_runtime := state.get_operator(QA_OPERATOR_ID)
-	if qa_runtime != null and qa_runtime.is_active():
-		next_event = minf(next_event, state.qa_pulse_remaining)
-	if state.progression.is_maintenance:
-		return maxf(0.0, next_event)
 	if _is_boss_combat(state, catalog):
 		next_event = minf(next_event, state.enemy_attack_remaining)
 		next_event = minf(next_event, state.boss_special_remaining)
@@ -280,20 +408,24 @@ static func _advance_time(
 ) -> void:
 	state.total_elapsed += seconds
 	state.stage_elapsed += seconds
+	if state.progression.is_maintenance:
+		state.maintenance_remaining = maxf(0.0, state.maintenance_remaining - seconds)
+		for runtime: CombatV2State.OperatorRuntime in state.operators:
+			if _is_unlocked(state, runtime.operator_id) and not runtime.is_active():
+				runtime.down_time += seconds
+				state.total_down_time += seconds
+				state.stage_down_time += seconds
+		return
 	for runtime: CombatV2State.OperatorRuntime in state.operators:
 		if runtime.is_active():
 			runtime.attack_remaining = maxf(0.0, runtime.attack_remaining - seconds)
 			runtime.active_time += seconds
-		elif _is_unlocked(state, runtime.operator_id) and runtime.recovery_remaining > 0.0:
-			runtime.recovery_remaining = maxf(0.0, runtime.recovery_remaining - seconds)
+		elif _is_unlocked(state, runtime.operator_id):
+			if runtime.recovery_remaining > 0.0:
+				runtime.recovery_remaining = maxf(0.0, runtime.recovery_remaining - seconds)
 			runtime.down_time += seconds
 			state.total_down_time += seconds
 			state.stage_down_time += seconds
-	var qa_runtime := state.get_operator(QA_OPERATOR_ID)
-	if qa_runtime != null and qa_runtime.is_active():
-		state.qa_pulse_remaining = maxf(0.0, state.qa_pulse_remaining - seconds)
-	if state.progression.is_maintenance:
-		return
 	state.enemy_attack_remaining = maxf(0.0, state.enemy_attack_remaining - seconds)
 	if not _is_boss_combat(state, catalog):
 		return
@@ -303,6 +435,11 @@ static func _advance_time(
 
 
 static func _process_due_events(state: CombatV2State, catalog: CombatV2Catalog) -> int:
+	if state.progression.is_maintenance:
+		if state.maintenance_remaining > EPSILON:
+			return 0
+		_retry_attempt(state, catalog)
+		return 1
 	var processed := _process_operator_attacks(state, catalog)
 	if state.progression.enemy_health <= EPSILON:
 		_complete_enemy(state, catalog)
@@ -310,21 +447,23 @@ static func _process_due_events(state: CombatV2State, catalog: CombatV2Catalog) 
 		if state.progression.can_prestige:
 			return processed
 	processed += _process_recoveries(state, catalog)
-	processed += _process_qa_pulse(state, catalog)
-	if state.progression.is_maintenance:
-		return processed
 	if _is_boss_combat(state, catalog):
 		processed += _process_boss_attacks(state, catalog)
+		if state.progression.is_maintenance:
+			return processed
 		processed += _process_boss_rollback(state, catalog)
 		if (
 			state.progression.boss_elapsed + EPSILON
 			>= catalog.base_catalog.balance.boss_time_limit
 			and state.progression.enemy_health > EPSILON
 		):
-			_fail_boss(state, catalog)
+			_fail_attempt(state, catalog, &"boss_timeout")
 			processed += 1
 	else:
 		processed += _process_normal_enemy_attack(state, catalog)
+		if all_down(state):
+			_fail_attempt(state, catalog, &"normal_all_down")
+			processed += 1
 	return processed
 
 
@@ -350,51 +489,17 @@ static func _process_operator_attacks(
 
 static func _process_recoveries(state: CombatV2State, catalog: CombatV2Catalog) -> int:
 	var processed := 0
-	var team_was_down := all_down(state)
+	# Recovery ordering is target stable ID first, then RECOVERY_SOURCE_PRIORITY.
+	# A target owns exactly one source; the rank assertion keeps that contract explicit.
 	for runtime: CombatV2State.OperatorRuntime in _stable_runtimes(state):
-		if not _is_unlocked(state, runtime.operator_id):
-			continue
-		if runtime.current_hp > EPSILON or runtime.recovery_remaining > EPSILON:
-			continue
-		_revive_operator(state, catalog, runtime)
-		processed += 1
-	if team_was_down and active_operator_count(state) > 0:
-		state.progression.status_message = "Automatic recovery restored combat."
-	return processed
-
-
-static func _process_qa_pulse(state: CombatV2State, catalog: CombatV2Catalog) -> int:
-	var qa_runtime := state.get_operator(QA_OPERATOR_ID)
-	if qa_runtime == null or not qa_runtime.is_active() or state.qa_pulse_remaining > EPSILON:
-		return 0
-	var qa_profile: CombatV2Catalog.OperatorProfile = catalog.get_operator(QA_OPERATOR_ID)
-	assert(qa_profile != null and qa_profile.repair_interval > 0.0, "QA repair profile is invalid")
-	state.qa_pulse_remaining = qa_profile.repair_interval
-	var target: CombatV2State.OperatorRuntime = null
-	for runtime: CombatV2State.OperatorRuntime in _stable_runtimes(state):
-		if runtime.recovery_remaining <= EPSILON:
-			continue
 		if (
-			target == null
-			or runtime.recovery_remaining > target.recovery_remaining + EPSILON
-			or (
-				is_equal_approx(runtime.recovery_remaining, target.recovery_remaining)
-				and _stable_rank(runtime.operator_id) < _stable_rank(target.operator_id)
-			)
+			_recovery_source_rank(runtime.recovery_source) < 0
+			or runtime.recovery_remaining > EPSILON
 		):
-			target = runtime
-	if target == null:
-		state.record_event(&"qa_repair_pulse", {"target_id": &"", "reduction": 0.0})
-		return 1
-	target.recovery_remaining = maxf(0.0, target.recovery_remaining - qa_profile.repair_reduction)
-	state.record_event(&"qa_repair_pulse", {
-		"target_id": target.operator_id,
-		"reduction": qa_profile.repair_reduction,
-	})
-	if target.recovery_remaining <= EPSILON:
-		_revive_operator(state, catalog, target)
-		return 2
-	return 1
+			continue
+		_revive_operator(state, catalog, runtime, runtime.recovery_source)
+		processed += 1
+	return processed
 
 
 static func _process_normal_enemy_attack(
@@ -464,6 +569,9 @@ static func _process_boss_attacks(state: CombatV2State, catalog: CombatV2Catalog
 		)
 		state.enemy_attack_remaining = profile.poll_interval
 		processed += 1
+		if all_down(state):
+			_fail_attempt(state, catalog, &"boss_all_down")
+			return processed + 1
 	if state.boss_special_remaining <= EPSILON:
 		_attack_target(
 			state,
@@ -476,6 +584,9 @@ static func _process_boss_attacks(state: CombatV2State, catalog: CombatV2Catalog
 			state, catalog
 		)
 		processed += 1
+		if all_down(state):
+			_fail_attempt(state, catalog, &"boss_all_down")
+			return processed + 1
 	return processed
 
 
@@ -539,34 +650,48 @@ static func _apply_damage(
 		return
 	target.current_hp = 0.0
 	target.attack_remaining = INF
-	target.recovery_remaining = profile.recovery_duration
+	target.recovery_remaining = 0.0
+	target.recovery_source = &""
 	target.down_count += 1
 	state.total_down_count += 1
 	state.stage_down_count += 1
 	if target.operator_id == QA_OPERATOR_ID:
-		state.qa_pulse_remaining = INF
+		if not state.qa_rescue_consumed:
+			state.qa_rescue_consumed = true
+		_cancel_qa_recovery(state)
+	else:
+		_schedule_qa_recovery_if_available(state, catalog, target)
 	state.record_event(&"operator_down", {
 		"operator_id": target.operator_id,
-		"recovery": profile.recovery_duration,
+		"recovery_source": target.recovery_source,
+		"recovery": target.recovery_remaining,
 	})
 	if all_down(state):
-		state.progression.status_message = "All operators down — automatic recovery pending."
+		state.progression.status_message = "All operators are down. Attempt failed."
 		state.record_event(&"team_all_down")
 
 
 static func _revive_operator(
 	state: CombatV2State,
 	catalog: CombatV2Catalog,
-	runtime: CombatV2State.OperatorRuntime
+	runtime: CombatV2State.OperatorRuntime,
+	source: StringName
 ) -> void:
 	runtime.recovery_remaining = 0.0
-	runtime.current_hp = operator_max_hp(state, catalog, runtime.operator_id) * catalog.balance.revive_fraction
+	runtime.recovery_source = &""
+	runtime.current_hp = operator_max_hp(
+		state, catalog, runtime.operator_id
+	) * catalog.balance.revive_fraction
 	runtime.attack_remaining = operator_attack_interval(state, catalog, runtime.operator_id)
-	if runtime.operator_id == QA_OPERATOR_ID:
-		_reset_qa_pulse(state, catalog)
+	if source == RECOVERY_SOURCE_QA:
+		state.qa_recovery_target_id = &""
+		state.qa_rescue_count += 1
+	elif source == RECOVERY_SOURCE_EMERGENCY:
+		state.emergency_redeploy_target_id = &""
 	state.record_event(&"operator_recovered", {
 		"operator_id": runtime.operator_id,
 		"hp": runtime.current_hp,
+		"source": source,
 	})
 
 
@@ -622,28 +747,21 @@ static func _complete_enemy(state: CombatV2State, catalog: CombatV2Catalog) -> v
 
 
 static func _complete_normal_enemy(state: CombatV2State, catalog: CombatV2Catalog) -> void:
-	var combat_stage := state.progression.stage - 1 if state.progression.is_maintenance else state.progression.stage
+	var combat_stage := state.progression.stage
 	var modifiers := ProgressionRules.patch_modifiers(
 		state.progression.equipped_patch_ids, catalog.base_catalog
 	)
-	state.progression.bits += ProgressionRules.enemy_reward(
+	var reward := ProgressionRules.enemy_reward(
 		combat_stage, catalog.base_catalog.balance, float(modifiers.bits)
 	)
+	state.progression.bits += reward
+	state.total_bits_earned += reward
 	state.total_enemies_defeated += 1
-	state.record_event(&"enemy_defeated", {"maintenance": state.progression.is_maintenance})
+	state.record_event(&"enemy_defeated", {"maintenance": false})
 	state.progression.enemy_index += 1
 	if state.progression.enemy_index <= catalog.balance.normal_enemy_count:
 		state.encounter_serial += 1
 		_initialize_encounter(state, catalog)
-		return
-	if state.progression.is_maintenance:
-		state.progression.maintenance_cycles_remaining -= 1
-		if state.progression.maintenance_cycles_remaining > 0:
-			state.progression.enemy_index = 1
-			state.encounter_serial += 1
-			_initialize_encounter(state, catalog)
-			return
-		_retry_boss(state, catalog)
 		return
 	state.total_stages_cleared += 1
 	state.progression.stage += 1
@@ -654,6 +772,8 @@ static func _complete_normal_enemy(state: CombatV2State, catalog: CombatV2Catalo
 	ProgressionRules.refresh_unlocks(state.progression, catalog.base_catalog)
 	state.reset_stage_metrics()
 	_reset_boss_attempt(state)
+	state.attempt_serial += 1
+	_reset_stage_recovery_state(state)
 	reset_team_full(state, catalog)
 	state.encounter_serial += 1
 	_initialize_encounter(state, catalog)
@@ -665,49 +785,77 @@ static func _complete_boss(state: CombatV2State, catalog: CombatV2Catalog) -> vo
 	var modifiers := ProgressionRules.patch_modifiers(
 		state.progression.equipped_patch_ids, catalog.base_catalog
 	)
-	state.progression.bits += ProgressionRules.enemy_reward(
+	var reward := ProgressionRules.enemy_reward(
 		state.progression.stage,
 		catalog.base_catalog.balance,
 		float(modifiers.bits)
 	) * catalog.base_catalog.balance.boss_health_multiplier
+	state.progression.bits += reward
+	state.total_bits_earned += reward
 	state.total_enemies_defeated += 1
 	state.total_stages_cleared += 1
 	state.progression.enemy_health = 0.0
 	state.progression.can_prestige = true
+	_reset_stage_recovery_state(state)
+	reset_team_full(state, catalog)
 	state.encounter_serial += 1
 	state.progression.status_message = "Combat V2 stage 10 cleared."
 	state.record_event(&"boss_defeated")
 
 
-static func _fail_boss(state: CombatV2State, catalog: CombatV2Catalog) -> void:
-	state.progression.boss_failure_count += 1
-	if state.progression.boss_failure_count == 1:
-		state.progression.free_patch_swaps += 1
+static func _fail_attempt(
+	state: CombatV2State,
+	catalog: CombatV2Catalog,
+	reason: StringName
+) -> void:
+	assert(not state.progression.is_maintenance, "Cannot fail an inactive attempt")
+	var was_boss := _is_boss_combat(state, catalog)
+	var reset_enemy_hp := _current_enemy_max_hp(state, catalog)
+	state.last_failure_reason = reason
+	if was_boss:
+		state.progression.boss_failure_count += 1
+		if state.progression.boss_failure_count == 1:
+			state.progression.free_patch_swaps += 1
+	else:
+		state.normal_failure_count += 1
 	state.progression.is_maintenance = true
-	state.progression.maintenance_cycles_remaining = catalog.base_catalog.balance.maintenance_cycles
+	state.maintenance_remaining = catalog.balance.maintenance_seconds
 	state.progression.enemy_index = 1
+	state.progression.enemy_health = reset_enemy_hp
 	state.enemy_attack_remaining = INF
 	state.boss_special_remaining = INF
 	state.boss_rollback_remaining = INF
 	state.enemy_pattern_step = 0
 	state.enemy_locked_target_id = &""
+	_cancel_all_recoveries(state)
+	_reset_boss_attempt(state)
 	state.encounter_serial += 1
-	_initialize_encounter(state, catalog)
-	state.progression.status_message = "Boss failed — two maintenance cycles before automatic retry."
-	state.record_event(&"boss_failed", {"failure_count": state.progression.boss_failure_count})
+	state.progression.status_message = "Attempt failed. Automatic retry in %.0f seconds." % (
+		catalog.balance.maintenance_seconds
+	)
+	state.record_event(&"attempt_failed", {
+		"reason": reason,
+		"failure_count": state.total_failure_count(),
+		"maintenance_seconds": state.maintenance_remaining,
+	})
 
 
-static func _retry_boss(state: CombatV2State, catalog: CombatV2Catalog) -> void:
+static func _retry_attempt(state: CombatV2State, catalog: CombatV2Catalog) -> void:
 	state.progression.is_maintenance = false
-	state.progression.maintenance_cycles_remaining = 0
+	state.maintenance_remaining = 0.0
 	state.progression.enemy_index = 1
 	_reset_boss_attempt(state)
 	state.reset_stage_metrics()
+	state.attempt_serial += 1
+	_reset_attempt_recovery_state(state)
 	reset_team_full(state, catalog)
 	state.encounter_serial += 1
 	_initialize_encounter(state, catalog)
-	state.progression.status_message = "Maintenance complete — watchdog retry started."
-	state.record_event(&"boss_retry")
+	state.progression.status_message = "Maintenance complete. Stage retry started."
+	state.record_event(&"attempt_retry", {
+		"attempt_serial": state.attempt_serial,
+		"failure_reason": state.last_failure_reason,
+	})
 
 
 static func _initialize_encounter(state: CombatV2State, catalog: CombatV2Catalog) -> void:
@@ -741,14 +889,57 @@ static func _reset_boss_attempt(state: CombatV2State) -> void:
 	state.progression.boss_debuff_applied = false
 
 
-static func _reset_qa_pulse(state: CombatV2State, catalog: CombatV2Catalog) -> void:
-	var qa_runtime := state.get_operator(QA_OPERATOR_ID)
-	if qa_runtime == null or not qa_runtime.is_active():
-		state.qa_pulse_remaining = INF
+static func _schedule_qa_recovery_if_available(
+	state: CombatV2State,
+	catalog: CombatV2Catalog,
+	target: CombatV2State.OperatorRuntime
+) -> void:
+	if state.qa_rescue_consumed:
 		return
-	var qa_profile: CombatV2Catalog.OperatorProfile = catalog.get_operator(QA_OPERATOR_ID)
-	assert(qa_profile != null and qa_profile.repair_interval > 0.0, "QA repair profile is invalid")
-	state.qa_pulse_remaining = qa_profile.repair_interval
+	var qa_runtime := state.get_operator(QA_OPERATOR_ID)
+	if (
+		qa_runtime == null
+		or not _is_unlocked(state, QA_OPERATOR_ID)
+		or not qa_runtime.is_active()
+	):
+		return
+	state.qa_rescue_consumed = true
+	state.qa_recovery_target_id = target.operator_id
+	target.recovery_source = RECOVERY_SOURCE_QA
+	target.recovery_remaining = catalog.balance.qa_recovery_delay
+	state.record_event(&"qa_recovery_scheduled", {
+		"target_id": target.operator_id,
+		"delay": target.recovery_remaining,
+	})
+
+
+static func _cancel_qa_recovery(state: CombatV2State) -> void:
+	if state.qa_recovery_target_id == &"":
+		return
+	var target := state.get_operator(state.qa_recovery_target_id)
+	if target != null and target.recovery_source == RECOVERY_SOURCE_QA:
+		target.recovery_source = &""
+		target.recovery_remaining = 0.0
+		state.record_event(&"qa_recovery_cancelled", {"target_id": target.operator_id})
+	state.qa_recovery_target_id = &""
+
+
+static func _cancel_all_recoveries(state: CombatV2State) -> void:
+	for runtime: CombatV2State.OperatorRuntime in state.operators:
+		runtime.recovery_source = &""
+		runtime.recovery_remaining = 0.0
+	state.qa_recovery_target_id = &""
+	state.emergency_redeploy_target_id = &""
+
+
+static func _reset_attempt_recovery_state(state: CombatV2State) -> void:
+	_cancel_all_recoveries(state)
+	state.emergency_redeploy_used = false
+
+
+static func _reset_stage_recovery_state(state: CombatV2State) -> void:
+	_reset_attempt_recovery_state(state)
+	state.qa_rescue_consumed = false
 
 
 static func _current_enemy_max_hp(state: CombatV2State, catalog: CombatV2Catalog) -> float:
@@ -799,3 +990,7 @@ static func _stable_rank(operator_id: StringName) -> int:
 	var rank := CombatV2Catalog.STABLE_OPERATOR_IDS.find(operator_id)
 	assert(rank >= 0, "Unknown operator id in stable Combat V2 ordering: %s" % operator_id)
 	return rank
+
+
+static func _recovery_source_rank(source: StringName) -> int:
+	return RECOVERY_SOURCE_PRIORITY.find(source)

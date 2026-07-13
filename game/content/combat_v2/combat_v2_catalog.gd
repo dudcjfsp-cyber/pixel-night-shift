@@ -16,15 +16,12 @@ class OperatorProfile:
 	var role_name: String
 	var base_hp: float
 	var attack_interval: float
-	var recovery_duration: float
 	var threat_weight: float
 	var outgoing_multiplier: float
 	var damage_exponent_multiplier: float
 	var incoming_multiplier: float
 	var boss_multiplier: float
 	var team_interval_multiplier: float
-	var repair_interval: float
-	var repair_reduction: float
 
 
 	func _init(
@@ -32,29 +29,23 @@ class OperatorProfile:
 		operator_role_name: String,
 		operator_base_hp: float,
 		operator_attack_interval: float,
-		operator_recovery_duration: float,
 		operator_threat_weight: float,
 		operator_outgoing_multiplier: float,
 		operator_damage_exponent_multiplier: float,
 		operator_incoming_multiplier: float,
 		operator_boss_multiplier: float,
-		operator_team_interval_multiplier: float,
-		operator_repair_interval: float = 0.0,
-		operator_repair_reduction: float = 0.0
+		operator_team_interval_multiplier: float
 	) -> void:
 		id = operator_id
 		role_name = operator_role_name
 		base_hp = operator_base_hp
 		attack_interval = operator_attack_interval
-		recovery_duration = operator_recovery_duration
 		threat_weight = operator_threat_weight
 		outgoing_multiplier = operator_outgoing_multiplier
 		damage_exponent_multiplier = operator_damage_exponent_multiplier
 		incoming_multiplier = operator_incoming_multiplier
 		boss_multiplier = operator_boss_multiplier
 		team_interval_multiplier = operator_team_interval_multiplier
-		repair_interval = operator_repair_interval
-		repair_reduction = operator_repair_reduction
 
 
 class EnemyProfile:
@@ -88,6 +79,10 @@ class BalanceProfile:
 	var normal_enemy_count: int
 	var hp_per_level: float
 	var revive_fraction: float
+	var qa_recovery_delay: float
+	var emergency_redeploy_delay: float
+	var emergency_cost_fraction: float
+	var maintenance_seconds: float
 	var damage_growth: float
 
 

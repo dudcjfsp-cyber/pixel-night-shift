@@ -25,14 +25,16 @@ func _run_all() -> void:
 	print("Pixel Night Shift Combat V2 headless tests")
 	print("================================================")
 	_run_test("strict Combat V2 content rejection", _test_content_rejection)
-	_run_test("linear HP, down, recovery, and recovery-wait diagnosis", _test_hp_down_recovery)
+	_run_test("linear HP, process-down persistence, and stage full heal", _test_hp_down_recovery)
+	_run_test("QA one-shot rescue, cancellation, and stable recovery ordering", _test_qa_limited_recovery)
+	_run_test("emergency redeploy command validation and atomic spend", _test_emergency_redeploy)
 	_run_test("operator roles and patch tradeoffs", _test_roles_and_patch_tradeoffs)
 	_run_test("stable tie ordering and kill-at-timeout", _test_tie_ordering)
 	_run_test("tick partition invariance", _test_tick_partition_invariance)
 	_run_test("offline-style chunk equivalence", _test_chunk_equivalence)
 	_run_test("forecast uses the actual simulator", _test_forecast_matches_actual)
-	_run_test("maintenance farming retries automatically", _test_maintenance_retry)
-	_run_test("all-down normal combat has no soft lock", _test_all_down_no_softlock)
+	_run_test("all-down and timeout failures enter six-second maintenance", _test_maintenance_retry)
+	_run_test("failed attempts retry deterministically without a soft lock", _test_all_down_no_softlock)
 	_run_test("anti-debugger policy matrix", _test_anti_debugger_matrix)
 	await _run_greybox_headless_load()
 	print("================================================")
@@ -86,6 +88,20 @@ func _test_content_rejection() -> void:
 		not V2_LOADER.load_from_json(JSON.stringify(invalid_hp), base_catalog).is_valid(),
 		"zero HP growth must be rejected"
 	)
+	var invalid_redeploy_fraction := (parsed as Dictionary).duplicate(true)
+	(invalid_redeploy_fraction["balance"] as Dictionary)["emergency_cost_fraction"] = 0.0
+	_check(
+		not V2_LOADER.load_from_json(
+			JSON.stringify(invalid_redeploy_fraction), base_catalog
+		).is_valid(),
+		"zero emergency cost fraction must be rejected"
+	)
+	var missing_maintenance := (parsed as Dictionary).duplicate(true)
+	(missing_maintenance["balance"] as Dictionary).erase("maintenance_seconds")
+	_check(
+		not V2_LOADER.load_from_json(JSON.stringify(missing_maintenance), base_catalog).is_valid(),
+		"missing maintenance duration must be rejected"
+	)
 	var extra_key := (parsed as Dictionary).duplicate(true)
 	(extra_key["operators"] as Array)[0]["hidden_fallback"] = true
 	_check(
@@ -134,34 +150,204 @@ func _test_hp_down_recovery() -> void:
 		200.0 * (1.0 + 0.12 * 2.0),
 		"max HP must use the approved linear formula"
 	)
-	state.progression.operator_levels[&"debugger"] = 1
-	V2_SIMULATOR.reset_team_full(state, catalog)
+	state = _stage_fixture(catalog, 4)
+	state.qa_rescue_consumed = true
 	var debugger := state.get_operator(&"debugger")
 	debugger.current_hp = 1.0
 	debugger.attack_remaining = 10.0
 	state.enemy_attack_remaining = 0.0
 	V2_SIMULATOR.advance(state, catalog, 0.001)
 	_check(not debugger.is_active(), "focused damage must down the debugger")
+	_check(debugger.recovery_source == &"", "base process-down must not schedule recovery")
+	V2_SIMULATOR.advance(state, catalog, 4.0)
+	_check(not debugger.is_active(), "time alone must never recover a process-down operator")
 	_check(
-		debugger.recovery_remaining > 7.99 and debugger.recovery_remaining <= 8.0,
-		"debugger recovery must start at eight seconds"
-	)
-	V2_SIMULATOR.advance(state, catalog, debugger.recovery_remaining)
-	_check(debugger.is_active(), "downed debugger must recover automatically")
-	_check_close(
-		debugger.current_hp,
-		V2_SIMULATOR.operator_max_hp(state, catalog, &"debugger") * 0.5,
-		"automatic recovery must restore 50% HP"
+		String(V2_DIAGNOSIS.evaluate(state, catalog).kind) == "recovery_delay",
+		"one unscheduled process-down operator must never be diagnosed as stable"
 	)
 
+	state.progression.enemy_health = 0.01
+	state.get_operator(&"build_engineer").attack_remaining = 0.0
+	V2_SIMULATOR.advance(state, catalog, 0.001, true)
+	_check(state.progression.enemy_index == 2, "normal enemy transition must stay in the stage")
+	_check(not debugger.is_active(), "process-down must persist between the three normal enemies")
+
+	state.progression.enemy_index = catalog.balance.normal_enemy_count
+	state.progression.enemy_health = 0.01
+	state.get_operator(&"build_engineer").attack_remaining = 0.0
+	V2_SIMULATOR.advance(state, catalog, 0.001, true)
+	_check(state.progression.stage == 5, "third enemy defeat must clear the stage")
+	_check(V2_SIMULATOR.all_active(state), "stage clear must restore the entire unlocked team")
 	for runtime: CombatV2State.OperatorRuntime in state.operators:
 		if state.progression.is_operator_unlocked(runtime.operator_id):
-			runtime.current_hp = 0.0
-			runtime.attack_remaining = INF
-			runtime.recovery_remaining = 2.0
-	var diagnosis := V2_DIAGNOSIS.evaluate(state, catalog)
-	_check(String(diagnosis.kind) == "recovery_wait", "all-down normal combat needs recovery_wait")
-	_check(String(diagnosis.title) == "자동 복구 대기", "recovery wait must be explicit in UI language")
+			_check_close(
+				runtime.current_hp,
+				V2_SIMULATOR.operator_max_hp(state, catalog, runtime.operator_id),
+				"stage clear full heal for %s" % runtime.operator_id
+			)
+
+
+func _test_qa_limited_recovery() -> void:
+	var fixture := _new_fixture()
+	if fixture.is_empty():
+		return
+	var catalog: CombatV2Catalog = fixture.catalog
+	var state := _stage_fixture(catalog, 6)
+	for runtime: CombatV2State.OperatorRuntime in state.operators:
+		runtime.attack_remaining = 100.0
+	state.get_operator(&"debugger").current_hp = 1.0
+	state.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(state, catalog, 0.001)
+	var debugger := state.get_operator(&"debugger")
+	_check(debugger.recovery_source == &"qa", "first ally down must reserve QA recovery")
+	_check_close(debugger.recovery_remaining, catalog.balance.qa_recovery_delay - 0.001, "QA delay")
+	_check(state.qa_rescue_consumed, "QA rescue must be consumed once scheduled")
+	state.enemy_attack_remaining = 100.0
+	var rescue_forecast := V2_FORECAST.estimate(state, catalog)
+	_check(
+		int(rescue_forecast.ending_down_count) == 0,
+		"forecast expected-down count must reflect the pending QA rescue"
+	)
+	V2_SIMULATOR.advance(state, catalog, debugger.recovery_remaining)
+	_check(debugger.is_active(), "QA reservation must restore the first downed ally")
+	_check_close(
+		debugger.current_hp,
+		V2_SIMULATOR.operator_max_hp(state, catalog, &"debugger") * 0.4,
+		"QA rescue must restore 40 percent max HP"
+	)
+	_check(state.qa_rescue_count == 1, "QA rescue count must increment once")
+	var build := state.get_operator(&"build_engineer")
+	build.current_hp = 1.0
+	state.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(state, catalog, 0.001)
+	_check(not build.is_active() and build.recovery_source == &"", "second stage down must stay down")
+
+	var cancelled := _stage_fixture(catalog, 6)
+	for runtime: CombatV2State.OperatorRuntime in cancelled.operators:
+		runtime.attack_remaining = 100.0
+	var cancel_target := cancelled.get_operator(&"debugger")
+	cancel_target.current_hp = 1.0
+	cancelled.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(cancelled, catalog, 0.001)
+	_check(cancel_target.recovery_source == &"qa", "cancellation fixture must reserve QA recovery")
+	cancelled.get_operator(&"qa_imp").current_hp = 1.0
+	cancelled.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(cancelled, catalog, 0.001)
+	_check(not cancelled.get_operator(&"qa_imp").is_active(), "QA must be downed in cancellation fixture")
+	_check(
+		cancel_target.recovery_source == &"" and is_zero_approx(cancel_target.recovery_remaining),
+		"QA down before completion must cancel the pending free recovery"
+	)
+	V2_SIMULATOR.advance(cancelled, catalog, catalog.balance.qa_recovery_delay + 0.1)
+	_check(not cancel_target.is_active(), "cancelled QA recovery must never fire later")
+
+	var qa_first := _stage_fixture(catalog, 6)
+	for runtime: CombatV2State.OperatorRuntime in qa_first.operators:
+		runtime.attack_remaining = 100.0
+	qa_first.get_operator(&"qa_imp").current_hp = 1.0
+	qa_first.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(qa_first, catalog, 0.001)
+	_check(qa_first.qa_rescue_consumed, "QA first-down must consume the stage rescue opportunity")
+	qa_first.get_operator(&"debugger").current_hp = 1.0
+	qa_first.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(qa_first, catalog, 0.001)
+	_check(
+		qa_first.get_operator(&"debugger").recovery_source == &"",
+		"an ally down after QA must not receive a free recovery"
+	)
+
+
+func _test_emergency_redeploy() -> void:
+	var fixture := _new_fixture()
+	if fixture.is_empty():
+		return
+	var catalog: CombatV2Catalog = fixture.catalog
+	var state := _stage_fixture(catalog, 6)
+	state.qa_rescue_consumed = true
+	var target := state.get_operator(&"debugger")
+	target.current_hp = 0.0
+	target.attack_remaining = INF
+	var expected_cheapest := INF
+	for definition: OperatorDefinition in catalog.base_catalog.operators:
+		if not state.progression.is_operator_unlocked(definition.id):
+			continue
+		var level := int(state.progression.operator_levels.get(definition.id, 0))
+		expected_cheapest = minf(expected_cheapest, ProgressionRules.operator_upgrade_cost(
+			level, definition.base_cost, definition.cost_growth
+		))
+	var expected_cost := maxf(1.0, ceilf(expected_cheapest * 0.80))
+	var cost := V2_SIMULATOR.emergency_redeploy_cost(state, catalog)
+	_check_close(cost, expected_cost, "emergency cost must use 80 percent of cheapest next upgrade")
+
+	state.progression.bits = cost - 1.0
+	var insufficient_before := _state_signature(state)
+	var insufficient := V2_SIMULATOR.request_emergency_redeploy(state, catalog, &"debugger")
+	_check(not bool(insufficient.succeeded), "insufficient bits must reject emergency redeploy")
+	_check(String(insufficient.error) != "", "insufficient bits rejection must explain the failure")
+	_check(
+		_variants_equal(insufficient_before, _state_signature(state)),
+		"rejected emergency redeploy must leave the complete state unchanged"
+	)
+
+	state.progression.bits = cost + 10.0
+	var accepted := V2_SIMULATOR.request_emergency_redeploy(state, catalog, &"debugger")
+	_check(bool(accepted.succeeded), "valid emergency redeploy must be accepted")
+	_check_close(state.progression.bits, 10.0, "accepted command must deduct bits exactly once")
+	_check_close(state.emergency_spent_bits, cost, "spent-bit metric must record the one charge")
+	_check(state.paid_redeploy_count == 1, "paid redeploy count must increment at approval")
+	_check(target.recovery_source == &"emergency", "accepted target must own an emergency reservation")
+	_check_close(target.recovery_remaining, 2.0, "emergency redeploy delay must be two seconds")
+	var duplicate_before := _state_signature(state)
+	var duplicate := V2_SIMULATOR.request_emergency_redeploy(state, catalog, &"debugger")
+	_check(not bool(duplicate.succeeded), "attempt must reject a second emergency redeploy")
+	_check(
+		_variants_equal(duplicate_before, _state_signature(state)),
+		"duplicate rejection must not charge bits or alter the reservation"
+	)
+	state.enemy_attack_remaining = 100.0
+	V2_SIMULATOR.advance(state, catalog, 2.0)
+	_check(target.is_active(), "paid redeploy must restore its selected target after two seconds")
+	_check_close(
+		target.current_hp,
+		V2_SIMULATOR.operator_max_hp(state, catalog, &"debugger") * 0.4,
+		"paid redeploy must restore 40 percent max HP"
+	)
+
+	var active_state := _stage_fixture(catalog, 6)
+	var active_before := _state_signature(active_state)
+	var invalid_target := V2_SIMULATOR.request_emergency_redeploy(
+		active_state, catalog, &"debugger"
+	)
+	_check(not bool(invalid_target.succeeded), "active operator must be an invalid target")
+	_check(
+		_variants_equal(active_before, _state_signature(active_state)),
+		"invalid target rejection must be atomic"
+	)
+	var unknown_before := _state_signature(active_state)
+	var unknown_target := V2_SIMULATOR.request_emergency_redeploy(
+		active_state, catalog, &"not_an_operator"
+	)
+	_check(not bool(unknown_target.succeeded), "unknown operator must be rejected")
+	_check(
+		_variants_equal(unknown_before, _state_signature(active_state)),
+		"unknown target rejection must be atomic"
+	)
+	var locked_state := _stage_fixture(catalog, 1)
+	var locked_before := _state_signature(locked_state)
+	var locked_target := V2_SIMULATOR.request_emergency_redeploy(
+		locked_state, catalog, &"qa_imp"
+	)
+	_check(not bool(locked_target.succeeded), "locked operator must be rejected")
+	_check(
+		_variants_equal(locked_before, _state_signature(locked_state)),
+		"locked target rejection must be atomic"
+	)
+	var session := V2_SESSION.new()
+	var session_before := session.snapshot()
+	_check(not session.emergency_redeploy(&"debugger"), "session command must reject an active target")
+	var session_after := session.snapshot()
+	_check(String(session_after.last_error) != "", "session rejection must expose last_error")
+	_check_close(float(session_after.bits), float(session_before.bits), "session rejection must not charge")
 
 
 func _test_roles_and_patch_tradeoffs() -> void:
@@ -197,19 +383,6 @@ func _test_roles_and_patch_tradeoffs() -> void:
 		scheduled_before,
 		"a role change must not reschedule an already pending attack"
 	)
-
-	var stage_six := _stage_fixture(catalog, 6)
-	var repair_target := stage_six.get_operator(&"debugger")
-	repair_target.current_hp = 0.0
-	repair_target.attack_remaining = INF
-	repair_target.recovery_remaining = 5.0
-	stage_six.qa_pulse_remaining = 0.0
-	stage_six.enemy_attack_remaining = 10.0
-	for runtime: CombatV2State.OperatorRuntime in stage_six.operators:
-		if runtime.is_active():
-			runtime.attack_remaining = 10.0
-	V2_SIMULATOR.advance(stage_six, catalog, 0.001)
-	_check_close(repair_target.recovery_remaining, 3.749, "QA pulse must reduce the longest recovery")
 
 	var base_patch_state := _stage_fixture(catalog, 9)
 	var base_interval := V2_SIMULATOR.operator_attack_interval(
@@ -290,6 +463,46 @@ func _test_tie_ordering() -> void:
 	_check(
 		debugger_runtime.current_hp < 100.0 and is_equal_approx(build_runtime.current_hp, 100.0),
 		"equal-DPS burst targeting must choose the stable debugger ID first"
+	)
+
+	var recovery_state := _stage_fixture(catalog, 6)
+	for runtime: CombatV2State.OperatorRuntime in recovery_state.operators:
+		runtime.attack_remaining = 100.0
+	var recovery_debugger := recovery_state.get_operator(&"debugger")
+	var recovery_build := recovery_state.get_operator(&"build_engineer")
+	recovery_debugger.current_hp = 1.0
+	recovery_state.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(recovery_state, catalog, 0.001)
+	_check(recovery_debugger.recovery_source == &"qa", "tie fixture must schedule QA recovery")
+	var duplicate_before := _state_signature(recovery_state)
+	var same_target := V2_SIMULATOR.request_emergency_redeploy(
+		recovery_state, catalog, &"debugger"
+	)
+	_check(not bool(same_target.succeeded), "QA target must reject duplicate paid recovery")
+	_check(
+		_variants_equal(duplicate_before, _state_signature(recovery_state)),
+		"duplicate QA/paid target rejection must be a complete no-op"
+	)
+	recovery_build.current_hp = 1.0
+	var command_delay := recovery_debugger.recovery_remaining - 2.0
+	recovery_state.enemy_attack_remaining = command_delay
+	V2_SIMULATOR.advance(recovery_state, catalog, command_delay)
+	recovery_state.progression.bits = 1000.0
+	var paid := V2_SIMULATOR.request_emergency_redeploy(
+		recovery_state, catalog, &"build_engineer"
+	)
+	_check(bool(paid.succeeded), "tie fixture must schedule paid recovery for a second target")
+	recovery_state.enemy_attack_remaining = 100.0
+	var event_start := recovery_state.recent_events.size()
+	V2_SIMULATOR.advance(recovery_state, catalog, 2.0)
+	var recovered_ids: Array[StringName] = []
+	for event_index: int in range(event_start, recovery_state.recent_events.size()):
+		var event := recovery_state.recent_events[event_index]
+		if StringName(event.kind) == &"operator_recovered":
+			recovered_ids.append(StringName(event.operator_id))
+	_check(
+		recovered_ids == [&"debugger", &"build_engineer"],
+		"same-time recoveries must resolve by stable operator ID before source priority"
 	)
 
 	var state := _stage_fixture(catalog, 10)
@@ -380,6 +593,26 @@ func _test_forecast_matches_actual() -> void:
 		float(override_forecast.seconds) >= float(forecast.seconds),
 		"reward_bypass counterfactual must expose its enemy-HP drawback"
 	)
+	var wipe_state := _stage_fixture(catalog, 6)
+	wipe_state.progression.enemy_index = 2
+	for runtime: CombatV2State.OperatorRuntime in wipe_state.operators:
+		if wipe_state.progression.is_operator_unlocked(runtime.operator_id):
+			runtime.current_hp = 1.0
+			runtime.attack_remaining = 100.0
+	wipe_state.enemy_attack_remaining = 0.0
+	var wipe_before := _state_signature(wipe_state)
+	var wipe_forecast := V2_FORECAST.estimate(wipe_state, catalog)
+	_check(not bool(wipe_forecast.resolved), "enemy-two wipe must not be forecast as a kill")
+	_check(bool(wipe_forecast.maintenance), "wipe forecast must expose maintenance")
+	_check(int(wipe_forecast.failures) == 1, "wipe forecast must expose one failure")
+	_check(
+		int(wipe_forecast.ending_down_count) == V2_SIMULATOR.unlocked_operator_count(wipe_state),
+		"wipe forecast expected-down count must expose the full team"
+	)
+	_check(
+		_variants_equal(wipe_before, _state_signature(wipe_state)),
+		"wipe forecast must not mutate its source state"
+	)
 	var actual := source.deep_clone()
 	var before_elapsed := actual.total_elapsed
 	var before_downs := actual.total_down_count
@@ -387,6 +620,12 @@ func _test_forecast_matches_actual() -> void:
 	var before_serial := actual.encounter_serial
 	var before_bits := actual.progression.bits
 	var before_boss_healed := actual.total_boss_healed
+	var before_failures := actual.total_failure_count()
+	var before_normal_failures := actual.normal_failure_count
+	var before_boss_failures := actual.progression.boss_failure_count
+	var before_qa_rescues := actual.qa_rescue_count
+	var before_paid_redeploys := actual.paid_redeploy_count
+	var before_emergency_spent := actual.emergency_spent_bits
 	var before_active_time := _total_active_time(actual)
 	var unlocked_count := V2_SIMULATOR.unlocked_operator_count(actual)
 	V2_SIMULATOR.advance(actual, catalog, 30.0, true)
@@ -409,6 +648,28 @@ func _test_forecast_matches_actual() -> void:
 		actual.total_boss_healed - before_boss_healed,
 		"forecast boss healing"
 	)
+	_check(
+		int(forecast.failures) == actual.total_failure_count() - before_failures,
+		"forecast failures"
+	)
+	_check(
+		int(forecast.normal_failures) == actual.normal_failure_count - before_normal_failures,
+		"forecast normal failures"
+	)
+	_check(
+		int(forecast.boss_failures) == actual.progression.boss_failure_count - before_boss_failures,
+		"forecast boss failures"
+	)
+	_check(int(forecast.qa_rescues) == actual.qa_rescue_count - before_qa_rescues, "forecast QA rescues")
+	_check(
+		int(forecast.paid_redeploys) == actual.paid_redeploy_count - before_paid_redeploys,
+		"forecast must not inject paid redeploys"
+	)
+	_check_close(
+		float(forecast.emergency_spent_bits),
+		actual.emergency_spent_bits - before_emergency_spent,
+		"forecast emergency spend"
+	)
 	var expected_uptime := 0.0
 	if actual_seconds > EPSILON and unlocked_count > 0:
 		expected_uptime = (
@@ -423,45 +684,124 @@ func _test_maintenance_retry() -> void:
 	if fixture.is_empty():
 		return
 	var catalog: CombatV2Catalog = fixture.catalog
-	var state := _stage_fixture(catalog, 10)
-	state.progression.boss_elapsed = catalog.base_catalog.balance.boss_time_limit
-	state.progression.enemy_health = V2_FORECAST.enemy_max_hp(state, catalog)
-	state.enemy_attack_remaining = 10.0
-	state.boss_special_remaining = 10.0
-	state.boss_rollback_remaining = 10.0
-	for runtime: CombatV2State.OperatorRuntime in state.operators:
-		runtime.attack_remaining = 10.0
-	V2_SIMULATOR.advance(state, catalog, 0.001)
-	_check(state.progression.is_maintenance, "boss timeout must enter maintenance")
-	_check(state.progression.maintenance_cycles_remaining == 2, "maintenance must use two cycles")
-	_check(state.progression.free_patch_swaps == 1, "first boss failure must grant one free swap")
-	for _enemy: int in range(6):
-		V2_SIMULATOR.advance(state, catalog, 120.0, true)
-	_check(not state.progression.is_maintenance, "six safe maintenance enemies must retry the boss")
-	_check(state.progression.stage == 10, "automatic retry must return to stage 10")
-	_check(V2_SIMULATOR.all_active(state), "boss retry must start with a fully recovered team")
-	_check_close(state.progression.boss_elapsed, 0.0, "boss retry timer must reset")
+	var normal := _stage_fixture(catalog, 6)
+	for runtime: CombatV2State.OperatorRuntime in normal.operators:
+		if normal.progression.is_operator_unlocked(runtime.operator_id):
+			runtime.current_hp = 1.0
+			runtime.attack_remaining = 100.0
+	var normal_bits := normal.progression.bits
+	var normal_attempt := normal.attempt_serial
+	normal.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(normal, catalog, 0.001)
+	_check(normal.progression.is_maintenance, "normal all-down must fail immediately")
+	_check(
+		normal.total_failure_count() == 1 and normal.normal_failure_count == 1,
+		"normal failure counters"
+	)
+	_check(normal.last_failure_reason == &"normal_all_down", "normal failure reason must be explicit")
+	_check_close(
+		normal.maintenance_remaining,
+		catalog.balance.maintenance_seconds - 0.001,
+		"normal failure maintenance duration"
+	)
+	_check_close(normal.progression.bits, normal_bits, "failure must preserve bits")
+	var maintenance_diagnosis := V2_DIAGNOSIS.evaluate(normal, catalog)
+	_check(String(maintenance_diagnosis.kind) == "maintenance", "maintenance diagnosis kind")
+	var maintenance_evidence := maintenance_diagnosis.evidence_data as Dictionary
+	for key: String in [
+		"recovery_cost", "current_downs", "forecast_downs", "estimated_wipe_risk",
+		"wipe_risk_basis", "failure_count", "maintenance", "maintenance_remaining",
+		"maintenance_reason", "emergency_available",
+	]:
+		_check(maintenance_evidence.has(key), "diagnosis evidence must expose %s" % key)
+	_check(bool(maintenance_evidence.maintenance), "diagnosis must mark maintenance active")
+	var maintenance_command_before := _state_signature(normal)
+	var maintenance_command := V2_SIMULATOR.request_emergency_redeploy(
+		normal, catalog, &"debugger"
+	)
+	_check(not bool(maintenance_command.succeeded), "ended attempt must reject emergency command")
+	_check(
+		_variants_equal(maintenance_command_before, _state_signature(normal)),
+		"maintenance command rejection must leave state unchanged"
+	)
+	var failed_enemy_hp := normal.progression.enemy_health
+	V2_SIMULATOR.advance(normal, catalog, 5.499)
+	_check(normal.progression.is_maintenance, "retry must wait the full six seconds")
+	_check_close(normal.progression.enemy_health, failed_enemy_hp, "maintenance must not attack the enemy")
+	V2_SIMULATOR.advance(normal, catalog, 0.5)
+	_check(not normal.progression.is_maintenance, "six seconds must start the automatic retry")
+	_check(normal.progression.stage == 6 and normal.progression.enemy_index == 1, "retry same stage from enemy one")
+	_check(normal.attempt_serial == normal_attempt + 1, "retry must create a new attempt serial")
+	_check(V2_SIMULATOR.all_active(normal), "normal retry must start with full team health")
+	_check(normal.qa_rescue_consumed, "QA stage rescue usage must persist across same-stage retry")
+	_check(not normal.emergency_redeploy_used, "paid redeploy allowance must reset for the new attempt")
+
+	var boss_down := _stage_fixture(catalog, 10)
+	for runtime: CombatV2State.OperatorRuntime in boss_down.operators:
+		runtime.current_hp = 0.0
+		runtime.attack_remaining = INF
+	var last_active := boss_down.get_operator(&"debugger")
+	last_active.current_hp = 1.0
+	last_active.attack_remaining = 100.0
+	boss_down.enemy_attack_remaining = 0.0
+	boss_down.boss_special_remaining = 100.0
+	boss_down.boss_rollback_remaining = 100.0
+	V2_SIMULATOR.advance(boss_down, catalog, 0.001)
+	_check(boss_down.progression.is_maintenance, "boss all-down must fail immediately")
+	_check(boss_down.last_failure_reason == &"boss_all_down", "boss all-down reason")
+	_check(boss_down.progression.boss_failure_count == 1, "boss all-down failure counter")
+
+	var timeout := _stage_fixture(catalog, 10)
+	timeout.progression.boss_elapsed = catalog.base_catalog.balance.boss_time_limit
+	timeout.progression.enemy_health = V2_FORECAST.enemy_max_hp(timeout, catalog)
+	timeout.enemy_attack_remaining = 100.0
+	timeout.boss_special_remaining = 100.0
+	timeout.boss_rollback_remaining = 100.0
+	for runtime: CombatV2State.OperatorRuntime in timeout.operators:
+		runtime.attack_remaining = 100.0
+	V2_SIMULATOR.advance(timeout, catalog, 0.001)
+	_check(timeout.progression.is_maintenance, "boss timeout must enter maintenance")
+	_check(timeout.last_failure_reason == &"boss_timeout", "boss timeout reason must be explicit")
+	_check(timeout.progression.boss_failure_count == 1, "boss timeout failure counter")
+	_check(timeout.progression.free_patch_swaps == 1, "first boss failure keeps the existing free swap")
+
+	var natural_boss := _stage_fixture(catalog, 10)
+	V2_SIMULATOR.advance(
+		natural_boss,
+		catalog,
+		catalog.base_catalog.balance.boss_time_limit + 1.0,
+		true
+	)
+	_check(
+		natural_boss.progression.is_maintenance
+		and natural_boss.progression.boss_failure_count == 1,
+		"untuned level-one product rules must make a real boss failure reachable"
+	)
 
 
 func _test_all_down_no_softlock() -> void:
 	var fixture := _new_fixture()
 	if fixture.is_empty():
 		return
-	var state: CombatV2State = fixture.state
 	var catalog: CombatV2Catalog = fixture.catalog
+	var state := _stage_fixture(catalog, 6)
 	for runtime: CombatV2State.OperatorRuntime in state.operators:
 		if state.progression.is_operator_unlocked(runtime.operator_id):
-			runtime.current_hp = 0.0
-			runtime.attack_remaining = INF
-			runtime.recovery_remaining = 1.0
-	var enemy_hp_before := state.progression.enemy_health
-	_check(V2_SIMULATOR.all_down(state), "fixture must begin with every unlocked operator down")
-	V2_SIMULATOR.advance(state, catalog, 5.0)
-	_check(V2_SIMULATOR.active_operator_count(state) > 0, "time alone must recover operators")
+			runtime.current_hp = 1.0
+			runtime.attack_remaining = 100.0
+	state.enemy_attack_remaining = 0.0
+	V2_SIMULATOR.advance(state, catalog, 0.001)
+	_check(state.progression.is_maintenance, "fixture must enter maintenance after wipe")
+	V2_SIMULATOR.advance(state, catalog, 6.0)
+	_check(not state.progression.is_maintenance, "maintenance must always leave a deterministic retry")
+	var retry_hp := state.progression.enemy_health
+	var retry_serial := state.encounter_serial
+	V2_SIMULATOR.advance(state, catalog, 30.0)
 	_check(
-		state.progression.enemy_health < enemy_hp_before,
-		"recovered operators must resume automatic attacks without player input"
+		state.progression.enemy_health < retry_hp or state.encounter_serial > retry_serial,
+		"automatic combat must resume after retry without player input"
 	)
+	_check(state.total_elapsed >= 36.001 - EPSILON, "no-softlock path must consume elapsed time")
 
 
 func _test_anti_debugger_matrix() -> void:
@@ -479,12 +819,12 @@ func _test_anti_debugger_matrix() -> void:
 		var candidate := results[index]
 		dominates_all = dominates_all and (
 			float(focus.clear_time) <= float(candidate.clear_time) + EPSILON
-			and int(focus.maintenance_entries) <= int(candidate.maintenance_entries)
+			and int(focus.total_failures) <= int(candidate.total_failures)
 			and float(focus.total_value) + EPSILON >= float(candidate.total_value)
 		)
 		margin_pass = margin_pass or (
 			float(candidate.clear_time) <= float(focus.clear_time) * 0.90 + EPSILON
-			or int(candidate.maintenance_entries) <= int(focus.maintenance_entries) - 1
+			or int(candidate.total_failures) <= int(focus.total_failures) - 1
 		)
 	_check(not dominates_all, "debugger_focus must not Pareto-dominate every comparison policy")
 	_check(margin_pass, "a non-debugger policy must be 10% faster or fail one fewer time")
@@ -504,6 +844,7 @@ func _run_greybox_headless_load() -> void:
 		var next_action_label := instance.find_child("NextActionLabel", true, false) as Label
 		var diagnosis_label := instance.find_child("DiagnosisLabel", true, false) as Label
 		var debugger_label := instance.find_child("Operator_debugger", true, false) as Label
+		var redeploy_button := instance.find_child("Redeploy_debugger", true, false) as Button
 		_check(enemy_label != null and "ST 1" in enemy_label.text, "greybox must render stage and enemy")
 		_check(
 			next_action_label != null and "다음 적 행동" in next_action_label.text,
@@ -516,6 +857,13 @@ func _run_greybox_headless_load() -> void:
 		_check(
 			debugger_label != null and "HP" in debugger_label.text and "전열 안정화" in debugger_label.text,
 			"greybox must render operator role and HP"
+		)
+		_check(
+			redeploy_button != null
+			and "EMERGENCY REDEPLOY" in redeploy_button.text
+			and "bits" in redeploy_button.text
+			and "left" in redeploy_button.text,
+			"greybox must expose selected-target redeploy cost and remaining use"
 		)
 		root.remove_child(instance)
 		instance.queue_free()
@@ -624,6 +972,7 @@ func _state_signature(state: CombatV2State) -> Dictionary:
 			"hp": runtime.current_hp,
 			"attack": runtime.attack_remaining,
 			"recovery": runtime.recovery_remaining,
+			"recovery_source": runtime.recovery_source,
 			"dealt": runtime.damage_dealt,
 			"taken": runtime.damage_taken,
 			"downs": runtime.down_count,
@@ -663,10 +1012,22 @@ func _state_signature(state: CombatV2State) -> Dictionary:
 			"locked_target": state.enemy_locked_target_id,
 			"boss_special": state.boss_special_remaining,
 			"boss_rollback": state.boss_rollback_remaining,
-			"qa_pulse": state.qa_pulse_remaining,
 		},
 		"metrics": {
 			"encounter_serial": state.encounter_serial,
+			"attempt_serial": state.attempt_serial,
+			"maintenance_remaining": state.maintenance_remaining,
+			"failure_count": state.total_failure_count(),
+			"normal_failure_count": state.normal_failure_count,
+			"last_failure_reason": state.last_failure_reason,
+			"qa_rescue_consumed": state.qa_rescue_consumed,
+			"qa_recovery_target_id": state.qa_recovery_target_id,
+			"qa_rescue_count": state.qa_rescue_count,
+			"emergency_redeploy_used": state.emergency_redeploy_used,
+			"emergency_redeploy_target_id": state.emergency_redeploy_target_id,
+			"paid_redeploy_count": state.paid_redeploy_count,
+			"emergency_spent_bits": state.emergency_spent_bits,
+			"total_bits_earned": state.total_bits_earned,
 			"total_elapsed": state.total_elapsed,
 			"stage_elapsed": state.stage_elapsed,
 			"total_enemies_defeated": state.total_enemies_defeated,

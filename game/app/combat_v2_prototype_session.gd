@@ -119,6 +119,19 @@ func remove_patch(slot_index: int) -> bool:
 	return _accept()
 
 
+func emergency_redeploy(operator_id: StringName) -> bool:
+	var result := CombatV2Simulator.request_emergency_redeploy(
+		_state, _catalog, operator_id
+	)
+	if not bool(result.succeeded):
+		return _reject(String(result.error))
+	_state.progression.status_message = "%s 긴급 재배포 예약 · %.0f bit" % [
+		_catalog.base_catalog.get_operator(operator_id).display_name,
+		float(result.cost),
+	]
+	return _accept()
+
+
 func snapshot() -> Dictionary:
 	var progression := _state.progression
 	var is_boss := _is_boss()
@@ -132,6 +145,9 @@ func snapshot() -> Dictionary:
 		var max_hp := (
 			CombatV2Simulator.operator_max_hp(_state, _catalog, definition.id)
 			if unlocked else 0.0
+		)
+		var redeploy_status := CombatV2Simulator.emergency_redeploy_status(
+			_state, _catalog, definition.id
 		)
 		operator_rows.append({
 			"id": String(definition.id),
@@ -148,8 +164,13 @@ func snapshot() -> Dictionary:
 			"hp": runtime.current_hp,
 			"max_hp": max_hp,
 			"down": unlocked and not runtime.is_active(),
+			"process_down": unlocked and not runtime.is_active(),
 			"attack_remaining": 0.0 if not runtime.is_active() else runtime.attack_remaining,
 			"recovery_remaining": runtime.recovery_remaining,
+			"recovery_source": String(runtime.recovery_source),
+			"redeploy_eligible": bool(redeploy_status.eligible),
+			"redeploy_available": bool(redeploy_status.available),
+			"redeploy_error": String(redeploy_status.error),
 			"damage_dealt": runtime.damage_dealt,
 			"damage_taken": runtime.damage_taken,
 			"down_count": runtime.down_count,
@@ -179,6 +200,7 @@ func snapshot() -> Dictionary:
 		assert(enemy_profile != null, "Combat V2 snapshot requires a known enemy profile")
 		enemy_name = enemy_profile.display_name
 	var next_action := _next_enemy_action()
+	var emergency := CombatV2Simulator.emergency_redeploy_overview(_state, _catalog)
 	return {
 		"prototype": "combat_v2",
 		"stage": progression.stage,
@@ -204,9 +226,22 @@ func snapshot() -> Dictionary:
 		"patches": patch_rows,
 		"unlocked_patch_slots": progression.unlocked_patch_slots,
 		"diagnosis": get_diagnosis(),
-		"waiting_for_recovery": _waiting_for_recovery(),
 		"prestige_available": progression.can_prestige,
+		"failure_count": _state.total_failure_count(),
+		"normal_failure_count": _state.normal_failure_count,
 		"boss_failure_count": progression.boss_failure_count,
+		"last_failure_reason": String(_state.last_failure_reason),
+		"maintenance_remaining": _state.maintenance_remaining,
+		"maintenance_reason": String(_state.last_failure_reason),
+		"qa_rescue_count": _state.qa_rescue_count,
+		"paid_redeploy_count": _state.paid_redeploy_count,
+		"emergency_spent_bits": _state.emergency_spent_bits,
+		"gross_bits": _state.total_bits_earned,
+		"net_bits": progression.bits,
+		"emergency_redeploy": emergency,
+		"emergency_redeploy_cost": float(emergency.cost),
+		"emergency_redeploy_available": bool(emergency.available),
+		"emergency_redeploy_remaining": int(emergency.remaining),
 		"free_patch_swaps": progression.free_patch_swaps,
 		"recent_events": _formatted_events(),
 		"combat_metrics": {
@@ -217,6 +252,12 @@ func snapshot() -> Dictionary:
 			"boss_healed": _state.total_boss_healed,
 			"enemies_defeated": _state.total_enemies_defeated,
 			"stages_cleared": _state.total_stages_cleared,
+			"failure_count": _state.total_failure_count(),
+			"normal_failure_count": _state.normal_failure_count,
+			"boss_failure_count": progression.boss_failure_count,
+			"qa_rescue_count": _state.qa_rescue_count,
+			"paid_redeploy_count": _state.paid_redeploy_count,
+			"emergency_spent_bits": _state.emergency_spent_bits,
 		},
 		"status_message": progression.status_message,
 		"last_error": _last_error,
@@ -292,8 +333,6 @@ func _mode() -> String:
 		return "maintenance"
 	if _is_boss():
 		return "boss"
-	if _waiting_for_recovery():
-		return "recovery_wait"
 	return "combat"
 
 
@@ -306,23 +345,10 @@ func _enemy_id() -> StringName:
 	return ids[(_state.progression.stage - 1) % ids.size()]
 
 
-func _waiting_for_recovery() -> bool:
-	return (
-		not _is_boss()
-		and not _state.progression.is_maintenance
-		and CombatV2Simulator.unlocked_operator_count(_state) > 0
-		and CombatV2Simulator.active_operator_count(_state) == 0
-	)
-
-
 func _next_enemy_action() -> Dictionary:
-	if _waiting_for_recovery():
-		var recovery := INF
-		for runtime: CombatV2State.OperatorRuntime in _state.operators:
-			if runtime.recovery_remaining > EPSILON:
-				recovery = minf(recovery, runtime.recovery_remaining)
-		return {"label": "자동 복구 대기", "seconds": recovery}
-	if _state.progression.is_maintenance or _state.progression.can_prestige:
+	if _state.progression.is_maintenance:
+		return {"label": "자동 재도전", "seconds": _state.maintenance_remaining}
+	if _state.progression.can_prestige:
 		return {"label": "공격 없음", "seconds": 0.0}
 	if _is_boss():
 		var candidates: Array[Dictionary] = [

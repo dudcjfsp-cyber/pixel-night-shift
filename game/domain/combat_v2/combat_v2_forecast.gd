@@ -26,6 +26,12 @@ static func estimate(
 	var initial_boss_healed := forecast_state.total_boss_healed
 	var initial_downs := forecast_state.total_down_count
 	var initial_damage_taken := forecast_state.total_damage_taken
+	var initial_failures := forecast_state.total_failure_count()
+	var initial_normal_failures := forecast_state.normal_failure_count
+	var initial_boss_failures := forecast_state.progression.boss_failure_count
+	var initial_qa_rescues := forecast_state.qa_rescue_count
+	var initial_paid_redeploys := forecast_state.paid_redeploy_count
+	var initial_emergency_spent := forecast_state.emergency_spent_bits
 	var initial_active_time := _total_active_time(forecast_state)
 	var observed_operator_count := CombatV2Simulator.unlocked_operator_count(forecast_state)
 
@@ -56,10 +62,27 @@ static func estimate(
 		),
 		"seconds": seconds,
 		"downs": forecast_state.total_down_count - initial_downs,
+		"ending_down_count": (
+			CombatV2Simulator.unlocked_operator_count(forecast_state)
+			- CombatV2Simulator.active_operator_count(forecast_state)
+		),
 		"damage_taken": forecast_state.total_damage_taken - initial_damage_taken,
 		"uptime": uptime,
 		"boss_healed": forecast_state.total_boss_healed - initial_boss_healed,
 		"bits_earned": forecast_state.progression.bits - initial_bits,
+		"failures": forecast_state.total_failure_count() - initial_failures,
+		"normal_failures": forecast_state.normal_failure_count - initial_normal_failures,
+		"boss_failures": (
+			forecast_state.progression.boss_failure_count - initial_boss_failures
+		),
+		"qa_rescues": forecast_state.qa_rescue_count - initial_qa_rescues,
+		"paid_redeploys": forecast_state.paid_redeploy_count - initial_paid_redeploys,
+		"emergency_spent_bits": (
+			forecast_state.emergency_spent_bits - initial_emergency_spent
+		),
+		"maintenance": forecast_state.progression.is_maintenance,
+		"maintenance_remaining": forecast_state.maintenance_remaining,
+		"last_failure_reason": String(forecast_state.last_failure_reason),
 		"encounter_changed": encounter_changed,
 	}
 
@@ -72,12 +95,9 @@ static func enemy_max_hp(
 	var patch_ids: Array[StringName] = state.progression.equipped_patch_ids
 	if patch_ids_override != null:
 		patch_ids = _validated_patch_ids(patch_ids_override, catalog)
-	var combat_stage := (
-		state.progression.stage - 1
-		if state.progression.is_maintenance
-		else state.progression.stage
-	)
-	var is_boss := combat_stage == catalog.balance.max_stage and not state.progression.is_maintenance
+	# Maintenance preserves the failed stage and its enemy HP for the retry.
+	var combat_stage := state.progression.stage
+	var is_boss := combat_stage == catalog.balance.max_stage
 	var modifiers := ProgressionRules.patch_modifiers(patch_ids, catalog.base_catalog)
 	return ProgressionRules.enemy_max_hp(
 		combat_stage,
@@ -134,6 +154,8 @@ static func _was_resolved(
 	encounter_changed: bool
 ) -> bool:
 	if not encounter_changed:
+		return false
+	if not initial_maintenance and state.progression.is_maintenance:
 		return false
 	var was_boss := initial_stage == catalog.balance.max_stage and not initial_maintenance
 	if was_boss:

@@ -31,6 +31,7 @@ var _enemy_bar: ProgressBar
 var _next_action_label: Label
 var _operator_labels: Array[Label] = []
 var _operator_bars: Array[ProgressBar] = []
+var _redeploy_buttons: Array[Button] = []
 var _diagnosis_label: Label
 var _patch_label: Label
 var _event_log: RichTextLabel
@@ -139,6 +140,14 @@ func _build_ui() -> void:
 		bar.show_percentage = false
 		row.add_child(bar)
 		_operator_bars.append(bar)
+		var captured_id := _operator_id
+		var redeploy := Button.new()
+		redeploy.name = "Redeploy_%s" % String(_operator_id)
+		redeploy.text = "EMERGENCY REDEPLOY"
+		redeploy.custom_minimum_size.y = 30.0
+		redeploy.pressed.connect(func() -> void: _emergency_redeploy(captured_id))
+		row.add_child(redeploy)
+		_redeploy_buttons.append(redeploy)
 
 	column.add_child(_section("동일 명령 적용"))
 	var upgrades := GridContainer.new()
@@ -252,6 +261,17 @@ func _equip_both(patch_id: StringName) -> void:
 	_refresh()
 
 
+func _emergency_redeploy(operator_id: StringName) -> void:
+	var accepted := _v2_session.emergency_redeploy(operator_id)
+	var snapshot := _v2_session.snapshot()
+	_status_label.text = (
+		"Emergency redeploy reserved: %s" % operator_id
+		if accepted
+		else "Emergency redeploy rejected: %s" % String(snapshot.get("last_error", ""))
+	)
+	_refresh()
+
+
 func _apply_baseline_decision(session: Variant) -> void:
 	var snapshot: Dictionary = session.snapshot()
 	_assert_snapshot_contract(snapshot, snapshot.has("prototype"))
@@ -317,10 +337,13 @@ func _refresh() -> void:
 	for index: int in OPERATOR_IDS.size():
 		var label := _operator_labels[index]
 		var bar := _operator_bars[index]
+		var redeploy := _redeploy_buttons[index]
+		redeploy.visible = _show_v2
 		if index >= operators.size():
 			label.text = "%s · 데이터 없음" % OPERATOR_IDS[index]
 			bar.max_value = 1.0
 			bar.value = 0.0
+			redeploy.disabled = true
 			continue
 		var item := operators[index] as Dictionary
 		var unlocked := bool(item.get("unlocked", false))
@@ -328,21 +351,39 @@ func _refresh() -> void:
 			label.text = "%s · 잠김" % String(item.get("name", OPERATOR_IDS[index]))
 			bar.max_value = 1.0
 			bar.value = 0.0
+			redeploy.disabled = true
 			continue
 		if _show_v2:
 			var hp := float(item.get("hp", 0.0))
 			var max_hp := maxf(0.001, float(item.get("max_hp", 0.001)))
 			var state_text := (
-				"DOWN · %.1fs 후 자동 복구" % float(item.get("recovery_remaining", 0.0))
-				if bool(item.get("down", false))
+				"PROCESS DOWN"
+				if bool(item.get("process_down", false))
 				else "공격 %.1fs" % float(item.get("attack_remaining", 0.0))
 			)
 			label.text = "%s · %s · LV %d · HP %.0f/%.0f · %s" % [
 				String(item.get("name", "")), String(item.get("role", "")),
 				int(item.get("level", 0)), hp, max_hp, state_text,
 			]
+			if bool(item.get("process_down", false)):
+				var source := String(item.get("recovery_source", ""))
+				var schedule := ""
+				if source != "":
+					schedule = " | %s %.1fs" % [
+						source, float(item.get("recovery_remaining", 0.0)),
+					]
+				label.text = "%s | %s | LV %d | PROCESS DOWN%s" % [
+					String(item.get("name", "")), String(item.get("role", "")),
+					int(item.get("level", 0)), schedule,
+				]
 			bar.max_value = max_hp
 			bar.value = clampf(hp, 0.0, max_hp)
+			var emergency := selected.get("emergency_redeploy", {}) as Dictionary
+			redeploy.text = "EMERGENCY REDEPLOY | %.0f bits | %d left" % [
+				float(emergency.get("cost", 0.0)),
+				int(emergency.get("remaining", 0)),
+			]
+			redeploy.disabled = not bool(item.get("redeploy_eligible", false))
 		else:
 			label.text = "%s · LV %d · DPS %.1f · 피격 없음" % [
 				String(item.get("name", "")), int(item.get("level", 0)),
@@ -350,6 +391,7 @@ func _refresh() -> void:
 			]
 			bar.max_value = 1.0
 			bar.value = 1.0
+			redeploy.disabled = true
 
 	var diagnosis := selected.get("diagnosis", {}) as Dictionary
 	_diagnosis_label.text = "%s\n%s" % [
@@ -362,8 +404,13 @@ func _refresh() -> void:
 	]
 	if _show_v2:
 		_event_log.text = "\n".join(PackedStringArray(selected.get("recent_events", [])))
-		if bool(selected.get("waiting_for_recovery", false)):
-			_status_label.text = "전원 DOWN · 자동 복구 대기 중 · 수동 입력 불필요"
+		if String(selected.get("last_error", "")) != "":
+			_status_label.text = "Command rejected: %s" % String(selected.get("last_error", ""))
+		elif String(selected.get("mode", "")) == "maintenance":
+			_status_label.text = "ATTEMPT FAILED | %s | retry in %.1fs" % [
+				String(selected.get("last_failure_reason", "unknown")),
+				float(selected.get("maintenance_remaining", 0.0)),
+			]
 	else:
 		_event_log.text = "CURRENT 기준: 연속 DPS로 적 HP만 감소합니다."
 
@@ -374,7 +421,12 @@ func _assert_snapshot_contract(snapshot: Dictionary, is_v2: bool) -> void:
 		"unlocked_patch_slots", "patches", "diagnosis",
 	]
 	if is_v2:
-		required.append_array(["waiting_for_recovery", "recent_events", "combat_metrics"])
+		required.append_array([
+			"recent_events", "combat_metrics", "failure_count", "normal_failure_count",
+			"boss_failure_count", "last_failure_reason", "emergency_spent_bits",
+			"paid_redeploy_count", "qa_rescue_count", "maintenance_remaining",
+			"maintenance_reason", "emergency_redeploy",
+		])
 	for key: String in required:
 		assert(snapshot.has(key), "Greybox snapshot is missing required field: %s" % key)
 	assert(snapshot["enemy"] is Dictionary, "Greybox enemy snapshot must be a Dictionary")
@@ -394,9 +446,19 @@ func _assert_snapshot_contract(snapshot: Dictionary, is_v2: bool) -> void:
 			assert(operator.has(key), "Greybox operator row is missing field: %s" % key)
 		if is_v2:
 			for key: String in [
-				"role", "hp", "max_hp", "down", "attack_remaining", "recovery_remaining",
+				"role", "hp", "max_hp", "down", "process_down", "attack_remaining",
+				"recovery_remaining", "recovery_source", "redeploy_eligible",
 			]:
 				assert(operator.has(key), "Combat V2 operator row is missing field: %s" % key)
+	if is_v2:
+		assert(snapshot["emergency_redeploy"] is Dictionary, "Emergency redeploy snapshot must be a Dictionary")
+		for key: String in ["cost", "available", "remaining", "reserved_operator_id"]:
+			assert((snapshot["emergency_redeploy"] as Dictionary).has(key), "Emergency redeploy is missing field: %s" % key)
 	assert(snapshot["diagnosis"] is Dictionary, "Greybox diagnosis must be a Dictionary")
 	for key: String in ["kind", "title", "evidence", "severity"]:
 		assert((snapshot["diagnosis"] as Dictionary).has(key), "Diagnosis is missing field: %s" % key)
+	if is_v2:
+		assert(
+			(snapshot["diagnosis"] as Dictionary).has("evidence_data"),
+			"Combat V2 diagnosis is missing evidence_data"
+		)

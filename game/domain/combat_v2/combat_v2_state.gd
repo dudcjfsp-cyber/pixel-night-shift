@@ -11,6 +11,7 @@ class OperatorRuntime:
 	var current_hp: float = 0.0
 	var attack_remaining: float = INF
 	var recovery_remaining: float = 0.0
+	var recovery_source: StringName = &""
 	var damage_dealt: float = 0.0
 	var damage_taken: float = 0.0
 	var down_count: int = 0
@@ -31,6 +32,7 @@ class OperatorRuntime:
 		copy.current_hp = current_hp
 		copy.attack_remaining = attack_remaining
 		copy.recovery_remaining = recovery_remaining
+		copy.recovery_source = recovery_source
 		copy.damage_dealt = damage_dealt
 		copy.damage_taken = damage_taken
 		copy.down_count = down_count
@@ -47,7 +49,21 @@ var enemy_pattern_step: int = 0
 var enemy_locked_target_id: StringName = &""
 var boss_special_remaining: float = INF
 var boss_rollback_remaining: float = INF
-var qa_pulse_remaining: float = INF
+
+var attempt_serial: int = 1
+var maintenance_remaining: float = 0.0
+var normal_failure_count: int = 0
+var last_failure_reason: StringName = &""
+
+var qa_rescue_consumed: bool = false
+var qa_recovery_target_id: StringName = &""
+var qa_rescue_count: int = 0
+
+var emergency_redeploy_used: bool = false
+var emergency_redeploy_target_id: StringName = &""
+var paid_redeploy_count: int = 0
+var emergency_spent_bits: float = 0.0
+var total_bits_earned: float = 0.0
 
 var encounter_serial: int = 0
 var total_elapsed: float = 0.0
@@ -81,6 +97,10 @@ func operator_index(operator_id: StringName) -> int:
 	return -1
 
 
+func total_failure_count() -> int:
+	return normal_failure_count + progression.boss_failure_count
+
+
 func record_event(kind: StringName, details: Dictionary = {}) -> void:
 	var event := details.duplicate(true)
 	event["kind"] = kind
@@ -112,7 +132,18 @@ func deep_clone() -> CombatV2State:
 	copy.enemy_locked_target_id = enemy_locked_target_id
 	copy.boss_special_remaining = boss_special_remaining
 	copy.boss_rollback_remaining = boss_rollback_remaining
-	copy.qa_pulse_remaining = qa_pulse_remaining
+	copy.attempt_serial = attempt_serial
+	copy.maintenance_remaining = maintenance_remaining
+	copy.normal_failure_count = normal_failure_count
+	copy.last_failure_reason = last_failure_reason
+	copy.qa_rescue_consumed = qa_rescue_consumed
+	copy.qa_recovery_target_id = qa_recovery_target_id
+	copy.qa_rescue_count = qa_rescue_count
+	copy.emergency_redeploy_used = emergency_redeploy_used
+	copy.emergency_redeploy_target_id = emergency_redeploy_target_id
+	copy.paid_redeploy_count = paid_redeploy_count
+	copy.emergency_spent_bits = emergency_spent_bits
+	copy.total_bits_earned = total_bits_earned
 
 	copy.encounter_serial = encounter_serial
 	copy.total_elapsed = total_elapsed
