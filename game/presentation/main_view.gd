@@ -28,6 +28,7 @@ const TAB_OPERATORS := 0
 const TAB_PATCHES := 1
 const TAB_VERSION := 2
 const SNAPSHOT_REFRESH_INTERVAL := 0.12
+const MAX_VISIBLE_APPEALS := 2
 
 const REQUIRED_SNAPSHOT_KEYS: PackedStringArray = [
 	"stage",
@@ -80,6 +81,10 @@ var _diagnosis_panel: PanelContainer
 var _diagnosis_icon: TextureRect
 var _diagnosis_action_button: Button
 var _diagnosis_severity: String = "info"
+var _appeal_panel: PanelContainer
+var _appeal_cards: Array[Button] = []
+var _appeal_acknowledgment_label: Label
+var _selected_appeal_operator_id := ""
 var _feedback_label: Label
 
 var _tab_buttons: Array[Button] = []
@@ -353,6 +358,45 @@ func _build_diagnosis_panel() -> void:
 	row.add_child(_diagnosis_action_button)
 
 
+func _build_appeal_panel(parent: VBoxContainer) -> void:
+	_appeal_panel = _make_panel(Color("172437"), COLOR_YELLOW)
+	_appeal_panel.name = "OperatorAppealPanel"
+	_appeal_panel.visible = false
+	parent.add_child(_appeal_panel)
+	var margin := MarginContainer.new()
+	_add_margins(margin, 6, 6, 4, 4)
+	_appeal_panel.add_child(margin)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 3)
+	margin.add_child(column)
+	var title := _make_label("현장 의견 · 사실 확인 후 판단", 10)
+	title.add_theme_color_override("font_color", COLOR_YELLOW)
+	column.add_child(title)
+	var cards := VBoxContainer.new()
+	cards.name = "OperatorAppealCards"
+	cards.add_theme_constant_override("separation", 4)
+	column.add_child(cards)
+	for index: int in range(MAX_VISIBLE_APPEALS):
+		var card := _make_button("", 8)
+		card.name = "OperatorAppealCard%d" % index
+		card.custom_minimum_size.y = 64.0
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		card.expand_icon = true
+		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+		card.pressed.connect(_on_appeal_pressed.bind(index))
+		cards.add_child(card)
+		_appeal_cards.append(card)
+	_appeal_acknowledgment_label = _make_label("", 9)
+	_appeal_acknowledgment_label.name = "OperatorAppealAcknowledgment"
+	_appeal_acknowledgment_label.custom_minimum_size.y = 18.0
+	_appeal_acknowledgment_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_appeal_acknowledgment_label.add_theme_color_override("font_color", COLOR_GREEN)
+	_appeal_acknowledgment_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_appeal_acknowledgment_label)
+
+
 func _build_tabs() -> void:
 	var tab_row := HBoxContainer.new()
 	tab_row.custom_minimum_size.y = 48.0
@@ -391,6 +435,7 @@ func _build_operator_page(page_host: Control) -> void:
 	_operator_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_operator_list.add_theme_constant_override("separation", 4)
 	scroll.add_child(_operator_list)
+	_build_appeal_panel(_operator_list)
 
 
 func _build_patch_page(page_host: Control) -> void:
@@ -522,6 +567,7 @@ func _refresh_from_session() -> void:
 	_refresh_header()
 	_refresh_battle(previous_snapshot)
 	_refresh_diagnosis()
+	_refresh_appeals()
 	_refresh_operators()
 	_refresh_patches()
 	_refresh_version_page()
@@ -593,6 +639,24 @@ func _validate_snapshot(data: Dictionary) -> String:
 		]:
 			if not diagnosis["evidence_data"].has(key):
 				return "Combat V2 diagnosis.evidence_data.%s is missing." % key
+		for key: String in ["appeals", "appeal_acknowledgment", "appeal_stats", "appeal_rule_count"]:
+			if not data.has(key):
+				return "Combat V2 snapshot.%s is missing." % key
+		if not (data["appeals"] is Array) or data["appeals"].size() > 2:
+			return "Combat V2 appeals must be an Array with at most two entries."
+		for appeal: Variant in data["appeals"]:
+			if not (appeal is Dictionary):
+				return "Combat V2 appeal entry must be a Dictionary."
+			for key: String in [
+				"rule_id", "operator_id", "operator_name", "role", "observation", "request",
+			]:
+				if not appeal.has(key) or String(appeal[key]).is_empty():
+					return "Combat V2 appeal.%s is missing or empty." % key
+		if not (data["appeal_stats"] is Dictionary):
+			return "Combat V2 appeal_stats must be a Dictionary."
+		for key: String in ["shown", "accepted", "ignored", "unresolved"]:
+			if not data["appeal_stats"].has(key):
+				return "Combat V2 appeal_stats.%s is missing." % key
 
 	return ""
 
@@ -658,6 +722,34 @@ func _set_diagnosis_error(message: String) -> void:
 	_show_feedback("진단 화면 오류: %s" % message, true)
 
 
+func _refresh_appeals() -> void:
+	var is_v2 := bool(_snapshot["combat_v2_test_mode"])
+	if not is_v2:
+		_appeal_panel.visible = false
+		_selected_appeal_operator_id = ""
+		return
+	var appeals := _snapshot["appeals"] as Array
+	var acknowledgment := String(_snapshot["appeal_acknowledgment"])
+	_appeal_panel.visible = not appeals.is_empty() or not acknowledgment.is_empty()
+	_appeal_acknowledgment_label.text = acknowledgment
+	_appeal_acknowledgment_label.visible = not acknowledgment.is_empty()
+	for index: int in range(_appeal_cards.size()):
+		var card := _appeal_cards[index]
+		card.visible = index < appeals.size()
+		if not card.visible:
+			continue
+		var appeal := appeals[index] as Dictionary
+		card.icon = ASSETS.operator_texture(StringName(String(appeal["operator_id"])))
+		card.text = "%s · %s\n%s\n%s" % [
+			String(appeal["operator_name"]),
+			String(appeal["role"]),
+			String(appeal["observation"]),
+			String(appeal["request"]),
+		]
+		card.tooltip_text = "요원 카드 검토: %s" % String(appeal["operator_name"])
+		_set_button_selected(card, String(appeal["operator_id"]) == _selected_appeal_operator_id)
+
+
 func _refresh_operators() -> void:
 	for item: Variant in _snapshot["operators"]:
 		var operator_data: Dictionary = item
@@ -666,6 +758,7 @@ func _refresh_operators() -> void:
 			_create_operator_row(operator_data)
 
 		var row_data: Dictionary = _operator_rows[operator_id]
+		var panel: PanelContainer = row_data["panel"]
 		var info_label: Label = row_data["info"]
 		var upgrade_button: Button = row_data["button"]
 		var redeploy_button: Button = row_data["redeploy"]
@@ -708,11 +801,20 @@ func _refresh_operators() -> void:
 			else:
 				redeploy_button.text = "%s\n%.1fs" % [recovery_source.to_upper(), float(operator_data["recovery_remaining"])]
 				redeploy_button.disabled = true
+		panel.add_theme_stylebox_override(
+			"panel",
+			_make_style(
+				Color("1b3044") if operator_id == _selected_appeal_operator_id else COLOR_PANEL,
+				COLOR_YELLOW if operator_id == _selected_appeal_operator_id else COLOR_BORDER,
+				2 if operator_id == _selected_appeal_operator_id else 1
+			)
+		)
 
 
 func _create_operator_row(operator_data: Dictionary) -> void:
 	var operator_id := String(operator_data["id"])
 	var panel := _make_panel(COLOR_PANEL, COLOR_BORDER)
+	panel.name = "OperatorCard_%s" % operator_id
 	panel.custom_minimum_size.y = 62.0
 	_operator_list.add_child(panel)
 
@@ -757,6 +859,7 @@ func _create_operator_row(operator_data: Dictionary) -> void:
 	upgrade_effect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	upgrade_effect.configure(panel, portrait)
 	_operator_rows[operator_id] = {
+		"panel": panel,
 		"info": info,
 		"button": button,
 		"redeploy": redeploy,
@@ -942,6 +1045,21 @@ func _on_diagnosis_action_pressed() -> void:
 	_audio_director.play_cue(&"ui_move")
 	_show_tab(TAB_PATCHES)
 	_show_feedback("진단 근거와 패치의 장단점을 비교하세요.", false)
+
+
+func _on_appeal_pressed(index: int) -> void:
+	if not bool(_snapshot.get("combat_v2_test_mode", false)):
+		return
+	var appeals := _snapshot["appeals"] as Array
+	if index < 0 or index >= appeals.size():
+		push_error("Appeal selection index is out of range: %d" % index)
+		return
+	_selected_appeal_operator_id = String((appeals[index] as Dictionary)["operator_id"])
+	_audio_director.play_cue(&"ui_move")
+	_show_tab(TAB_OPERATORS)
+	_refresh_appeals()
+	_refresh_operators()
+	_show_feedback("현장 의견을 검토 중입니다. 강화는 기존 버튼으로만 실행됩니다.", false)
 
 
 func _on_operations_room_pressed() -> void:

@@ -42,6 +42,12 @@ func _ready() -> void:
 		_data.qa_rescues, _data.paid_redeploy_count, _data.emergency_spent_bits,
 	])
 	_add_row(summary_column, "비트", "획득 %.0f · 잔여 %.0f" % [_data.gross_bits, _data.net_bits])
+	_add_row(summary_column, "현장 의견 활용", "표시 %d · 반영 %d · 미반영 %d · 미결 %d" % [
+		_data.appeals_shown,
+		_data.appeals_accepted,
+		_data.appeals_ignored,
+		_data.appeals_unresolved,
+	])
 	_add_row(summary_column, "최종 레벨", "D%d · B%d · S%d · Q%d" % [
 		int(_data.operator_levels["debugger"]),
 		int(_data.operator_levels["build_engineer"]),

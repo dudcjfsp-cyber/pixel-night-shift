@@ -146,6 +146,20 @@ func _test_v2_save_boundary() -> void:
 	var second_restore := CombatV2IntegrationSession.new()
 	_check(second_restore.restore_state(second_load.session_data).is_empty(), "second V2 load must restore")
 	_check(second_restore.export_state() == roundtrip, "V2 canonical roundtrip must be stable")
+	var legacy_state := exported.duplicate(true)
+	legacy_state.erase("appeals")
+	_write_json(repository.primary_path(), _outer_envelope({
+		"v2_schema_version": 1,
+		"state": legacy_state,
+	}))
+	var migrated := repository.load()
+	_check(migrated.status == SaveLoadResult.Status.LOADED, "V2 schema 1 must migrate explicitly")
+	_check(migrated.session_data.has("appeals"), "V2 schema 1 migration must add durable appeal state")
+	var migrated_session := CombatV2IntegrationSession.new()
+	_check(
+		migrated_session.restore_state(migrated.session_data).is_empty(),
+		"migrated V2 schema 1 state must pass candidate validation"
+	)
 
 	var before := restored.export_state()
 	var invalid := before.duplicate(true)
@@ -186,6 +200,12 @@ func _test_commands_and_state_ui() -> void:
 	await _click_named(app, "EquipPatchButton")
 	_check(String(app.session_snapshot()["patch_slots"][0]) == "frame_skip", "pointer patch command must reach V2 forecast/session")
 	_check("현재/예상 다운" in _visible_text(app), "V2 diagnosis must render structured simulator evidence")
+	var appeal_card := app.find_child("OperatorAppealCard0", true, false) as Button
+	_check(appeal_card != null and appeal_card.visible and appeal_card.size.y >= 44.0, "appeal pointer target must be visible and at least 44px")
+	if appeal_card != null and appeal_card.visible:
+		appeal_card.pressed.emit()
+		await process_frame
+		_check(app.last_gameplay_tab() == 0, "appeal review must focus the operator tab without auto-purchase")
 	await _unmount(app)
 
 	for fixture_name: StringName in [&"qa", &"emergency", &"maintenance"]:
@@ -240,7 +260,7 @@ func _test_result_and_default() -> void:
 	await _click_named(app, "PrimaryActionButton")
 	_check(app.current_screen_id() == AppRoot.SCREEN_COMBAT_V2_RESULT, "completed stage 10 must route to read-only result")
 	var result_text := _visible_text(app)
-	for required: String in ["COMBAT V2 테스트 결과", "실패", "복구", "비트", "최종 레벨", "주요 진단 이력", "패치 이력"]:
+	for required: String in ["COMBAT V2 테스트 결과", "실패", "복구", "비트", "현장 의견 활용", "최종 레벨", "주요 진단 이력", "패치 이력"]:
 		_check(required in result_text, "result must show '%s'" % required)
 	await _click_named(app, "OperationsRoomButton")
 	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "result must return to Operations Room")
@@ -260,6 +280,7 @@ func _test_result_and_default() -> void:
 	_check(production.load_calls == 1 and unused_v2.load_calls == 0, "default launch must use only production save")
 	await _click_named(default_app, "PrimaryActionButton")
 	_check(not bool(default_app.session_snapshot()["combat_v2_test_mode"]), "default First Shift must create production GameSession")
+	_check(not default_app.session_snapshot().has("appeals"), "default production snapshot must not expose V2 appeal state")
 	var content := ContentLoader.load_default()
 	_check(
 		content.is_valid() and ProgressionRules.is_boss_stage(20)

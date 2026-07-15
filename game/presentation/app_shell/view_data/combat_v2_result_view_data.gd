@@ -13,6 +13,10 @@ var net_bits: float
 var operator_levels: Dictionary
 var diagnosis_history: Array[String]
 var patch_history: Array[String]
+var appeals_shown: int
+var appeals_accepted: int
+var appeals_ignored: int
+var appeals_unresolved: int
 
 
 func _init(source: Dictionary) -> void:
@@ -20,6 +24,7 @@ func _init(source: Dictionary) -> void:
 		"clear_time", "normal_failures", "boss_failures", "total_failures", "qa_rescues",
 		"paid_redeploy_count", "emergency_spent_bits", "gross_bits", "net_bits",
 		"operator_levels", "diagnosis_history", "patch_history",
+		"appeals_shown", "appeals_accepted", "appeals_ignored", "appeals_unresolved",
 	]
 	for key: String in required:
 		assert(source.has(key), "Combat V2 result is missing '%s'" % key)
@@ -35,6 +40,10 @@ func _init(source: Dictionary) -> void:
 	operator_levels = (source["operator_levels"] as Dictionary).duplicate(true)
 	diagnosis_history = _string_array(source["diagnosis_history"] as Array)
 	patch_history = _string_array(source["patch_history"] as Array)
+	appeals_shown = int(source["appeals_shown"])
+	appeals_accepted = int(source["appeals_accepted"])
+	appeals_ignored = int(source["appeals_ignored"])
+	appeals_unresolved = int(source["appeals_unresolved"])
 	var errors := validation_errors()
 	assert(errors.is_empty(), "Invalid Combat V2 result: %s" % "; ".join(errors))
 
@@ -51,11 +60,15 @@ func validation_errors() -> PackedStringArray:
 		["normal_failures", normal_failures], ["boss_failures", boss_failures],
 		["total_failures", total_failures], ["qa_rescues", qa_rescues],
 		["paid_redeploy_count", paid_redeploy_count],
+		["appeals_shown", appeals_shown], ["appeals_accepted", appeals_accepted],
+		["appeals_ignored", appeals_ignored], ["appeals_unresolved", appeals_unresolved],
 	]:
 		if int(pair[1]) < 0:
 			errors.append("%s cannot be negative" % pair[0])
 	if total_failures != normal_failures + boss_failures:
 		errors.append("total_failures must equal normal plus boss failures")
+	if appeals_shown != appeals_accepted + appeals_ignored + appeals_unresolved:
+		errors.append("appeal counters must partition appeals_shown")
 	for operator_id: StringName in CombatV2Catalog.STABLE_OPERATOR_IDS:
 		var key := String(operator_id)
 		if not operator_levels.has(key) or int(operator_levels[key]) < 1:

@@ -1,9 +1,14 @@
 class_name CombatV2TestSaveRepository
 extends RefCounted
 
-const CURRENT_SCHEMA_VERSION := 1
+const CURRENT_SCHEMA_VERSION := 2
+const LEGACY_SCHEMA_VERSION := 1
 const DEFAULT_BASE_DIR := "user://pixel_night_shift_combat_v2_test"
 const REQUIRED_PAYLOAD_KEYS: PackedStringArray = ["v2_schema_version", "state"]
+const LEGACY_STATE_KEYS: PackedStringArray = ["combat", "diagnosis_history", "patch_history"]
+const APPEAL_STATE_DTO: GDScript = preload(
+	"res://game/persistence/combat_v2_appeal_state_dto.gd"
+)
 
 var _storage: SaveRepository
 
@@ -70,6 +75,11 @@ func _unwrap(stored: SaveLoadResult) -> SaveLoadResult:
 					% [version, CURRENT_SCHEMA_VERSION],
 				])
 			)
+		if version == LEGACY_SCHEMA_VERSION:
+			var migration_errors := _validate_legacy_payload(payload)
+			if not migration_errors.is_empty():
+				return _error_result(SaveLoadResult.Status.CORRUPT, stored, migration_errors)
+			payload = _migrate_v1_payload(payload)
 	var errors := _validate_payload(payload)
 	if not errors.is_empty():
 		return _error_result(SaveLoadResult.Status.CORRUPT, stored, errors)
@@ -81,6 +91,40 @@ func _unwrap(stored: SaveLoadResult) -> SaveLoadResult:
 	result.errors = stored.errors.duplicate()
 	result.session_data = (payload["state"] as Dictionary).duplicate(true)
 	return result
+
+
+func _validate_legacy_payload(payload: Dictionary) -> PackedStringArray:
+	var errors := PackedStringArray()
+	for key: String in REQUIRED_PAYLOAD_KEYS:
+		if not payload.has(key):
+			errors.append("%s: required Combat V2 payload field is missing" % key)
+	for raw_key: Variant in payload.keys():
+		if typeof(raw_key) != TYPE_STRING or not REQUIRED_PAYLOAD_KEYS.has(String(raw_key)):
+			errors.append("%s: unexpected Combat V2 payload field" % String(raw_key))
+	if not errors.is_empty():
+		return errors
+	if not _is_integer_number(payload["v2_schema_version"]) or int(payload["v2_schema_version"]) != 1:
+		errors.append("v2_schema_version must equal legacy schema 1")
+	if typeof(payload["state"]) != TYPE_DICTIONARY:
+		errors.append("state must be an object")
+		return errors
+	var state := payload["state"] as Dictionary
+	for key: String in LEGACY_STATE_KEYS:
+		if not state.has(key):
+			errors.append("state.%s: required legacy field is missing" % key)
+	for raw_key: Variant in state.keys():
+		if typeof(raw_key) != TYPE_STRING or not LEGACY_STATE_KEYS.has(String(raw_key)):
+			errors.append("state.%s: unexpected legacy field" % String(raw_key))
+	return errors
+
+
+func _migrate_v1_payload(payload: Dictionary) -> Dictionary:
+	var migrated_state := (payload["state"] as Dictionary).duplicate(true)
+	migrated_state["appeals"] = APPEAL_STATE_DTO.default_state()
+	return {
+		"v2_schema_version": CURRENT_SCHEMA_VERSION,
+		"state": migrated_state,
+	}
 
 
 func _validate_payload(payload: Dictionary) -> PackedStringArray:

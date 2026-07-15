@@ -32,6 +32,9 @@ func _capture_all() -> void:
 	errors += await _capture_fixture(output, &"qa", "02_combat_hp_down.png")
 	errors += await _capture_fixture(output, &"emergency", "03_emergency_selection.png")
 	errors += await _capture_fixture(output, &"maintenance", "04_maintenance_countdown.png")
+	errors += await _capture_fixture(output, &"appeal_diagnosis", "06_diagnosis_appeal.png")
+	errors += await _capture_fixture(output, &"appeal_failure", "07_failure_conflicting_appeals.png")
+	errors += await _capture_fixture(output, &"appeal_ack", "08_upgrade_acknowledgment.png")
 	errors += await _capture_result(output)
 	print("Combat V2 integration captures: %s" % output)
 	quit(0 if errors == 0 else 1)
@@ -67,6 +70,26 @@ func _capture_fixture(output: String, kind: StringName, filename: String) -> int
 		push_error("%s capture did not reach V2 gameplay." % kind)
 		await _unmount(app)
 		return 1
+	var snapshot := app.session_snapshot()
+	if kind == &"appeal_failure" and (snapshot["appeals"] as Array).size() != 2:
+		push_error("Failure appeal capture requires exactly two restored opinions.")
+		await _unmount(app)
+		return 1
+	if kind == &"appeal_ack" and String(snapshot["appeal_acknowledgment"]).is_empty():
+		push_error("Acknowledgment capture requires restored acknowledgment text.")
+		await _unmount(app)
+		return 1
+	if kind == &"appeal_ack":
+		var acknowledgment := app.find_child("OperatorAppealAcknowledgment", true, false) as Label
+		if (
+			acknowledgment == null
+			or not acknowledgment.is_visible_in_tree()
+			or acknowledgment.text.is_empty()
+			or acknowledgment.size.y < 18.0
+		):
+			push_error("Acknowledgment capture requires a visible one-line label.")
+			await _unmount(app)
+			return 1
 	var errors := await _save_capture(output.path_join(filename))
 	await _unmount(app)
 	return errors
@@ -90,7 +113,7 @@ func _capture_result(output: String) -> int:
 		push_error("Result capture did not reach the Combat V2 result screen.")
 		await _unmount(app)
 		return 1
-	var errors := await _save_capture(output.path_join("05_stage10_result.png"))
+	var errors := await _save_capture(output.path_join("09_stage10_appeal_summary.png"))
 	await _unmount(app)
 	return errors
 
@@ -155,7 +178,7 @@ func _fixture_session(kind: StringName) -> CombatV2IntegrationSession:
 			target.recovery_source = &"qa"
 			target.recovery_remaining = 4.0
 			state.qa_recovery_target_id = &"build_engineer"
-	elif kind == &"maintenance":
+	elif kind in [&"maintenance", &"appeal_failure"]:
 		for runtime: CombatV2State.OperatorRuntime in state.operators:
 			if state.progression.is_operator_unlocked(runtime.operator_id):
 				runtime.current_hp = 0.0
@@ -167,7 +190,26 @@ func _fixture_session(kind: StringName) -> CombatV2IntegrationSession:
 		state.enemy_locked_target_id = &""
 	var restore_errors := prototype.restore_state(CombatV2StateDto.export_state(state))
 	assert(restore_errors.is_empty(), "; ".join(restore_errors))
-	return CombatV2IntegrationSession.new(prototype)
+	var integration := CombatV2IntegrationSession.new(prototype)
+	if kind == &"appeal_failure":
+		var exported := integration.export_state()
+		var appeal_state := exported["appeals"] as Dictionary
+		appeal_state["current_rule_ids"] = [
+			"debugger_normal_failure", "sprite_normal_failure",
+		]
+		appeal_state["shown_count"] = 2
+		appeal_state["accepted_count"] = 0
+		appeal_state["dismissed_count"] = 0
+		appeal_state["current_trigger_priority"] = 90
+		var restored := CombatV2IntegrationSession.new()
+		assert(restored.restore_state(exported).is_empty())
+		return restored
+	if kind == &"appeal_ack":
+		var appeals := integration.snapshot()["appeals"] as Array
+		assert(not appeals.is_empty(), "acknowledgment capture requires an appeal")
+		var operator_id := StringName(String((appeals[0] as Dictionary)["operator_id"]))
+		assert(integration.upgrade_operator(operator_id), "acknowledgment capture upgrade failed")
+	return integration
 
 
 func _drive_to_stage(session: CombatV2PrototypeSession, target_stage: int) -> void:

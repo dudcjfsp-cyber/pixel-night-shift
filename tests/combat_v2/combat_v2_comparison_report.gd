@@ -1,7 +1,7 @@
 extends SceneTree
 
 const CurrentSessionScript := preload("res://game/app/game_session.gd")
-const V2SessionScript := preload("res://game/app/combat_v2_prototype_session.gd")
+const V2SessionScript := preload("res://game/app/combat_v2_integration_session.gd")
 const ContentLoaderScript := preload("res://game/content/content_loader.gd")
 const ProgressionRulesScript := preload("res://game/domain/progression_rules.gd")
 
@@ -10,11 +10,19 @@ const DECISION_INTERVAL := 60.0
 const MAX_SECONDS := 1800.0
 const EPSILON := 0.000001
 
-const POLICIES: Array[String] = [
+const CURRENT_POLICIES: Array[String] = [
 	"debugger_focus",
 	"cheapest",
 	"balanced",
 	"diagnosis_follow",
+]
+const V2_POLICIES: Array[String] = [
+	"debugger_focus",
+	"cheapest",
+	"balanced",
+	"diagnosis_follow",
+	"appeal_only",
+	"diagnosis_plus_appeal",
 ]
 const OPERATOR_IDS: Array[StringName] = [
 	&"debugger",
@@ -36,9 +44,9 @@ func _init() -> void:
 
 func _run() -> void:
 	var results: Array[Dictionary] = []
-	for policy: String in POLICIES:
+	for policy: String in CURRENT_POLICIES:
 		results.append(simulate_current_policy(policy))
-	for policy: String in POLICIES:
+	for policy: String in V2_POLICIES:
 		results.append(simulate_v2_policy(policy))
 
 	print("Pixel Night Shift - CURRENT / Combat V2 policy comparison")
@@ -72,7 +80,7 @@ static func simulate_current_policy(policy: String) -> Dictionary:
 
 static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> Dictionary:
 	var engine := "V2" if is_v2 else "CURRENT"
-	if not POLICIES.has(policy):
+	if not (V2_POLICIES if is_v2 else CURRENT_POLICIES).has(policy):
 		return _invalid_result(engine, policy, "unknown policy")
 
 	var load_result: ContentLoadResult = ContentLoaderScript.load_default()
@@ -93,6 +101,7 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 	var has_initial_bits := false
 	var previous_mode := ""
 	var last_snapshot: Dictionary = {}
+	var decision_interval := 5.0 if policy in ["appeal_only", "diagnosis_plus_appeal"] else DECISION_INTERVAL
 
 	while elapsed <= MAX_SECONDS + EPSILON:
 		last_snapshot = session.snapshot()
@@ -180,7 +189,7 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 					)
 				)
 			command_spent_bits += maxf(0.0, bits_before_decision - bits_after_decision)
-			next_decision += DECISION_INTERVAL
+			next_decision += decision_interval
 
 		session.tick(STEP)
 		elapsed += STEP
@@ -273,7 +282,45 @@ static func _choose_upgrade(
 			return _choose_lowest_level(affordable)
 		"diagnosis_follow":
 			return _choose_from_diagnosis(snapshot, affordable, catalog)
+		"appeal_only":
+			return _choose_from_appeals(snapshot, affordable, false)
+		"diagnosis_plus_appeal":
+			return _choose_from_appeals(snapshot, affordable, true)
 	return &""
+
+
+static func _choose_from_appeals(
+	snapshot: Dictionary,
+	affordable: Dictionary,
+	require_diagnosis_alignment: bool
+) -> StringName:
+	var diagnosis_kind := String((snapshot["diagnosis"] as Dictionary)["kind"])
+	for raw_appeal: Variant in snapshot["appeals"] as Array:
+		var appeal := raw_appeal as Dictionary
+		var operator_id := StringName(String(appeal["operator_id"]))
+		if not affordable.has(operator_id):
+			continue
+		if require_diagnosis_alignment and not _role_aligns_with_diagnosis(
+			operator_id, diagnosis_kind
+		):
+			continue
+		return operator_id
+	return &""
+
+
+static func _role_aligns_with_diagnosis(operator_id: StringName, diagnosis_kind: String) -> bool:
+	match operator_id:
+		&"debugger":
+			return diagnosis_kind in [
+				"incoming_damage", "recovery_delay", "maintenance", "wipe_risk", "patch_tradeoff",
+			]
+		&"build_engineer":
+			return diagnosis_kind in ["firepower", "boss_rollback"]
+		&"sprite_artist":
+			return diagnosis_kind in ["firepower", "stable"]
+		&"qa_imp":
+			return diagnosis_kind in ["incoming_damage", "recovery_delay", "maintenance", "wipe_risk"]
+	return false
 
 
 static func _affordable_rows(snapshot: Dictionary) -> Dictionary:
@@ -418,6 +465,10 @@ static func _completed_result(
 		"operator_uptime": {},
 		"operator_down_count": {},
 		"operator_down_seconds": {},
+		"appeals_shown": 0,
+		"appeals_accepted": 0,
+		"appeals_ignored": 0,
+		"appeal_rule_count": 0,
 	}
 	if is_v2:
 		if paid_redeploys != 0 or emergency_spent_bits > EPSILON:
@@ -431,6 +482,11 @@ static func _completed_result(
 		result["operator_uptime"] = counters["operator_uptime"]
 		result["operator_down_count"] = counters["operator_down_count"]
 		result["operator_down_seconds"] = counters["operator_down_seconds"]
+		var appeal_stats := snapshot["appeal_stats"] as Dictionary
+		result["appeals_shown"] = int(appeal_stats["shown"])
+		result["appeals_accepted"] = int(appeal_stats["accepted"])
+		result["appeals_ignored"] = int(appeal_stats["ignored"])
+		result["appeal_rule_count"] = int(snapshot["appeal_rule_count"])
 	return result
 
 
@@ -523,6 +579,8 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 				"gross_bits",
 				"net_bits",
 				"combat_metrics",
+				"appeals",
+				"appeal_stats",
 			],
 			"snapshot",
 			errors
@@ -743,7 +801,7 @@ static func _invalid_result(engine: String, policy: String, error: String) -> Di
 static func _print_table(results: Array[Dictionary]) -> void:
 	print(
 		"ENGINE  POLICY             ST10(s)  CLEAR(s)  NF  BF  TF  QA  PAID  "
-		+ "SPENT   GROSS  NET    VALUE  LEVELS          V2 UPTIME             V2 DOWNS"
+		+ "SPENT   GROSS  NET    VALUE  LEVELS          AP(S/A/I)  V2 UPTIME             V2 DOWNS"
 	)
 	for result: Dictionary in results:
 		if not bool(result["valid"]):
@@ -755,10 +813,16 @@ static func _print_table(results: Array[Dictionary]) -> void:
 			continue
 		var uptime_text := "-"
 		var downs_text := "-"
+		var appeals_text := "-"
 		if String(result["engine"]) == "V2":
 			uptime_text = _uptime_text(result["operator_uptime"] as Dictionary)
 			downs_text = _downs_text(result["operator_down_count"] as Dictionary)
-		print("%-7s %-18s %7.2f  %8.2f  %2d  %2d  %2d  %2d  %4d  %6.0f  %5.0f  %5.0f  %5.0f  %-15s %-21s %s" % [
+			appeals_text = "%d/%d/%d" % [
+				int(result["appeals_shown"]),
+				int(result["appeals_accepted"]),
+				int(result["appeals_ignored"]),
+			]
+		print("%-7s %-22s %7.2f  %8.2f  %2d  %2d  %2d  %2d  %4d  %6.0f  %5.0f  %5.0f  %5.0f  %-15s %-10s %-21s %s" % [
 			String(result["engine"]),
 			String(result["policy"]),
 			float(result["stage_10_arrival"]),
@@ -773,6 +837,7 @@ static func _print_table(results: Array[Dictionary]) -> void:
 			float(result["net_bits"]),
 			float(result["total_value"]),
 			_levels_text(result["operator_levels"] as Dictionary),
+			appeals_text,
 			uptime_text,
 			downs_text,
 		])
@@ -810,7 +875,7 @@ static func _check_anti_debugger(results: Array[Dictionary]) -> bool:
 	for result: Dictionary in results:
 		if String(result["engine"]) == "V2" and bool(result["valid"]):
 			v2_results[String(result["policy"])] = result
-	if v2_results.size() != POLICIES.size():
+	if v2_results.size() != V2_POLICIES.size():
 		print("FAIL: anti-debugger matrix requires every valid V2 policy result")
 		return false
 
@@ -818,7 +883,7 @@ static func _check_anti_debugger(results: Array[Dictionary]) -> bool:
 	var dominates_all := true
 	var strict_any := false
 	var threshold_pass := false
-	for policy: String in POLICIES:
+	for policy: String in V2_POLICIES:
 		if policy == "debugger_focus":
 			continue
 		var candidate := v2_results[policy] as Dictionary
@@ -858,13 +923,15 @@ static func _report_product_risks(results: Array[Dictionary]) -> void:
 	for result: Dictionary in results:
 		if String(result["engine"]) == "V2" and bool(result["valid"]):
 			v2_results[String(result["policy"])] = result
-	if v2_results.size() != POLICIES.size():
+	if v2_results.size() != V2_POLICIES.size():
 		print("RISK CHECK SKIPPED: product risks require every valid V2 policy result")
 		return
 
 	var focus := v2_results["debugger_focus"] as Dictionary
 	var balanced := v2_results["balanced"] as Dictionary
 	var diagnosis := v2_results["diagnosis_follow"] as Dictionary
+	var appeal_only := v2_results["appeal_only"] as Dictionary
+	var diagnosis_appeal := v2_results["diagnosis_plus_appeal"] as Dictionary
 	var focus_time := float(focus["clear_time"])
 	var balanced_time := float(balanced["clear_time"])
 	var diagnosis_time := float(diagnosis["clear_time"])
@@ -918,9 +985,10 @@ static func _report_product_risks(results: Array[Dictionary]) -> void:
 			"PASS: diagnosis_follow is distinct from debugger_focus and within the "
 			+ "10%/failure margin of balanced"
 		)
+	_report_appeal_policy_targets(balanced, appeal_only, diagnosis_appeal)
 
 	var all_zero_boss_failures := true
-	for policy: String in POLICIES:
+	for policy: String in V2_POLICIES:
 		all_zero_boss_failures = (
 			all_zero_boss_failures
 			and int((v2_results[policy] as Dictionary)["boss_failures"]) == 0
@@ -932,3 +1000,57 @@ static func _report_product_risks(results: Array[Dictionary]) -> void:
 		)
 	else:
 		print("PASS: at least one V2 policy experiences a boss failure")
+
+
+static func _report_appeal_policy_targets(
+	balanced: Dictionary,
+	appeal_only: Dictionary,
+	diagnosis_appeal: Dictionary
+) -> void:
+	var time_delta := (
+		float(diagnosis_appeal["clear_time"]) - float(balanced["clear_time"])
+	) / float(balanced["clear_time"])
+	var net_delta := (
+		float(diagnosis_appeal["net_bits"]) - float(balanced["net_bits"])
+	) / maxf(EPSILON, float(balanced["net_bits"]))
+	var failures_ok := (
+		int(diagnosis_appeal["total_failures"]) <= int(balanced["total_failures"])
+	)
+	var appeal_only_dominates := (
+		float(appeal_only["clear_time"]) <= float(diagnosis_appeal["clear_time"]) + EPSILON
+		and int(appeal_only["total_failures"]) <= int(diagnosis_appeal["total_failures"])
+		and float(appeal_only["net_bits"]) + EPSILON >= float(diagnosis_appeal["net_bits"])
+	)
+	var targets_met := (
+		time_delta >= -0.07 - EPSILON
+		and time_delta <= 0.02 + EPSILON
+		and failures_ok
+		and net_delta >= 0.03 - EPSILON
+		and net_delta <= 0.10 + EPSILON
+		and not appeal_only_dominates
+	)
+	var prefix := "PASS" if targets_met else "RISK"
+	print(
+		(
+			"%s: diagnosis_plus_appeal vs balanced: clear delta %.1f%%, failures %d vs %d, "
+			+ "net bits delta %.1f%%; appeal_only dominates=%s"
+		) % [
+			prefix,
+			time_delta * 100.0,
+			int(diagnosis_appeal["total_failures"]),
+			int(balanced["total_failures"]),
+			net_delta * 100.0,
+			str(appeal_only_dominates),
+		]
+	)
+	if not targets_met:
+		print(
+			(
+				"CAUSE CHECK: %d validated rules; %d shown/%d accepted. Diagnosis-role mapping or "
+				+ "existing role balance may be limiting the target; no hidden bonus was applied."
+			) % [
+				int(diagnosis_appeal["appeal_rule_count"]),
+				int(diagnosis_appeal["appeals_shown"]),
+				int(diagnosis_appeal["appeals_accepted"]),
+			]
+		)
