@@ -123,17 +123,15 @@ func _validate_active_sprite_runs(manifest: Dictionary, failures: Array[String])
 		if run_manifest.is_empty():
 			continue
 		var run_dir := run_manifest_path.get_base_dir()
+		var delivery_profile := String(entry.get("delivery_profile", "full-run"))
+		if delivery_profile not in ["full-run", "final-only"]:
+			failures.append(
+				"Sprite run '%s' has unsupported delivery_profile '%s'."
+				% [asset_id, delivery_profile]
+			)
+			continue
 		_validate_required_file(run_dir.path_join("sprite-request.json"), asset_id, failures)
-		_validate_required_file(run_dir.path_join(String(run_manifest.get("base_image", ""))), asset_id, failures)
 		_validate_required_file(run_dir.path_join("qa-notes.md"), asset_id, failures)
-		_validate_required_file(run_dir.path_join("qa/all-contact.png"), asset_id, failures)
-		var frames_report := _read_json(
-			run_dir.path_join("frames/frames-manifest.json"),
-			"sprite run '%s' frame report" % asset_id,
-			failures
-		)
-		if not frames_report.is_empty() and not bool(frames_report.get("ok", false)):
-			failures.append("Sprite run '%s' frame report is not ok." % asset_id)
 		var atlas_report_path := run_dir.path_join(
 			String(run_manifest.get("sprite_sheet_alpha_report", ""))
 		)
@@ -144,6 +142,18 @@ func _validate_active_sprite_runs(manifest: Dictionary, failures: Array[String])
 		)
 		if not atlas_report.is_empty() and not bool(atlas_report.get("ok", false)):
 			failures.append("Sprite run '%s' atlas report is not ok." % asset_id)
+		if delivery_profile == "final-only":
+			# PresentationAssets already validated the pinned runtime atlas, layout, states, and hashes.
+			continue
+		_validate_required_file(run_dir.path_join(String(run_manifest.get("base_image", ""))), asset_id, failures)
+		_validate_required_file(run_dir.path_join("qa/all-contact.png"), asset_id, failures)
+		var frames_report := _read_json(
+			run_dir.path_join("frames/frames-manifest.json"),
+			"sprite run '%s' frame report" % asset_id,
+			failures
+		)
+		if not frames_report.is_empty() and not bool(frames_report.get("ok", false)):
+			failures.append("Sprite run '%s' frame report is not ok." % asset_id)
 		var animation_value: Variant = run_manifest.get("animation", {})
 		if not animation_value is Dictionary:
 			continue

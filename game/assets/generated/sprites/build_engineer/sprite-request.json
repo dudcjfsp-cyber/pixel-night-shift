@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-request",
+  "engine": "component-row",
+  "character": {
+    "id": "build_engineer",
+    "description": "front-facing original Pixel Night Shift build engineer with amber work helmet, coral-orange armor, deep navy structure, pale metal accents, broad planted silhouette, and one connected heavy industrial tool; preserve exact locked identity",
+    "base_image": "base-source.png"
+  },
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "green",
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "selection": "manual"
+  },
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "strict low-amplitude four-phase planted idle loop: frame 1 neutral, frame 2 a tiny inhale visible only as an approximately one-logical-pixel helmet/shoulder rise, frame 3 a tiny exhale, frame 4 a near-neutral return that flows quietly to frame 1. Lock both boot silhouettes, leg spacing, pelvis center, overall scale, and the heavy tool's horizontal angle, height, side, and two-hand connection across all four frames; do not lift, rotate, or swing the tool during idle. Target consecutive alpha IoU 0.93-0.98 and final-to-first at least 0.95, with small nonzero changes rather than duplicate holds; foot-centroid drift must stay below 0.5 logical pixel"
+    },
+    "upgrade": {
+      "frames": 4,
+      "fps": 6,
+      "loop": false,
+      "action": "brief build upgrade acknowledgement with clear start-middle-end poses: frame 1 near idle, frame 2 braces and lifts the same connected heavy tool to a modest diagonal, frame 3 reaches the peak lift without covering the helmet, frame 4 settles near the starting pose. Lock both boot silhouettes, foot spacing, pelvis center, character scale, and front-facing torso across every frame; never widen the stance, translate the body, or rotate to a side view. Keep the exact same tool shape and two-hand connection; foot-centroid drift must stay below 0.75 logical pixel. No detached sparks, glow, particles, or extra equipment"
+    }
+  },
+  "style": "match the attached canonical Base Lock image EXACTLY: same 38px raw pixel pitch resolving to an approximately 25-logical-pixel-tall character, same broad proportions, outline weight, amber/coral/navy/pale-metal palette, shading density, helmet identity, and connected heavy tool. Do not restyle, change proportions, or add/remove detail density. Avoid polished illustration, painterly rendering, anime key art, 3D render, vector polish, glossy lighting, soft gradients, anti-aliased high-detail edges, and dense micro-pixels.",
+  "motion_phase_guides": false,
+  "fit": {
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 8,
+    "pitch_hint": 38,
+    "detail_bias": true,
+    "outline": false,
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom"
+  },
+  "chroma": {
+    "unmix_reach": 4,
+    "spill_max_fraction": 0.005
+  },
+  "qa": {
+    "min_used_pixels": 250,
+    "min_used_pixels_basis": "The shipped 32x32 build_engineer contains 400 opaque pixels. Area calibration at logical height 26 gives 400 * (26 / 32)^2 = 264.06 expected pixels; 250 is a strict 94.7% floor while allowing the requested breathing/tool motion."
+  }
+}

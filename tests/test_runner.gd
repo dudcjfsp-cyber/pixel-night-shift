@@ -462,7 +462,13 @@ func _check_active_sprite_byte_contract() -> void:
 	if not runs_value is Dictionary:
 		return
 	var runs: Dictionary = runs_value
-	var required_ids: Array[StringName] = [&"debugger", &"broken_pixel"]
+	var required_ids: Array[StringName] = [
+		&"debugger",
+		&"build_engineer",
+		&"sprite_artist",
+		&"qa_imp",
+		&"broken_pixel",
+	]
 	for asset_id: StringName in required_ids:
 		var run_key := String(asset_id)
 		_check(runs.has(run_key), "%s active sprite entry must exist" % asset_id)
@@ -473,6 +479,11 @@ func _check_active_sprite_byte_contract() -> void:
 		if not entry_value is Dictionary:
 			continue
 		var entry: Dictionary = entry_value
+		if asset_id in [&"build_engineer", &"sprite_artist", &"qa_imp"]:
+			_check(
+				String(entry.get("delivery_profile", "")) == "final-only",
+				"%s active sprite entry must use final-only delivery" % asset_id
+			)
 		var manifest_path := String(entry.get("manifest_path", ""))
 		var manifest_absolute := ProjectSettings.globalize_path(manifest_path)
 		var manifest_file := FileAccess.open(manifest_absolute, FileAccess.READ)
