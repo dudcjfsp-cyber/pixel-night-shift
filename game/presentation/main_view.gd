@@ -304,6 +304,7 @@ func _build_battle_panel() -> void:
 	_battle_lane = BATTLE_LANE_VIEW_SCRIPT.new()
 	_battle_lane.name = "BattleLaneView"
 	_battle_lane.configure_accessibility(_reduced_flashes, _reduced_motion)
+	_battle_lane.combat_impact.connect(_on_combat_impact)
 	_main_column.add_child(_battle_lane)
 
 
@@ -560,6 +561,10 @@ func _refresh_header() -> void:
 
 func _refresh_battle(previous_snapshot: Dictionary) -> void:
 	_battle_lane.update_from_snapshot(_snapshot, previous_snapshot)
+
+
+func _on_combat_impact(_damage: float) -> void:
+	_audio_director.play_cue(&"combat_hit")
 
 
 func _refresh_diagnosis() -> void:

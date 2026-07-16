@@ -2,24 +2,25 @@ class_name AudioDirector
 extends Node
 
 const MUSIC_STREAMS := {
-	&"night": preload("res://game/assets/audio/bgm/night_shift_loop.wav"),
-	&"watchdog": preload("res://game/assets/audio/bgm/watchdog_loop.wav"),
+	&"night": preload("res://game/assets/audio/bgm/night_shift_loop.ogg"),
+	&"watchdog": preload("res://game/assets/audio/bgm/watchdog_loop.ogg"),
 	&"maintenance": preload("res://game/assets/audio/bgm/maintenance_loop.wav"),
 }
 
 const CUE_STREAMS := {
-	&"ui_move": preload("res://game/assets/audio/sfx/ui_move.wav"),
-	&"ui_confirm": preload("res://game/assets/audio/sfx/ui_confirm.wav"),
-	&"ui_error": preload("res://game/assets/audio/sfx/ui_error.wav"),
-	&"enemy_break": preload("res://game/assets/audio/sfx/enemy_break.wav"),
-	&"stage_clear": preload("res://game/assets/audio/sfx/stage_clear.wav"),
-	&"operator_upgrade": preload("res://game/assets/audio/sfx/operator_upgrade.wav"),
-	&"patch_apply": preload("res://game/assets/audio/sfx/patch_apply.wav"),
-	&"patch_remove": preload("res://game/assets/audio/sfx/patch_remove.wav"),
-	&"boss_warning": preload("res://game/assets/audio/sfx/boss_warning.wav"),
-	&"maintenance_enter": preload("res://game/assets/audio/sfx/maintenance_enter.wav"),
-	&"update_ready": preload("res://game/assets/audio/sfx/update_ready.wav"),
-	&"version_update": preload("res://game/assets/audio/sfx/version_update.wav"),
+	&"ui_move": preload("res://game/assets/audio/sfx/ui_move.ogg"),
+	&"ui_confirm": preload("res://game/assets/audio/sfx/ui_confirm.ogg"),
+	&"ui_error": preload("res://game/assets/audio/sfx/ui_error.ogg"),
+	&"enemy_break": preload("res://game/assets/audio/sfx/enemy_break.ogg"),
+	&"combat_hit": preload("res://game/assets/audio/sfx/combat_hit.ogg"),
+	&"stage_clear": preload("res://game/assets/audio/sfx/stage_clear.ogg"),
+	&"operator_upgrade": preload("res://game/assets/audio/sfx/operator_upgrade.ogg"),
+	&"patch_apply": preload("res://game/assets/audio/sfx/patch_apply.ogg"),
+	&"patch_remove": preload("res://game/assets/audio/sfx/patch_remove.ogg"),
+	&"boss_warning": preload("res://game/assets/audio/sfx/boss_warning.ogg"),
+	&"maintenance_enter": preload("res://game/assets/audio/sfx/maintenance_enter.ogg"),
+	&"update_ready": preload("res://game/assets/audio/sfx/update_ready.ogg"),
+	&"version_update": preload("res://game/assets/audio/sfx/version_update.ogg"),
 }
 
 const SNAPSHOT_KEYS: PackedStringArray = [
@@ -243,6 +244,9 @@ func _start_current_music() -> void:
 		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		wav.loop_begin = 0
 		wav.loop_end = int(round(wav.get_length() * wav.mix_rate))
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+		(stream as AudioStreamOggVorbis).loop_offset = 0.0
 	_music_player.stop()
 	_music_player.stream = stream
 	_music_player.play()

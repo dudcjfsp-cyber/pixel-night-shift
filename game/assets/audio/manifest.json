@@ -1,118 +1,188 @@
 {
-	"channels": 1,
 	"engine": "Godot 4.7",
 	"files": [
 		{
-			"duration_seconds": 20.0,
-			"file": "game/assets/audio/bgm/night_shift_loop.wav",
+			"author": "Wolfgang_ (Theodore Kerr)",
+			"duration_seconds": 26.65,
+			"file": "game/assets/audio/bgm/night_shift_loop.ogg",
+			"license": "CC0-1.0",
 			"loop": true,
-			"seed": 41021,
-			"sha256": "78f8e7b0b826d001038fe75ef920a69649f883d07b84103cde2f6e64630fd50c"
+			"sha256": "3ffedb0875b311605321ce00def96d8416c4668e9331ea4ee4abb6430d74ab8b",
+			"source_type": "external",
+			"source_url": "https://opengameart.org/content/8-bit-battle-loop",
+			"title": "8-Bit Battle Loop"
 		},
 		{
-			"duration_seconds": 12.972971,
-			"file": "game/assets/audio/bgm/watchdog_loop.wav",
+			"author": "MintoDog",
+			"duration_seconds": 62.89653,
+			"file": "game/assets/audio/bgm/watchdog_loop.ogg",
+			"license": "CC0-1.0",
 			"loop": true,
-			"seed": 91487,
-			"sha256": "587f78bd180ab923cc9f8e7baa5d3921061ead090f5127fd5b986d283c39e33c"
+			"sha256": "56ead67c2f5fa46ac6bd2a2a878b6eee19faac62921ef9d54b7b6ea3e71a9fbd",
+			"source_type": "external",
+			"source_url": "https://opengameart.org/content/8bit-action-boss-battle",
+			"title": "8bit Action Boss Battle"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.313469,
+			"file": "game/assets/audio/sfx/ui_move.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "704433167121712c456fa7f06af96c975a28f9a022d91feb68196bb073704ea0",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / phaserUp5.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.522449,
+			"file": "game/assets/audio/sfx/ui_confirm.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "f2f44effce087e47683f0fea05a71002bd8dca78fb10bf93d9f0b38d49f9590e",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / pepSound1.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.783673,
+			"file": "game/assets/audio/sfx/ui_error.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "e0215fcfd8b9d7877f74d5c46b239a13d7db0d25998da97b80404931ef9eef5d",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / lowDown.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 1.451315,
+			"file": "game/assets/audio/sfx/enemy_break.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "8f702781627c95cf9f91724dab3bcdb46bb87cc0ccf2a350748798dba6bc82aa",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / spaceTrash1.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.313469,
+			"file": "game/assets/audio/sfx/combat_hit.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "0eaadbbc5c259cc89a1dfbb0c99b61ca07e08710d035cc9bfc805b68cb0bdc9e",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / phaserDown2.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.827052,
+			"file": "game/assets/audio/sfx/stage_clear.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "bdf21eb12e65507f091d074886fdac820e1ccae51d060caa168e5567acadb84b",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / threeTone1.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 1.201633,
+			"file": "game/assets/audio/sfx/operator_upgrade.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "8c361b624b560c0bc30ea3063b71212bc30caebf425c9df2481c13b25561485c",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / powerUp1.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.391837,
+			"file": "game/assets/audio/sfx/patch_apply.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "5d85717cfca231f7da7887cef5f44b2131bbe3308eb0c1fee0b4f9e61d59b571",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / phaseJump2.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.522449,
+			"file": "game/assets/audio/sfx/patch_remove.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "cdbea353b2e435b4f869c7b045af81079c5d5eb81cfbbc805013ccc3a7a0f36a",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / highDown.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 1.018775,
+			"file": "game/assets/audio/sfx/boss_warning.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "b4b3bc7420e71bfbec49a6ea13b8c12d76a5751cbdf063d8a8ac017c0b1e1d87",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / lowThreeTone.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 1.332245,
+			"file": "game/assets/audio/sfx/maintenance_enter.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "272e60bc62a1685f990fa50d163c3cb7f85073c1c3f89e3c3409e7ec938703c5",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / zapThreeToneDown.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 1.149388,
+			"file": "game/assets/audio/sfx/update_ready.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "59e7591f7a068882767bc1fd61edabf479b78787466d3a70bc49dfa0533777d2",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / powerUp3.ogg"
+		},
+		{
+			"author": "Kenney",
+			"duration_seconds": 0.862041,
+			"file": "game/assets/audio/sfx/version_update.ogg",
+			"license": "CC0-1.0",
+			"loop": false,
+			"sha256": "a9387a2cb0b13b8c794579e61ae1fb7e666e22d46a36aec6c77471635096f2fc",
+			"source_type": "external",
+			"source_url": "https://kenney.nl/assets/digital-audio",
+			"title": "Digital Audio / powerUp12.ogg"
 		},
 		{
 			"duration_seconds": 25.263175,
 			"file": "game/assets/audio/bgm/maintenance_loop.wav",
+			"license": "Project-original",
 			"loop": true,
+			"sample_rate_hz": 22050,
 			"seed": 77213,
-			"sha256": "d558dec8816c5d6d22df7f6693064d9fd9394b17d63d7a2a960b832cf88033e0"
-		},
-		{
-			"duration_seconds": 0.070023,
-			"file": "game/assets/audio/sfx/ui_move.wav",
-			"loop": false,
-			"seed": 1101,
-			"sha256": "389075e425361bc61b5bc46211d8cc68f6a98fea716f48eff99da37811bfd3e4"
-		},
-		{
-			"duration_seconds": 0.16,
-			"file": "game/assets/audio/sfx/ui_confirm.wav",
-			"loop": false,
-			"seed": 1102,
-			"sha256": "375e0c4ade3c13985661fbeb933c1358fb20f51f30886e5e01791afc964b235b"
-		},
-		{
-			"duration_seconds": 0.24,
-			"file": "game/assets/audio/sfx/ui_error.wav",
-			"loop": false,
-			"seed": 1103,
-			"sha256": "ed6183471c514fcb801113a90ac9bc37b6417f87f9e8c03d9cafd4c96b7962fc"
-		},
-		{
-			"duration_seconds": 0.34,
-			"file": "game/assets/audio/sfx/enemy_break.wav",
-			"loop": false,
-			"seed": 1104,
-			"sha256": "5fc9daa2c5f1581e9dceb76dcade8e414d57d1f9b70d1ef35aa137be2d5f00fb"
-		},
-		{
-			"duration_seconds": 0.58,
-			"file": "game/assets/audio/sfx/stage_clear.wav",
-			"loop": false,
-			"seed": 1105,
-			"sha256": "044b447650f7b8c3cdf3d866ec80a25ef21ecceba3d036aa98a546d5b10e0c98"
-		},
-		{
-			"duration_seconds": 0.48,
-			"file": "game/assets/audio/sfx/operator_upgrade.wav",
-			"loop": false,
-			"seed": 1106,
-			"sha256": "13204b0b7a8f617cb33511b7ff6bc81ae68e3e5bd809638790554c9088ce7c4c"
-		},
-		{
-			"duration_seconds": 0.38,
-			"file": "game/assets/audio/sfx/patch_apply.wav",
-			"loop": false,
-			"seed": 1107,
-			"sha256": "0844bc477a63c9eb03b3ff0a18bb556733727dff3da6ddb6675f93ddb666d551"
-		},
-		{
-			"duration_seconds": 0.28,
-			"file": "game/assets/audio/sfx/patch_remove.wav",
-			"loop": false,
-			"seed": 1108,
-			"sha256": "dc93e8026668c7d960d68af35aacc652a71c59e56705dc91d2ea8c0e6343c7d8"
-		},
-		{
-			"duration_seconds": 0.92,
-			"file": "game/assets/audio/sfx/boss_warning.wav",
-			"loop": false,
-			"seed": 1109,
-			"sha256": "1c1de589cd61685f03a0be514664de83ac2a8079012ba0f47cf3267875897599"
-		},
-		{
-			"duration_seconds": 0.68,
-			"file": "game/assets/audio/sfx/maintenance_enter.wav",
-			"loop": false,
-			"seed": 1110,
-			"sha256": "e6f48a024af90d3de65adb3f6026aed67fb9a3d6581b27185911f0180782ded8"
-		},
-		{
-			"duration_seconds": 1.050023,
-			"file": "game/assets/audio/sfx/update_ready.wav",
-			"loop": false,
-			"seed": 1111,
-			"sha256": "2912807d7a02c0e3f8e38b4a75771a61c622e4f697895a9b0c780abb0303468e"
-		},
-		{
-			"duration_seconds": 1.650023,
-			"file": "game/assets/audio/sfx/version_update.wav",
-			"loop": false,
-			"seed": 1112,
-			"sha256": "78fa5cd5e673b02f8aa0748e35146d6a0d66defdfa33026c87f01c0cbffe2207"
+			"sha256": "d558dec8816c5d6d22df7f6693064d9fd9394b17d63d7a2a960b832cf88033e0",
+			"source_type": "generated"
 		}
 	],
+	"generated_channels": 1,
+	"generated_sample_format": "PCM signed 16-bit little-endian",
+	"generated_sample_rate_hz": 22050,
 	"generator": "res://tools/generate_audio.gd",
-	"generator_version": "1.0.0",
-	"license": "Project-original",
-	"provenance": "Original procedural synthesis; no recordings, samples, or external melodies.",
-	"sample_format": "PCM signed 16-bit little-endian",
-	"sample_rate_hz": 22050,
-	"schema_version": 1
+	"generator_version": "2.0.0",
+	"license": "Per-file; see each entry and game/assets/audio/ATTRIBUTION.md.",
+	"provenance": "Mixed final delivery: CC0 combat music and SFX plus project-original maintenance music.",
+	"schema_version": 2
 }

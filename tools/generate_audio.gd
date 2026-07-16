@@ -3,32 +3,10 @@ extends SceneTree
 const SAMPLE_RATE := 22050
 const BGM_BARS := 8
 const OUTPUT_ROOT := "res://game/assets/audio"
-const GENERATOR_VERSION := "1.0.0"
+const GENERATOR_VERSION := "2.0.0"
 const TARGET_PEAK := 0.82
 
 const MUSIC_SPECS := [
-	{
-		"id": "night_shift_loop",
-		"bpm": 96.0,
-		"seed": 41021,
-		"lead": [74, -1, 77, -1, 81, -1, 84, -1, 81, -1, 77, -1, 76, -1, 72, -1,
-			74, -1, 77, 79, 81, -1, 86, -1, 84, -1, 81, -1, 77, 76, 72, -1],
-		"harmony": [62, 65, 69, 72, 62, 65, 69, 72, 60, 64, 67, 71, 60, 64, 67, 71],
-		"bass": [38, -1, -1, -1, 38, -1, 41, -1, 36, -1, -1, -1, 36, -1, 43, -1],
-		"drum_density": 1,
-		"lead_duty": 0.25,
-	},
-	{
-		"id": "watchdog_loop",
-		"bpm": 148.0,
-		"seed": 91487,
-		"lead": [74, 75, 74, -1, 80, 79, 75, -1, 74, 75, 77, 75, 74, -1, 68, -1,
-			74, 75, 74, 80, 82, 80, 79, 75, 74, -1, 68, 70, 71, 70, 68, -1],
-		"harmony": [50, 56, 57, 63, 50, 56, 57, 65, 50, 56, 57, 63, 50, 56, 57, 68],
-		"bass": [38, -1, 39, -1, 38, -1, 44, -1, 38, -1, 39, -1, 32, -1, 36, -1],
-		"drum_density": 2,
-		"lead_duty": 0.125,
-	},
 	{
 		"id": "maintenance_loop",
 		"bpm": 76.0,
@@ -42,19 +20,127 @@ const MUSIC_SPECS := [
 	},
 ]
 
-const SFX_SPECS := [
-	{"id": "ui_move", "duration": 0.07, "seed": 1101},
-	{"id": "ui_confirm", "duration": 0.16, "seed": 1102},
-	{"id": "ui_error", "duration": 0.24, "seed": 1103},
-	{"id": "enemy_break", "duration": 0.34, "seed": 1104},
-	{"id": "stage_clear", "duration": 0.58, "seed": 1105},
-	{"id": "operator_upgrade", "duration": 0.48, "seed": 1106},
-	{"id": "patch_apply", "duration": 0.38, "seed": 1107},
-	{"id": "patch_remove", "duration": 0.28, "seed": 1108},
-	{"id": "boss_warning", "duration": 0.92, "seed": 1109},
-	{"id": "maintenance_enter", "duration": 0.68, "seed": 1110},
-	{"id": "update_ready", "duration": 1.05, "seed": 1111},
-	{"id": "version_update", "duration": 1.65, "seed": 1112},
+const EXTERNAL_AUDIO_SPECS := [
+	{
+		"file": "res://game/assets/audio/bgm/night_shift_loop.ogg",
+		"author": "Wolfgang_ (Theodore Kerr)",
+		"title": "8-Bit Battle Loop",
+		"license": "CC0-1.0",
+		"source_url": "https://opengameart.org/content/8-bit-battle-loop",
+		"loop": true,
+	},
+	{
+		"file": "res://game/assets/audio/bgm/watchdog_loop.ogg",
+		"author": "MintoDog",
+		"title": "8bit Action Boss Battle",
+		"license": "CC0-1.0",
+		"source_url": "https://opengameart.org/content/8bit-action-boss-battle",
+		"loop": true,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/ui_move.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / phaserUp5.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/ui_confirm.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / pepSound1.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/ui_error.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / lowDown.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/enemy_break.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / spaceTrash1.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/combat_hit.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / phaserDown2.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/stage_clear.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / threeTone1.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/operator_upgrade.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / powerUp1.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/patch_apply.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / phaseJump2.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/patch_remove.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / highDown.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/boss_warning.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / lowThreeTone.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/maintenance_enter.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / zapThreeToneDown.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/update_ready.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / powerUp3.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/version_update.ogg",
+		"author": "Kenney",
+		"title": "Digital Audio / powerUp12.ogg",
+		"license": "CC0-1.0",
+		"source_url": "https://kenney.nl/assets/digital-audio",
+		"loop": false,
+	},
 ]
 
 
@@ -72,6 +158,12 @@ func _init() -> void:
 		return
 
 	var entries: Array[Dictionary] = []
+	for spec: Dictionary in EXTERNAL_AUDIO_SPECS:
+		var external_entry := _external_manifest_entry(spec)
+		if external_entry.is_empty():
+			quit(1)
+			return
+		entries.append(external_entry)
 	for spec: Dictionary in MUSIC_SPECS:
 		var samples := _render_music(spec)
 		var resource_path := "%s/bgm/%s.wav" % [OUTPUT_ROOT, String(spec["id"])]
@@ -80,24 +172,16 @@ func _init() -> void:
 			return
 		entries.append(_manifest_entry(resource_path, samples.size(), true, int(spec["seed"])))
 
-	for spec: Dictionary in SFX_SPECS:
-		var samples := _render_sfx(spec)
-		var resource_path := "%s/sfx/%s.wav" % [OUTPUT_ROOT, String(spec["id"])]
-		if not _write_wav(resource_path, samples):
-			quit(1)
-			return
-		entries.append(_manifest_entry(resource_path, samples.size(), false, int(spec["seed"])))
-
 	var manifest := {
-		"schema_version": 1,
+		"schema_version": 2,
 		"generator": "res://tools/generate_audio.gd",
 		"generator_version": GENERATOR_VERSION,
 		"engine": "Godot 4.7",
-		"sample_rate_hz": SAMPLE_RATE,
-		"channels": 1,
-		"sample_format": "PCM signed 16-bit little-endian",
-		"provenance": "Original procedural synthesis; no recordings, samples, or external melodies.",
-		"license": "Project-original",
+		"generated_sample_rate_hz": SAMPLE_RATE,
+		"generated_channels": 1,
+		"generated_sample_format": "PCM signed 16-bit little-endian",
+		"provenance": "Mixed final delivery: CC0 combat music and SFX plus project-original maintenance music.",
+		"license": "Per-file; see each entry and game/assets/audio/ATTRIBUTION.md.",
 		"files": entries,
 	}
 	var manifest_path := output_absolute.path_join("manifest.json")
@@ -108,7 +192,7 @@ func _init() -> void:
 		return
 	manifest_file.store_string(JSON.stringify(manifest, "\t", true, false) + "\n")
 	manifest_file.close()
-	print("Generated %d deterministic audio assets in %s" % [entries.size(), OUTPUT_ROOT])
+	print("Prepared %d final audio assets in %s" % [entries.size(), OUTPUT_ROOT])
 	quit(0)
 
 
@@ -167,81 +251,6 @@ func _render_music(spec: Dictionary) -> PackedFloat32Array:
 	return samples
 
 
-func _render_sfx(spec: Dictionary) -> PackedFloat32Array:
-	var cue := String(spec["id"])
-	var duration := float(spec["duration"])
-	var frame_count := int(round(duration * SAMPLE_RATE))
-	var samples := PackedFloat32Array()
-	samples.resize(frame_count)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(spec["seed"])
-	for frame: int in range(frame_count):
-		var time := float(frame) / SAMPLE_RATE
-		var progress := clampf(time / duration, 0.0, 1.0)
-		var noise := rng.randf_range(-1.0, 1.0)
-		samples[frame] = _sfx_sample(cue, time, progress, duration, noise)
-	_fade_one_shot_edges(samples, 0.003, 0.018)
-	_normalize(samples, TARGET_PEAK)
-	return samples
-
-
-func _sfx_sample(cue: String, time: float, progress: float, duration: float, noise: float) -> float:
-	var release := pow(1.0 - progress, 1.6)
-	match cue:
-		"ui_move":
-			return _pulse(time * lerpf(880.0, 1180.0, progress), 0.25) * release
-		"ui_confirm":
-			var frequency := 620.0 if progress < 0.48 else 930.0
-			var segment_phase := fposmod(progress, 0.5) * 2.0
-			return _pulse(time * frequency, 0.25) * pow(1.0 - segment_phase, 0.8) * 0.8
-		"ui_error":
-			var error_frequency := lerpf(260.0, 105.0, progress)
-			return _pulse(time * error_frequency, 0.5) * release * 0.75 + noise * release * 0.12
-		"enemy_break":
-			var break_frequency := lerpf(520.0, 72.0, progress)
-			return _triangle(time * break_frequency) * release * 0.55 + noise * exp(-time * 12.0) * 0.7
-		"stage_clear":
-			var clear_notes := [523.25, 659.25, 783.99, 1046.50]
-			var clear_index := mini(int(progress * clear_notes.size()), clear_notes.size() - 1)
-			var clear_phase := fposmod(progress * clear_notes.size(), 1.0)
-			return _pulse(time * float(clear_notes[clear_index]), 0.25) * pow(1.0 - clear_phase, 0.65) * release
-		"operator_upgrade":
-			var upgrade_frequency := lerpf(330.0, 1320.0, progress * progress)
-			var sparkle := _pulse(time * (1760.0 + 220.0 * sin(TAU * progress * 3.0)), 0.125)
-			return _triangle(time * upgrade_frequency) * release * 0.65 + sparkle * release * 0.18
-		"patch_apply":
-			var apply_step := int(progress * 6.0)
-			var apply_frequency := 280.0 + float(apply_step) * 125.0
-			return _pulse(time * apply_frequency, 0.25) * release * 0.8 + noise * exp(-time * 30.0) * 0.18
-		"patch_remove":
-			var remove_frequency := lerpf(980.0, 210.0, progress)
-			return _pulse(time * remove_frequency, 0.125) * release * 0.78
-		"boss_warning":
-			var alarm_gate := 1.0 if fposmod(time, 0.30) < 0.20 else 0.0
-			var alarm_frequency := 138.0 if int(time / 0.30) % 2 == 0 else 184.0
-			return _pulse(time * alarm_frequency, 0.5) * alarm_gate * release * 0.82 + noise * alarm_gate * 0.08
-		"maintenance_enter":
-			var maintenance_frequency := lerpf(460.0, 88.0, progress)
-			return _triangle(time * maintenance_frequency) * release * 0.72 + noise * exp(-time * 8.0) * 0.22
-		"update_ready":
-			var ready_notes := [392.0, 523.25, 659.25, 783.99, 1046.50]
-			var ready_index := mini(int(progress * ready_notes.size()), ready_notes.size() - 1)
-			var ready_phase := fposmod(progress * ready_notes.size(), 1.0)
-			return (_pulse(time * float(ready_notes[ready_index]), 0.25) * pow(1.0 - ready_phase, 0.5) * 0.72
-				+ _triangle(time * float(ready_notes[ready_index]) * 0.5) * release * 0.28)
-		"version_update":
-			var update_notes := [261.63, 329.63, 392.0, 523.25, 659.25, 783.99, 1046.50, 1318.51]
-			var update_index := mini(int(progress * update_notes.size()), update_notes.size() - 1)
-			var update_phase := fposmod(progress * update_notes.size(), 1.0)
-			var update_frequency := float(update_notes[update_index])
-			return (_pulse(time * update_frequency, 0.25) * pow(1.0 - update_phase, 0.45) * release * 0.72
-				+ _triangle(time * update_frequency * 0.5) * release * 0.32
-				+ noise * exp(-time * 10.0) * 0.08)
-		_:
-			push_error("Unknown SFX cue: %s" % cue)
-			return 0.0
-
-
 func _midi_frequency(note: int) -> float:
 	return 440.0 * pow(2.0, (float(note) - 69.0) / 12.0)
 
@@ -269,16 +278,6 @@ func _fade_loop_edges(samples: PackedFloat32Array, seconds: float) -> void:
 		var weight := float(index) / maxf(1.0, float(fade_frames - 1))
 		samples[index] *= weight
 		samples[samples.size() - 1 - index] *= weight
-
-
-func _fade_one_shot_edges(samples: PackedFloat32Array, attack_seconds: float, release_seconds: float) -> void:
-	var attack_frames := mini(int(attack_seconds * SAMPLE_RATE), samples.size())
-	var release_frames := mini(int(release_seconds * SAMPLE_RATE), samples.size())
-	for index: int in range(attack_frames):
-		samples[index] *= float(index) / maxf(1.0, float(attack_frames - 1))
-	for index: int in range(release_frames):
-		var sample_index := samples.size() - 1 - index
-		samples[sample_index] *= float(index) / maxf(1.0, float(release_frames - 1))
 
 
 func _normalize(samples: PackedFloat32Array, target_peak: float) -> void:
@@ -332,4 +331,30 @@ func _manifest_entry(resource_path: String, frame_count: int, loops: bool, seed:
 		"seed": seed,
 		"duration_seconds": snappedf(float(frame_count) / SAMPLE_RATE, 0.000001),
 		"loop": loops,
+		"source_type": "generated",
+		"license": "Project-original",
+		"sample_rate_hz": SAMPLE_RATE,
+	}
+
+
+func _external_manifest_entry(spec: Dictionary) -> Dictionary:
+	var resource_path := String(spec["file"])
+	var absolute_path := ProjectSettings.globalize_path(resource_path)
+	if not FileAccess.file_exists(absolute_path):
+		push_error("Missing external audio asset: %s" % resource_path)
+		return {}
+	var resource := load(resource_path)
+	if not (resource is AudioStream):
+		push_error("External audio asset did not load as AudioStream: %s" % resource_path)
+		return {}
+	return {
+		"file": resource_path.trim_prefix("res://"),
+		"sha256": FileAccess.get_sha256(absolute_path),
+		"duration_seconds": snappedf((resource as AudioStream).get_length(), 0.000001),
+		"loop": bool(spec["loop"]),
+		"source_type": "external",
+		"author": String(spec["author"]),
+		"title": String(spec["title"]),
+		"license": String(spec["license"]),
+		"source_url": String(spec["source_url"]),
 	}
