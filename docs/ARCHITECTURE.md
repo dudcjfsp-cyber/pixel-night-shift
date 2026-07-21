@@ -1,4 +1,6 @@
-# 앱 셸 및 회색 상자 구현 계약
+# 앱 셸 및 본편 전투 구현 계약
+
+> 현재 구현 기준선은 완료된 앱 셸과 20스테이지 회색 상자입니다. 다음 구현에서 바뀌는 전투 규칙과 완료 기준은 [본편 혼합 전투 완성도 명세](COMBAT_HYBRID_SPEC.md)가 우선합니다.
 
 ## 의존 방향
 
@@ -64,6 +66,13 @@ restore_state(data) -> PackedStringArray
 `snapshot()` is a presentation DTO. Domain modules must not depend on its shape.
 `export_state()` is a durable save DTO and must not reuse the presentation snapshot. `restore_state()` validates a complete candidate before replacing the active state and returns all validation errors without partially mutating the session.
 
+혼합 전투 승격 시 schema 1 세션을 위한 순수 변환 경계를 추가합니다. 정확한 반환 DTO는 구현 전에 테스트로 고정하되 다음 책임은 바꾸지 않습니다.
+
+- 변환은 활성 세션을 수정하지 않고 schema 2 후보 DTO와 전체 오류를 반환합니다.
+- 새 후보 `GameSession`이 변환 결과를 `restore_state()`로 검증합니다.
+- `AppRoot`는 검증된 후보를 schema 2 봉투로 저장한 뒤에만 활성 세션으로 교체합니다.
+- 전투 중 긴급 재배포 같은 새 프레젠테이션 명령은 공개 표면에 추가하지 않습니다.
+
 `GameSession.new()` accepts no required argument. The greybox DTO uses these
 stable keys so presentation and tests do not reach into domain state:
 
@@ -87,16 +96,20 @@ Patch previews use `can_equip`, `cost`, `summary`, `before_ttk`, `after_ttk`,
 
 The save envelope owner is `SaveRepository`, not `GameSession`.
 
+혼합 전투 승격 후 목표 봉투는 다음과 같습니다. 현재 구현과 완료된 앱 셸 기준선은 schema 1입니다.
+
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "saved_at_unix": 0,
   "last_gameplay_tab": 0,
   "session": {}
 }
 ```
 
-`SaveRepository.load()` distinguishes missing, valid, backup-recovered, corrupt, and newer-schema records. A write uses a temporary file, validation, backup rotation, and primary replacement. Invalid content never becomes a silent new game.
+현재 구현은 schema 1을 사용하며 혼합 전투 승격과 함께 schema 2로 올립니다. `SaveRepository.load()`는 missing, valid, legacy-schema, backup-recovered, corrupt, newer-schema를 구분합니다. 저장소는 schema 1·2 봉투와 세션 딕셔너리를 전달할 뿐 세션 내부 필드를 변환하지 않습니다. schema 1 세션 변환·검증은 비활성 후보 `GameSession`, 실행 순서는 `AppRoot`가 맡습니다.
+
+쓰기는 임시 파일, 검증, 백업 회전과 주 파일 교체 순서로 수행합니다. 마이그레이션은 검증된 schema 2 후보 저장이 성공하기 전까지 활성 세션과 기존 파일을 바꾸지 않습니다. 잘못된 내용은 조용히 새 게임으로 바뀌지 않습니다.
 
 Offline results are applied to the session and saved before their read-only report is shown. A report is presentation data, not a claimable reward.
 
@@ -105,7 +118,7 @@ Stable content IDs are:
 - Operators: `debugger`, `build_engineer`, `sprite_artist`, `qa_imp`
 - Patches: `frame_skip`, `unsafe_build`, `reward_bypass`, `rollback_lock`, `safe_mode`
 
-## Prototype rules
+## 현재 구현 기준선과 혼합 전투 승격
 
 - A normal stage contains three enemies and has no failure timer.
 - Stages 10 and 20 contain the Watchdog Process and use a 25-second timer.
@@ -114,6 +127,8 @@ Stable content IDs are:
 - Operators unlock progressively on the first run and all remain available after the first version update.
 - Clearing stage 20 enables a voluntary version update. It resets run progress and grants one patch note.
 
+혼합 전투 승격은 위 20스테이지 흐름을 보존하면서 보스전에서만 요원 HP·DOWN·QA 자동 구조와 역할 효과를 활성화합니다. 일반전은 요원 피해나 전원 DOWN을 만들지 않습니다. 상세 수치, 실패 조건, 진단과 UI 정보 예산은 [COMBAT_HYBRID_SPEC.md](COMBAT_HYBRID_SPEC.md)를 따릅니다.
+
 ## Test boundary
 
-Required automated checks cover monotonic health/cost growth, deterministic simulation, patch tradeoffs, boss-failure recovery, prestige reset/preservation, content validation, and headless loading of the main scene.
+Required automated checks cover monotonic health/cost growth, deterministic simulation, patch tradeoffs, boss-failure recovery, boss-only operator durability, QA rescue, schema migration, prestige reset/preservation, content validation, and headless loading of the main scene.

@@ -6,10 +6,10 @@
 - Do not reproduce reference-game characters, names, dialogue, UI layouts, story beats, palettes, or recognizable compositions.
 
 ## Current milestone
-- Preserve the completed 20-stage greybox loop while adding the app shell, local save, and return flow defined in `docs/APP_SHELL_SPEC.md`.
-- Include boot routing, one-time first shift, the operations room, gameplay return, settings, conditional offline report, version-update confirmation and summary, onboarding, and explicit save recovery.
-- Add versioned local saves, one backup, deterministic offline progress capped by app policy, and Android pause/resume/back/safe-area behavior.
-- Do not add departments, incidents, equipment, networking, ads, purchases, analytics, accounts, cloud saves, live events, daily rewards, mail, rankings, or more combat content in this milestone.
+- Raise the completed 20-stage loop into the production hybrid-combat vertical slice defined in `docs/COMBAT_HYBRID_SPEC.md`.
+- Preserve the completed app shell, local save, recovery, offline progress, version-update flow, and Android lifecycle behavior defined in `docs/APP_SHELL_SPEC.md`.
+- Adopt role differentiation, boss-only operator durability and process-down, automatic QA rescue, evidence-based diagnosis, and factual operator appeals without adding manual combat input.
+- Do not add new operators, patches, enemies, bosses, stages, departments, incidents, equipment, networking, ads, purchases, analytics, accounts, cloud saves, live events, daily rewards, mail, or rankings in this milestone.
 
 ## Engine and architecture
 - Use Godot 4.7 and typed GDScript.
