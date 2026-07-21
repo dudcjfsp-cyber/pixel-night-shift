@@ -201,6 +201,20 @@ func snapshot() -> Dictionary:
 		enemy_name = enemy_profile.display_name
 	var next_action := _next_enemy_action()
 	var emergency := CombatV2Simulator.emergency_redeploy_overview(_state, _catalog)
+	var diagnosis := get_diagnosis()
+	var enemy_row := {
+		"id": String(enemy_id),
+		"name": enemy_name,
+		"hp": progression.enemy_health,
+		"max_hp": max_enemy_hp,
+		"is_boss": is_boss,
+		"time_left": maxf(
+			0.0,
+			_catalog.base_catalog.balance.boss_time_limit - progression.boss_elapsed
+		) if is_boss else 0.0,
+		"next_action": String(next_action.label),
+		"next_action_in": float(next_action.seconds),
+	}
 	return {
 		"prototype": "combat_v2",
 		"stage": progression.stage,
@@ -208,24 +222,12 @@ func snapshot() -> Dictionary:
 		"stage_enemy_total": 1 if is_boss else _catalog.balance.normal_enemy_count,
 		"bits": progression.bits,
 		"mode": _mode(),
-		"enemy": {
-			"id": String(enemy_id),
-			"name": enemy_name,
-			"hp": progression.enemy_health,
-			"max_hp": max_enemy_hp,
-			"is_boss": is_boss,
-			"time_left": maxf(
-				0.0,
-				_catalog.base_catalog.balance.boss_time_limit - progression.boss_elapsed
-			) if is_boss else 0.0,
-			"next_action": String(next_action.label),
-			"next_action_in": float(next_action.seconds),
-		},
+		"enemy": enemy_row,
 		"operators": operator_rows,
 		"patch_slots": patch_slots,
 		"patches": patch_rows,
 		"unlocked_patch_slots": progression.unlocked_patch_slots,
-		"diagnosis": get_diagnosis(),
+		"diagnosis": diagnosis,
 		"prestige_available": progression.can_prestige,
 		"failure_count": _state.total_failure_count(),
 		"normal_failure_count": _state.normal_failure_count,
@@ -244,6 +246,8 @@ func snapshot() -> Dictionary:
 		"emergency_redeploy_remaining": int(emergency.remaining),
 		"free_patch_swaps": progression.free_patch_swaps,
 		"recent_events": _formatted_events(),
+		"visible_appeal_events": _visible_appeal_events(),
+		"appeal_evidence": _appeal_evidence(diagnosis, emergency, operator_rows, enemy_row),
 		"combat_metrics": {
 			"total_elapsed": _state.total_elapsed,
 			"damage_taken": _state.total_damage_taken,
@@ -307,6 +311,20 @@ func get_patch_preview(slot_index: int, patch_id: StringName) -> Dictionary:
 
 func debug_state_copy() -> CombatV2State:
 	return _state.deep_clone()
+
+
+func export_state() -> Dictionary:
+	return CombatV2StateDto.export_state(_state)
+
+
+func restore_state(data: Dictionary) -> PackedStringArray:
+	var restore_result := CombatV2StateDto.restore_candidate(data, _catalog)
+	if not restore_result.errors.is_empty():
+		return restore_result.errors.duplicate()
+	assert(restore_result.state != null, "Validated Combat V2 restore must produce a state")
+	_state = restore_result.state
+	_last_error = ""
+	return PackedStringArray()
 
 
 func _is_unlocked_slot(slot_index: int) -> bool:
@@ -382,6 +400,125 @@ func _formatted_events() -> Array[String]:
 			float(event.time), String(event.kind), ", ".join(summary_parts),
 		])
 	return rows
+
+
+func _appeal_evidence(
+	diagnosis: Dictionary,
+	emergency: Dictionary,
+	operator_rows: Array[Dictionary],
+	enemy: Dictionary
+) -> Dictionary:
+	var evidence_data := diagnosis["evidence_data"] as Dictionary
+	var current_downs := 0
+	var unlocked_count := 0
+	var unlocked_operator_ids: Array[String] = []
+	for operator: Dictionary in operator_rows:
+		if not bool(operator["unlocked"]):
+			continue
+		unlocked_count += 1
+		unlocked_operator_ids.append(String(operator["id"]))
+		if bool(operator["process_down"]):
+			current_downs += 1
+	var max_enemy_hp := float(enemy["max_hp"])
+	return {
+		"diagnosis_kind": String(diagnosis["kind"]),
+		"stage": int(_state.progression.stage),
+		"is_boss": bool(enemy["is_boss"]),
+		"current_downs": current_downs,
+		"failure_count": _state.total_failure_count(),
+		"normal_failure_count": _state.normal_failure_count,
+		"boss_failure_count": _state.progression.boss_failure_count,
+		"last_failure_reason": String(_state.last_failure_reason),
+		"maintenance": _state.progression.is_maintenance,
+		"emergency_available": bool(emergency["available"]),
+		"emergency_affordable": bool(emergency["affordable"]),
+		"emergency_remaining": int(emergency["remaining"]),
+		"qa_rescue_available": bool(evidence_data["qa_rescue_available"]),
+		"qa_rescue_pending": bool(evidence_data["qa_rescue_pending"]),
+		"qa_rescue_count": _state.qa_rescue_count,
+		"paid_redeploy_count": _state.paid_redeploy_count,
+		"enemy_hp_ratio": 0.0 if max_enemy_hp <= EPSILON else float(enemy["hp"]) / max_enemy_hp,
+		"boss_time_left": float(enemy["time_left"]),
+		"next_action": String(enemy["next_action"]),
+		"unlocked_operator_count": unlocked_count,
+		"unlocked_operator_ids": unlocked_operator_ids,
+		"event_operator_id": "",
+		"event_target_id": "",
+		"event_source": "",
+		"event_attack": "",
+		"event_reason": "",
+	}
+
+
+func _visible_appeal_events() -> Array[Dictionary]:
+	var events: Array[Dictionary] = []
+	for event: Dictionary in _state.recent_events:
+		var visible := _to_visible_appeal_event(event)
+		if not visible.is_empty():
+			events.append(visible)
+	return events
+
+
+func _to_visible_appeal_event(event: Dictionary) -> Dictionary:
+	var trigger := &""
+	var event_source := ""
+	var event_attack := String(event.get("attack", ""))
+	var event_reason := String(event.get("reason", ""))
+	match StringName(String(event["kind"])):
+		&"operator_down":
+			trigger = &"operator_down"
+		&"attempt_failed":
+			trigger = &"boss_failure" if event_reason.begins_with("boss_") else &"normal_failure"
+		&"qa_recovery_cancelled":
+			trigger = &"qa_rescue_cancelled"
+		&"operator_recovered":
+			event_source = String(event.get("source", ""))
+			if event_source == "qa":
+				trigger = &"qa_rescue_succeeded"
+		&"emergency_redeploy_requested":
+			trigger = &"emergency_redeploy_used"
+			event_source = "emergency"
+		&"boss_rollback":
+			trigger = &"watchdog_rollback"
+			event_source = "watchdog"
+		&"operator_damaged":
+			if event_attack == "boss_special":
+				trigger = &"watchdog_kill_signal"
+		_:
+			pass
+	if trigger == &"":
+		return {}
+	var operator_id := String(event.get("operator_id", ""))
+	var target_id := String(event.get("target_id", operator_id))
+	return {
+		"id": _appeal_event_id(event, trigger, operator_id, target_id),
+		"trigger": String(trigger),
+		"time": float(event["time"]),
+		"stage": int(event["stage"]),
+		"event_operator_id": operator_id,
+		"event_target_id": target_id,
+		"event_source": event_source,
+		"event_attack": event_attack,
+		"event_reason": event_reason,
+	}
+
+
+func _appeal_event_id(
+	event: Dictionary,
+	trigger: StringName,
+	operator_id: String,
+	target_id: String
+) -> String:
+	return "%d|%d|%.6f|%s|%s|%s|%s|%s" % [
+		int(event["encounter_serial"]),
+		int(event["stage"]),
+		float(event["time"]),
+		String(trigger),
+		operator_id,
+		target_id,
+		String(event.get("source", "")),
+		String(event.get("reason", event.get("attack", ""))),
+	]
 
 
 func _accept() -> bool:

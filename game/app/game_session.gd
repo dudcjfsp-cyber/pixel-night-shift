@@ -219,6 +219,9 @@ func snapshot() -> Dictionary:
 			else _catalog.balance.legacy_cache_cost
 		),
 		"maintenance_time_left": _estimated_maintenance_time(),
+		"combat_v2_test_mode": false,
+		"combat_v2_complete": false,
+		"offline_progress_supported": true,
 		"status_message": _state.status_message,
 		"last_error": _last_error,
 	}

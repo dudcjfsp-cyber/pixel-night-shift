@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "debugger_incoming_damage",
+      "operator_id": "debugger",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "incoming_damage"}],
+      "observation_template": "피해 과다 진단이 표시됐습니다.",
+      "request_template": "유입 오류를 버티도록 제 안정성 강화를 검토해 주세요.",
+      "priority": 82,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "debugger_incoming_damage"
+    },
+    {
+      "id": "debugger_patch_tradeoff",
+      "operator_id": "debugger",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "patch_tradeoff"}],
+      "observation_template": "패치 부작용 진단이 표시됐습니다.",
+      "request_template": "부작용을 흡수할 제 방어 역할도 함께 검토해 주세요.",
+      "priority": 76,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "debugger_patch_tradeoff"
+    },
+    {
+      "id": "debugger_operator_down",
+      "operator_id": "debugger",
+      "trigger": "operator_down",
+      "conditions": [
+        {"key": "current_downs", "op": "gte", "value": 1},
+        {"key": "event_operator_id", "op": "ne", "value": ""}
+      ],
+      "observation_template": "이번 스테이지에서 요원 다운이 기록됐습니다.",
+      "request_template": "다음 충격을 받아낼 제 안정성 강화를 검토해 주세요.",
+      "priority": 74,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "debugger_operator_down"
+    },
+    {
+      "id": "debugger_normal_failure",
+      "operator_id": "debugger",
+      "trigger": "normal_failure",
+      "conditions": [
+        {"key": "maintenance", "op": "eq", "value": true},
+        {"key": "event_reason", "op": "eq", "value": "normal_all_down"}
+      ],
+      "observation_template": "전원 다운으로 일반전 재시도 대기 상태입니다.",
+      "request_template": "받는 피해를 견딜 제 안정성 강화를 검토해 주세요.",
+      "priority": 100,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "debugger_normal_failure"
+    },
+    {
+      "id": "debugger_qa_cancelled",
+      "operator_id": "debugger",
+      "trigger": "qa_rescue_cancelled",
+      "conditions": [{"key": "event_target_id", "op": "ne", "value": ""}],
+      "observation_template": "예약된 QA 복구가 취소됐습니다.",
+      "request_template": "복구 공백 동안 전선을 지킬 제 안정성 강화를 검토해 주세요.",
+      "priority": 86,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "debugger_qa_cancelled"
+    },
+    {
+      "id": "debugger_boss_failure",
+      "operator_id": "debugger",
+      "trigger": "boss_failure",
+      "conditions": [
+        {"key": "maintenance", "op": "eq", "value": true},
+        {"key": "boss_failure_count", "op": "gte", "value": 1}
+      ],
+      "observation_template": "Watchdog 시도가 실패해 재시도 대기 상태입니다.",
+      "request_template": "보스 공격을 받아낼 제 안정성 강화를 검토해 주세요.",
+      "priority": 92,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "debugger_boss_failure"
+    },
+    {
+      "id": "build_firepower",
+      "operator_id": "build_engineer",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "firepower"}],
+      "observation_template": "화력 부족 진단이 표시됐습니다.",
+      "request_template": "출력 파이프라인을 넓히도록 제 화력 강화를 검토해 주세요.",
+      "priority": 88,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "build_firepower"
+    },
+    {
+      "id": "build_boss_rollback_diagnosis",
+      "operator_id": "build_engineer",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "boss_rollback"}],
+      "observation_template": "Watchdog rollback이 현재 진단에 잡혔습니다.",
+      "request_template": "회복 구간 사이 피해를 늘릴 제 보스 화력을 검토해 주세요.",
+      "priority": 90,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "build_boss_rollback_diagnosis"
+    },
+    {
+      "id": "build_boss_failure",
+      "operator_id": "build_engineer",
+      "trigger": "boss_failure",
+      "conditions": [
+        {"key": "maintenance", "op": "eq", "value": true},
+        {"key": "boss_failure_count", "op": "gte", "value": 1}
+      ],
+      "observation_template": "Watchdog 시도가 실패해 재시도 대기 상태입니다.",
+      "request_template": "Watchdog의 HP를 더 빨리 줄일 제 보스 화력을 검토해 주세요.",
+      "priority": 100,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "build_boss_failure"
+    },
+    {
+      "id": "build_watchdog_rollback",
+      "operator_id": "build_engineer",
+      "trigger": "watchdog_rollback",
+      "conditions": [
+        {"key": "is_boss", "op": "eq", "value": true},
+        {"key": "event_source", "op": "eq", "value": "watchdog"}
+      ],
+      "observation_template": "Watchdog가 HP를 되돌린 기록이 있습니다.",
+      "request_template": "rollback 사이의 보스 화력을 높일 제 강화를 검토해 주세요.",
+      "priority": 94,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "build_watchdog_rollback"
+    },
+    {
+      "id": "build_watchdog_kill_signal",
+      "operator_id": "build_engineer",
+      "trigger": "watchdog_kill_signal",
+      "conditions": [{"key": "event_attack", "op": "eq", "value": "boss_special"}],
+      "observation_template": "Watchdog의 KILL SIGNAL 피해가 기록됐습니다.",
+      "request_template": "특수 공격 횟수를 줄일 제 보스 화력을 검토해 주세요.",
+      "priority": 91,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "build_watchdog_kill_signal"
+    },
+    {
+      "id": "build_emergency_used",
+      "operator_id": "build_engineer",
+      "trigger": "emergency_redeploy_used",
+      "conditions": [
+        {"key": "paid_redeploy_count", "op": "gte", "value": 1},
+        {"key": "event_source", "op": "eq", "value": "emergency"}
+      ],
+      "observation_template": "유료 긴급 재배포가 사용됐습니다.",
+      "request_template": "추가 노출 시간을 줄일 제 화력 강화를 검토해 주세요.",
+      "priority": 78,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "build_emergency_used"
+    },
+    {
+      "id": "sprite_firepower",
+      "operator_id": "sprite_artist",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "firepower"}],
+      "observation_template": "화력 부족 진단이 표시됐습니다.",
+      "request_template": "생존 요원의 공격 간격을 줄일 제 속도 강화를 검토해 주세요.",
+      "priority": 84,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "sprite_firepower"
+    },
+    {
+      "id": "sprite_stable",
+      "operator_id": "sprite_artist",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "stable"}],
+      "observation_template": "현재 진단은 운영 안정입니다.",
+      "request_template": "안정 상태에서 처리 속도를 넓힐 제 강화를 검토해 주세요.",
+      "priority": 60,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "sprite_stable"
+    },
+    {
+      "id": "sprite_operator_down",
+      "operator_id": "sprite_artist",
+      "trigger": "operator_down",
+      "conditions": [
+        {"key": "current_downs", "op": "gte", "value": 1},
+        {"key": "event_operator_id", "op": "ne", "value": ""}
+      ],
+      "observation_template": "이번 스테이지에서 요원 다운이 기록됐습니다.",
+      "request_template": "남은 요원의 공격 주기를 당길 제 속도 강화를 검토해 주세요.",
+      "priority": 72,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "sprite_operator_down"
+    },
+    {
+      "id": "sprite_normal_failure",
+      "operator_id": "sprite_artist",
+      "trigger": "normal_failure",
+      "conditions": [
+        {"key": "maintenance", "op": "eq", "value": true},
+        {"key": "event_reason", "op": "eq", "value": "normal_all_down"}
+      ],
+      "observation_template": "전원 다운으로 일반전 재시도 대기 상태입니다.",
+      "request_template": "피해 노출 시간을 줄일 제 팀 속도 강화를 검토해 주세요.",
+      "priority": 99,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "sprite_normal_failure"
+    },
+    {
+      "id": "sprite_qa_success",
+      "operator_id": "sprite_artist",
+      "trigger": "qa_rescue_succeeded",
+      "conditions": [{"key": "event_source", "op": "eq", "value": "qa"}],
+      "observation_template": "QA 제한 복구가 요원 한 명을 복귀시켰습니다.",
+      "request_template": "복귀한 요원까지 포함해 공격 속도를 높일 제 강화를 검토해 주세요.",
+      "priority": 73,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "sprite_qa_success"
+    },
+    {
+      "id": "sprite_emergency_used",
+      "operator_id": "sprite_artist",
+      "trigger": "emergency_redeploy_used",
+      "conditions": [
+        {"key": "paid_redeploy_count", "op": "gte", "value": 1},
+        {"key": "event_source", "op": "eq", "value": "emergency"}
+      ],
+      "observation_template": "유료 긴급 재배포가 사용됐습니다.",
+      "request_template": "재배포 비용이 더 생기기 전 노출 시간을 줄일 제 강화를 검토해 주세요.",
+      "priority": 77,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "sprite_emergency_used"
+    },
+    {
+      "id": "qa_recovery_delay",
+      "operator_id": "qa_imp",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "recovery_delay"}],
+      "observation_template": "복구 지연 진단이 표시됐습니다.",
+      "request_template": "제한 복구를 지킬 제 생존력 강화를 검토해 주세요.",
+      "priority": 90,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "qa_recovery_delay"
+    },
+    {
+      "id": "qa_incoming_damage",
+      "operator_id": "qa_imp",
+      "trigger": "diagnosis_changed",
+      "conditions": [{"key": "diagnosis_kind", "op": "eq", "value": "incoming_damage"}],
+      "observation_template": "피해 과다 진단이 표시됐습니다.",
+      "request_template": "무료 복구 기회를 유지할 제 생존력 강화를 검토해 주세요.",
+      "priority": 80,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "qa_incoming_damage"
+    },
+    {
+      "id": "qa_normal_failure",
+      "operator_id": "qa_imp",
+      "trigger": "normal_failure",
+      "conditions": [
+        {"key": "maintenance", "op": "eq", "value": true},
+        {"key": "event_reason", "op": "eq", "value": "normal_all_down"}
+      ],
+      "observation_template": "전원 다운으로 일반전 재시도 대기 상태입니다.",
+      "request_template": "다음 시도에서 제한 복구를 남길 제 생존력 강화를 검토해 주세요.",
+      "priority": 95,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "qa_normal_failure"
+    },
+    {
+      "id": "qa_boss_failure",
+      "operator_id": "qa_imp",
+      "trigger": "boss_failure",
+      "conditions": [
+        {"key": "maintenance", "op": "eq", "value": true},
+        {"key": "boss_failure_count", "op": "gte", "value": 1}
+      ],
+      "observation_template": "Watchdog 시도가 실패해 재시도 대기 상태입니다.",
+      "request_template": "다음 시도에서 제한 복구를 지킬 제 생존력 강화를 검토해 주세요.",
+      "priority": 99,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "qa_boss_failure"
+    },
+    {
+      "id": "qa_rescue_cancelled",
+      "operator_id": "qa_imp",
+      "trigger": "qa_rescue_cancelled",
+      "conditions": [{"key": "event_target_id", "op": "ne", "value": ""}],
+      "observation_template": "제가 다운되어 예약된 QA 복구가 취소됐습니다.",
+      "request_template": "복구 예약을 끝까지 유지할 제 생존력 강화를 검토해 주세요.",
+      "priority": 100,
+      "operator_cooldown_seconds": 15,
+      "global_cooldown_seconds": 5,
+      "dedupe_key": "qa_rescue_cancelled"
+    },
+    {
+      "id": "qa_rescue_succeeded",
+      "operator_id": "qa_imp",
+      "trigger": "qa_rescue_succeeded",
+      "conditions": [
+        {"key": "event_source", "op": "eq", "value": "qa"},
+        {"key": "qa_rescue_count", "op": "gte", "value": 1}
+      ],
+      "observation_template": "QA 제한 복구가 요원 한 명을 복귀시켰습니다.",
+      "request_template": "다음 스테이지에서도 복구 기회를 지킬 제 생존력 강화를 검토해 주세요.",
+      "priority": 75,
+      "operator_cooldown_seconds": 12,
+      "global_cooldown_seconds": 4,
+      "dedupe_key": "qa_rescue_succeeded"
+    }
+  ]
+}

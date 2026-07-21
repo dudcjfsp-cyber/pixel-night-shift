@@ -28,6 +28,7 @@ const TAB_OPERATORS := 0
 const TAB_PATCHES := 1
 const TAB_VERSION := 2
 const SNAPSHOT_REFRESH_INTERVAL := 0.12
+const MAX_VISIBLE_APPEALS := 2
 
 const REQUIRED_SNAPSHOT_KEYS: PackedStringArray = [
 	"stage",
@@ -47,11 +48,14 @@ const REQUIRED_SNAPSHOT_KEYS: PackedStringArray = [
 	"legacy_cache_level",
 	"legacy_cache_cost",
 	"maintenance_time_left",
+	"combat_v2_test_mode",
+	"combat_v2_complete",
+	"offline_progress_supported",
 	"status_message",
 	"last_error",
 ]
 
-var _session: GameSession
+var _session: Variant
 var _audio_director: AudioDirector
 var _configured := false
 var _snapshot: Dictionary = {}
@@ -77,6 +81,10 @@ var _diagnosis_panel: PanelContainer
 var _diagnosis_icon: TextureRect
 var _diagnosis_action_button: Button
 var _diagnosis_severity: String = "info"
+var _appeal_panel: PanelContainer
+var _appeal_cards: Array[Button] = []
+var _appeal_acknowledgment_label: Label
+var _selected_appeal_operator_id := ""
 var _feedback_label: Label
 
 var _tab_buttons: Array[Button] = []
@@ -101,7 +109,7 @@ var _button_selected_style: StyleBoxFlat
 var _button_disabled_style: StyleBoxFlat
 
 
-func configure(session: GameSession, audio_director: AudioDirector) -> bool:
+func configure(session: Variant, audio_director: AudioDirector) -> bool:
 	if is_inside_tree():
 		push_error("MainView.configure() must be called before the view enters the tree.")
 		return false
@@ -109,8 +117,14 @@ func configure(session: GameSession, audio_director: AudioDirector) -> bool:
 		push_error("MainView.configure() can only be called once.")
 		return false
 	if session == null:
-		push_error("MainView.configure() requires a GameSession.")
+		push_error("MainView.configure() requires an active gameplay session.")
 		return false
+	for method_name: StringName in [
+		&"snapshot", &"upgrade_operator", &"equip_patch", &"remove_patch", &"get_patch_preview",
+	]:
+		if not session.has_method(method_name):
+			push_error("Gameplay session is missing method '%s'." % method_name)
+			return false
 	if audio_director == null:
 		push_error("MainView.configure() requires an AudioDirector.")
 		return false
@@ -339,9 +353,49 @@ func _build_diagnosis_panel() -> void:
 	column.add_child(_diagnosis_evidence_label)
 
 	_diagnosis_action_button = _make_button("패치\n보기", 9)
+	_diagnosis_action_button.name = "DiagnosisActionButton"
 	_diagnosis_action_button.custom_minimum_size = Vector2(58.0, 48.0)
 	_diagnosis_action_button.pressed.connect(_on_diagnosis_action_pressed)
 	row.add_child(_diagnosis_action_button)
+
+
+func _build_appeal_panel(parent: VBoxContainer) -> void:
+	_appeal_panel = _make_panel(Color("172437"), COLOR_YELLOW)
+	_appeal_panel.name = "OperatorAppealPanel"
+	_appeal_panel.visible = false
+	parent.add_child(_appeal_panel)
+	var margin := MarginContainer.new()
+	_add_margins(margin, 6, 6, 4, 4)
+	_appeal_panel.add_child(margin)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 3)
+	margin.add_child(column)
+	var title := _make_label("현장 의견 · 사실 확인 후 판단", 10)
+	title.add_theme_color_override("font_color", COLOR_YELLOW)
+	column.add_child(title)
+	var cards := VBoxContainer.new()
+	cards.name = "OperatorAppealCards"
+	cards.add_theme_constant_override("separation", 4)
+	column.add_child(cards)
+	for index: int in range(MAX_VISIBLE_APPEALS):
+		var card := _make_button("", 8)
+		card.name = "OperatorAppealCard%d" % index
+		card.custom_minimum_size.y = 64.0
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		card.expand_icon = true
+		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+		card.pressed.connect(_on_appeal_pressed.bind(index))
+		cards.add_child(card)
+		_appeal_cards.append(card)
+	_appeal_acknowledgment_label = _make_label("", 9)
+	_appeal_acknowledgment_label.name = "OperatorAppealAcknowledgment"
+	_appeal_acknowledgment_label.custom_minimum_size.y = 18.0
+	_appeal_acknowledgment_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_appeal_acknowledgment_label.add_theme_color_override("font_color", COLOR_GREEN)
+	_appeal_acknowledgment_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_appeal_acknowledgment_label)
 
 
 func _build_tabs() -> void:
@@ -382,6 +436,7 @@ func _build_operator_page(page_host: Control) -> void:
 	_operator_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_operator_list.add_theme_constant_override("separation", 4)
 	scroll.add_child(_operator_list)
+	_build_appeal_panel(_operator_list)
 
 
 func _build_patch_page(page_host: Control) -> void:
@@ -397,6 +452,7 @@ func _build_patch_page(page_host: Control) -> void:
 	page.add_child(slot_row)
 	for slot_index: int in range(3):
 		var slot_button := _make_button("슬롯 %d\n잠김" % (slot_index + 1), 10)
+		slot_button.name = "PatchSlot%d" % slot_index
 		slot_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		slot_button.pressed.connect(_on_patch_slot_pressed.bind(slot_index))
 		slot_row.add_child(slot_button)
@@ -432,10 +488,12 @@ func _build_patch_page(page_host: Control) -> void:
 	action_row.add_theme_constant_override("separation", 4)
 	page.add_child(action_row)
 	_equip_patch_button = _make_button("선택한 패치 장착", 11)
+	_equip_patch_button.name = "EquipPatchButton"
 	_equip_patch_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_equip_patch_button.pressed.connect(_on_equip_patch_pressed)
 	action_row.add_child(_equip_patch_button)
 	_remove_patch_button = _make_button("비용으로 슬롯 비우기", 10)
+	_remove_patch_button.name = "RemovePatchButton"
 	_remove_patch_button.custom_minimum_size.x = 104.0
 	_remove_patch_button.pressed.connect(_on_remove_patch_pressed)
 	action_row.add_child(_remove_patch_button)
@@ -510,6 +568,7 @@ func _refresh_from_session() -> void:
 	_refresh_header()
 	_refresh_battle(previous_snapshot)
 	_refresh_diagnosis()
+	_refresh_appeals()
 	_refresh_operators()
 	_refresh_patches()
 	_refresh_version_page()
@@ -548,14 +607,74 @@ func _validate_snapshot(data: Dictionary) -> String:
 			if not item.has(key):
 				return "patch.%s 항목이 없습니다." % key
 
+	if bool(data["combat_v2_test_mode"]):
+		for key: String in [
+			"failure_count", "normal_failure_count", "boss_failure_count", "last_failure_reason",
+			"qa_rescue_count", "paid_redeploy_count", "emergency_spent_bits", "gross_bits",
+			"net_bits", "combat_metrics",
+		]:
+			if not data.has(key):
+				return "Combat V2 snapshot.%s is missing." % key
+		for key: String in ["next_action", "next_action_in"]:
+			if not enemy.has(key):
+				return "Combat V2 enemy.%s is missing." % key
+		if not data.has("emergency_redeploy") or not (data["emergency_redeploy"] is Dictionary):
+			return "Combat V2 emergency_redeploy must be a Dictionary."
+		var emergency := data["emergency_redeploy"] as Dictionary
+		for key: String in ["cost", "available", "affordable", "remaining", "reserved_operator_id", "eligible_targets"]:
+			if not emergency.has(key):
+				return "Combat V2 emergency_redeploy.%s is missing." % key
+		for item: Variant in data["operators"]:
+			for key: String in [
+				"role", "hp", "max_hp", "process_down", "recovery_source",
+				"recovery_remaining", "redeploy_eligible",
+			]:
+				if not item.has(key):
+					return "Combat V2 operator.%s is missing." % key
+		var diagnosis := data["diagnosis"] as Dictionary
+		if not diagnosis.has("evidence_data") or not (diagnosis["evidence_data"] is Dictionary):
+			return "Combat V2 diagnosis.evidence_data must be a Dictionary."
+		for key: String in [
+			"recovery_cost", "current_downs", "forecast_downs", "estimated_wipe_risk",
+			"failure_count", "maintenance", "maintenance_remaining", "emergency_available",
+		]:
+			if not diagnosis["evidence_data"].has(key):
+				return "Combat V2 diagnosis.evidence_data.%s is missing." % key
+		for key: String in ["appeals", "appeal_acknowledgment", "appeal_stats", "appeal_rule_count"]:
+			if not data.has(key):
+				return "Combat V2 snapshot.%s is missing." % key
+		if not (data["appeals"] is Array) or data["appeals"].size() > 2:
+			return "Combat V2 appeals must be an Array with at most two entries."
+		for appeal: Variant in data["appeals"]:
+			if not (appeal is Dictionary):
+				return "Combat V2 appeal entry must be a Dictionary."
+			for key: String in [
+				"rule_id", "operator_id", "operator_name", "role", "observation", "request",
+			]:
+				if not appeal.has(key) or String(appeal[key]).is_empty():
+					return "Combat V2 appeal.%s is missing or empty." % key
+		if not (data["appeal_stats"] is Dictionary):
+			return "Combat V2 appeal_stats must be a Dictionary."
+		for key: String in ["shown", "accepted", "ignored", "unresolved"]:
+			if not data["appeal_stats"].has(key):
+				return "Combat V2 appeal_stats.%s is missing." % key
+
 	return ""
 
 
 func _refresh_header() -> void:
 	var run_number := int(_snapshot["run_count"]) + 1
-	_run_label.text = "야간근무 %d회차 · 자동 운영" % run_number
+	_run_label.text = (
+		"COMBAT V2 TEST · 자동 전투"
+		if bool(_snapshot["combat_v2_test_mode"])
+		else "야간근무 %d회차 · 자동 운영" % run_number
+	)
 	_bits_label.text = _format_number(float(_snapshot["bits"]))
-	_notes_label.text = str(int(_snapshot["patch_notes"]))
+	_notes_label.text = (
+		"F%d" % int(_snapshot["failure_count"])
+		if bool(_snapshot["combat_v2_test_mode"])
+		else str(int(_snapshot["patch_notes"]))
+	)
 	_stage_label.text = "%02d" % int(_snapshot["stage"])
 
 
@@ -585,6 +704,15 @@ func _refresh_diagnosis() -> void:
 	_diagnosis_title_label.text = "%s %s" % [_severity_tag(severity), String(diagnosis["title"])]
 	_diagnosis_title_label.add_theme_color_override("font_color", accent)
 	_diagnosis_evidence_label.text = String(diagnosis["evidence"])
+	if bool(_snapshot["combat_v2_test_mode"]):
+		var evidence_data := diagnosis["evidence_data"] as Dictionary
+		_diagnosis_evidence_label.text += "\n현재/예상 다운 %d/%d · 실패 %d · wipe %s · 복구 %sb" % [
+			int(evidence_data["current_downs"]),
+			int(evidence_data["forecast_downs"]),
+			int(evidence_data["failure_count"]),
+			String(evidence_data["estimated_wipe_risk"]),
+			_format_number(float(evidence_data["recovery_cost"])),
+		]
 	_diagnosis_icon.modulate = accent
 	_diagnosis_panel.add_theme_stylebox_override("panel", _make_style(Color("192a37"), accent, 2))
 
@@ -599,6 +727,34 @@ func _set_diagnosis_error(message: String) -> void:
 	_show_feedback("진단 화면 오류: %s" % message, true)
 
 
+func _refresh_appeals() -> void:
+	var is_v2 := bool(_snapshot["combat_v2_test_mode"])
+	if not is_v2:
+		_appeal_panel.visible = false
+		_selected_appeal_operator_id = ""
+		return
+	var appeals := _snapshot["appeals"] as Array
+	var acknowledgment := String(_snapshot["appeal_acknowledgment"])
+	_appeal_panel.visible = not appeals.is_empty() or not acknowledgment.is_empty()
+	_appeal_acknowledgment_label.text = acknowledgment
+	_appeal_acknowledgment_label.visible = not acknowledgment.is_empty()
+	for index: int in range(_appeal_cards.size()):
+		var card := _appeal_cards[index]
+		card.visible = index < appeals.size()
+		if not card.visible:
+			continue
+		var appeal := appeals[index] as Dictionary
+		card.icon = ASSETS.operator_texture(StringName(String(appeal["operator_id"])))
+		card.text = "%s · %s\n%s\n%s" % [
+			String(appeal["operator_name"]),
+			String(appeal["role"]),
+			String(appeal["observation"]),
+			String(appeal["request"]),
+		]
+		card.tooltip_text = "요원 카드 검토: %s" % String(appeal["operator_name"])
+		_set_button_selected(card, String(appeal["operator_id"]) == _selected_appeal_operator_id)
+
+
 func _refresh_operators() -> void:
 	for item: Variant in _snapshot["operators"]:
 		var operator_data: Dictionary = item
@@ -607,26 +763,64 @@ func _refresh_operators() -> void:
 			_create_operator_row(operator_data)
 
 		var row_data: Dictionary = _operator_rows[operator_id]
+		var panel: PanelContainer = row_data["panel"]
 		var info_label: Label = row_data["info"]
 		var upgrade_button: Button = row_data["button"]
+		var redeploy_button: Button = row_data["redeploy"]
 		var unlocked := bool(operator_data["unlocked"])
 		if unlocked:
-			info_label.text = "%s  Lv.%d\n초당 피해 %s" % [
-				String(operator_data["name"]),
-				int(operator_data["level"]),
-				_format_number(float(operator_data["dps"])),
-			]
+			if bool(_snapshot["combat_v2_test_mode"]):
+				var status := "가동"
+				if bool(operator_data["process_down"]):
+					status = "PROCESS DOWN"
+				info_label.text = "%s Lv.%d · %s\n%s · HP %s/%s · D %s" % [
+					String(operator_data["name"]), int(operator_data["level"]),
+					String(operator_data["role"]), status,
+					_format_number(float(operator_data["hp"])),
+					_format_number(float(operator_data["max_hp"])),
+					_format_number(float(operator_data["dps"])),
+				]
+			else:
+				info_label.text = "%s  Lv.%d\n초당 피해 %s" % [
+					String(operator_data["name"]),
+					int(operator_data["level"]),
+					_format_number(float(operator_data["dps"])),
+				]
 			upgrade_button.text = "비트 %s\n강화" % _format_number(float(operator_data["upgrade_cost"]))
 		else:
 			info_label.text = "%s\n진행하면 자동 합류" % String(operator_data["name"])
 			upgrade_button.text = "잠김"
 		upgrade_button.disabled = not unlocked
+		redeploy_button.visible = (
+			bool(_snapshot["combat_v2_test_mode"])
+			and String(_snapshot["mode"]) != "maintenance"
+			and unlocked
+			and bool(operator_data["process_down"])
+		)
+		if redeploy_button.visible:
+			var recovery_source := String(operator_data["recovery_source"])
+			if recovery_source.is_empty():
+				redeploy_button.text = "재배포\n%sb" % _format_number(float(_snapshot["emergency_redeploy"]["cost"]))
+				redeploy_button.disabled = not bool(operator_data["redeploy_available"])
+				redeploy_button.tooltip_text = String(operator_data["redeploy_error"])
+			else:
+				redeploy_button.text = "%s\n%.1fs" % [recovery_source.to_upper(), float(operator_data["recovery_remaining"])]
+				redeploy_button.disabled = true
+		panel.add_theme_stylebox_override(
+			"panel",
+			_make_style(
+				Color("1b3044") if operator_id == _selected_appeal_operator_id else COLOR_PANEL,
+				COLOR_YELLOW if operator_id == _selected_appeal_operator_id else COLOR_BORDER,
+				2 if operator_id == _selected_appeal_operator_id else 1
+			)
+		)
 
 
 func _create_operator_row(operator_data: Dictionary) -> void:
 	var operator_id := String(operator_data["id"])
 	var panel := _make_panel(COLOR_PANEL, COLOR_BORDER)
-	panel.custom_minimum_size.y = 51.0
+	panel.name = "OperatorCard_%s" % operator_id
+	panel.custom_minimum_size.y = 62.0
 	_operator_list.add_child(panel)
 
 	var margin := MarginContainer.new()
@@ -645,21 +839,35 @@ func _create_operator_row(operator_data: Dictionary) -> void:
 	portrait.position = Vector2(2.0, 4.0)
 	portrait.texture = ASSETS.operator_texture(StringName(operator_id))
 	portrait_slot.add_child(portrait)
-	var info := _make_label("", 11)
+	var info := _make_label("", 9)
+	info.autowrap_mode = TextServer.AUTOWRAP_OFF
+	info.clip_text = true
+	info.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	info.custom_minimum_size.x = 110.0
+	info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(info)
 	var button := _make_button("강화", 10)
-	button.custom_minimum_size = Vector2(96.0, 48.0)
+	button.name = "UpgradeOperator_%s" % operator_id
+	button.custom_minimum_size = Vector2(72.0, 48.0)
 	button.pressed.connect(_on_upgrade_pressed.bind(operator_id))
 	row.add_child(button)
+	var redeploy := _make_button("재배포", 9)
+	redeploy.name = "EmergencyRedeploy_%s" % operator_id
+	redeploy.custom_minimum_size = Vector2(58.0, 48.0)
+	redeploy.visible = false
+	redeploy.pressed.connect(_on_emergency_redeploy_pressed.bind(operator_id))
+	row.add_child(redeploy)
 
 	var upgrade_effect: Variant = OPERATOR_UPGRADE_EFFECT_SCRIPT.new()
 	panel.add_child(upgrade_effect)
 	upgrade_effect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	upgrade_effect.configure(panel, portrait)
 	_operator_rows[operator_id] = {
+		"panel": panel,
 		"info": info,
 		"button": button,
+		"redeploy": redeploy,
 		"portrait": portrait,
 		"upgrade_effect": upgrade_effect,
 	}
@@ -706,6 +914,7 @@ func _refresh_patches() -> void:
 func _create_patch_button(patch_data: Dictionary) -> void:
 	var patch_id := String(patch_data["id"])
 	var button := _make_button(String(patch_data["name"]), 9)
+	button.name = "PatchCandidate_%s" % patch_id
 	button.custom_minimum_size = Vector2(148.0, 62.0)
 	button.icon = ASSETS.patch_texture(StringName(patch_id))
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -764,6 +973,20 @@ func _set_patch_preview_error(message: String) -> void:
 
 
 func _refresh_version_page() -> void:
+	if bool(_snapshot["combat_v2_test_mode"]):
+		_legacy_title_label.text = "Combat V2 격리 테스트"
+		_legacy_detail_label.text = "STAGE 1~10 · production 저장/버전 업데이트와 분리됨"
+		_buy_legacy_button.text = "레거시 성장 미사용"
+		_buy_legacy_button.disabled = true
+		_prestige_detail_label.text = (
+			"Watchdog 격리 완료 · 결과 화면으로 이동합니다."
+			if bool(_snapshot["combat_v2_complete"])
+			else "STAGE 10 Watchdog 격리 후 읽기 전용 결과를 확인합니다."
+		)
+		_prestige_button.text = "Combat V2 테스트 진행 중"
+		_prestige_button.disabled = true
+		_set_button_selected(_prestige_button, false)
+		return
 	var legacy_level := int(_snapshot["legacy_cache_level"])
 	var legacy_cost := int(_snapshot["legacy_cache_cost"])
 	var patch_notes := int(_snapshot["patch_notes"])
@@ -829,6 +1052,21 @@ func _on_diagnosis_action_pressed() -> void:
 	_show_feedback("진단 근거와 패치의 장단점을 비교하세요.", false)
 
 
+func _on_appeal_pressed(index: int) -> void:
+	if not bool(_snapshot.get("combat_v2_test_mode", false)):
+		return
+	var appeals := _snapshot["appeals"] as Array
+	if index < 0 or index >= appeals.size():
+		push_error("Appeal selection index is out of range: %d" % index)
+		return
+	_selected_appeal_operator_id = String((appeals[index] as Dictionary)["operator_id"])
+	_audio_director.play_cue(&"ui_move")
+	_show_tab(TAB_OPERATORS)
+	_refresh_appeals()
+	_refresh_operators()
+	_show_feedback("현장 의견을 검토 중입니다. 강화는 기존 버튼으로만 실행됩니다.", false)
+
+
 func _on_operations_room_pressed() -> void:
 	_audio_director.play_cue(&"ui_move")
 	operations_room_requested.emit()
@@ -861,6 +1099,18 @@ func _on_upgrade_pressed(operator_id: String) -> void:
 	_show_feedback(
 		"%s LEVEL UP · DPS +%s" % [operator_name, _format_number(dps_delta)],
 		false
+	)
+
+
+func _on_emergency_redeploy_pressed(operator_id: String) -> void:
+	if not bool(_snapshot.get("combat_v2_test_mode", false)):
+		_show_feedback("긴급 재배포는 Combat V2 테스트에서만 사용할 수 있습니다.", true)
+		return
+	var succeeded := bool(_session.emergency_redeploy(operator_id))
+	_finish_command(
+		succeeded,
+		"%s 긴급 재배포 예약 · 2초 후 40%% HP" % _operator_name(operator_id),
+		&"ui_confirm"
 	)
 
 

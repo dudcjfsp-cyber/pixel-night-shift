@@ -17,6 +17,7 @@ var patch_slot_count: int
 var next_goal: String
 var save_status_label: String
 var save_state: int
+var primary_action_label: String
 
 
 func _init(
@@ -29,7 +30,8 @@ func _init(
 	p_patch_slot_count: int,
 	p_next_goal: String,
 	p_save_status_label: String,
-	p_save_state: int
+	p_save_state: int,
+	p_primary_action_label: String = "현장 복귀"
 ) -> void:
 	run_number = p_run_number
 	automatic_running = p_automatic_running
@@ -41,6 +43,7 @@ func _init(
 	next_goal = p_next_goal
 	save_status_label = p_save_status_label
 	save_state = p_save_state
+	primary_action_label = p_primary_action_label
 	var errors := validation_errors()
 	if not errors.is_empty():
 		push_error("Invalid OperationsRoomViewData: %s" % "; ".join(errors))
@@ -65,6 +68,8 @@ func validation_errors() -> PackedStringArray:
 		errors.append("next_goal cannot be empty")
 	if save_status_label.is_empty():
 		errors.append("save_status_label cannot be empty")
+	if primary_action_label.is_empty():
+		errors.append("primary_action_label cannot be empty")
 	if save_state not in [SaveState.SAVED, SaveState.SAVING, SaveState.ERROR]:
 		errors.append("save_state is unknown")
 	return errors

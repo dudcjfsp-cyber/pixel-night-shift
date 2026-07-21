@@ -80,6 +80,8 @@ var _enemy_name_label: Label
 var _mode_icon: TextureRect
 var _mode_label: Label
 var _operator_portraits: Dictionary = {}
+var _operator_hp_bars: Dictionary = {}
+var _operator_status_labels: Dictionary = {}
 var _operator_playbacks: Dictionary = {}
 var _operator_base_modulates: Dictionary = {}
 var _operator_upgrade_times: Dictionary = {}
@@ -186,18 +188,41 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 		var operator_data: Dictionary = item
 		var operator_id := String(operator_data["id"])
 		var portrait: TextureRect = _operator_portraits[operator_id]
-		var base_modulate := Color.WHITE if bool(operator_data["unlocked"]) else Color("33405280")
+		var is_v2 := bool(snapshot["combat_v2_test_mode"])
+		var process_down := is_v2 and bool(operator_data["process_down"])
+		var base_modulate := (
+			Color("6f7785a0") if process_down
+			else Color.WHITE if bool(operator_data["unlocked"])
+			else Color("33405280")
+		)
 		_operator_base_modulates[operator_id] = base_modulate
 		if float(_operator_upgrade_times.get(operator_id, 0.0)) <= 0.0:
 			portrait.modulate = base_modulate
 		if bool(operator_data["unlocked"]) and float(operator_data["dps"]) > 0.0:
 			_active_operator_ids.append(operator_id)
+		var hp_bar: ProgressBar = _operator_hp_bars[operator_id]
+		var status_label: Label = _operator_status_labels[operator_id]
+		hp_bar.visible = is_v2 and bool(operator_data["unlocked"])
+		status_label.visible = hp_bar.visible
+		if hp_bar.visible:
+			var operator_max_hp := maxf(1.0, float(operator_data["max_hp"]))
+			hp_bar.value = clampf(float(operator_data["hp"]) / operator_max_hp * 100.0, 0.0, 100.0)
+			status_label.text = "DOWN" if process_down else "%d" % int(round(float(operator_data["hp"])))
+			status_label.add_theme_color_override("font_color", COLOR_RED if process_down else COLOR_TEXT)
 
 	_enemy_hp_bar.value = clampf(hp / max_hp * 100.0, 0.0, 100.0)
 	_enemy_hp_label.text = "HP %s / %s" % [_format_number(hp), _format_number(max_hp)]
 	if mode == "maintenance":
-		_timer_label.text = "복구 %.1f초" % float(snapshot["maintenance_time_left"])
+		_timer_label.text = "재시도 %.1f초 · %s" % [
+			float(snapshot["maintenance_time_left"]),
+			_failure_display(String(snapshot["last_failure_reason"])),
+		]
 		_timer_label.add_theme_color_override("font_color", COLOR_YELLOW)
+	elif bool(snapshot["combat_v2_test_mode"]):
+		_timer_label.text = "%s · %.1f초" % [String(enemy["next_action"]), float(enemy["next_action_in"])]
+		if bool(enemy["is_boss"]):
+			_timer_label.text += " · 제한 %.1f초" % float(enemy["time_left"])
+		_timer_label.add_theme_color_override("font_color", COLOR_RED if bool(enemy["is_boss"]) else COLOR_YELLOW)
 	elif bool(enemy["is_boss"]):
 		_timer_label.text = "제한 %.1f초" % float(enemy["time_left"])
 		_timer_label.add_theme_color_override("font_color", COLOR_RED)
@@ -256,11 +281,35 @@ func _build_interface() -> void:
 	operator_row.add_theme_constant_override("separation", 2)
 	arena.add_child(operator_row)
 	for operator_id: StringName in [&"debugger", &"build_engineer", &"sprite_artist", &"qa_imp"]:
+		var operator_slot := Control.new()
+		operator_slot.custom_minimum_size = Vector2(32.0, 49.0)
+		operator_slot.size = Vector2(32.0, 49.0)
+		operator_row.add_child(operator_slot)
 		var portrait := _make_texture_rect(32)
 		portrait.name = "OperatorPortrait_%s" % operator_id
 		portrait.tooltip_text = String(operator_id)
-		operator_row.add_child(portrait)
+		operator_slot.add_child(portrait)
 		_operator_portraits[String(operator_id)] = portrait
+		var hp_bar := ProgressBar.new()
+		hp_bar.name = "OperatorHP_%s" % operator_id
+		hp_bar.position = Vector2(0.0, 33.0)
+		hp_bar.size = Vector2(32.0, 5.0)
+		hp_bar.min_value = 0.0
+		hp_bar.max_value = 100.0
+		hp_bar.show_percentage = false
+		hp_bar.visible = false
+		hp_bar.add_theme_stylebox_override("background", _make_style(Color("0c111a"), COLOR_BORDER, 0))
+		hp_bar.add_theme_stylebox_override("fill", _make_style(COLOR_GREEN, COLOR_GREEN, 0))
+		operator_slot.add_child(hp_bar)
+		_operator_hp_bars[String(operator_id)] = hp_bar
+		var status_label := _make_label("", 7)
+		status_label.name = "OperatorStatus_%s" % operator_id
+		status_label.position = Vector2(-2.0, 38.0)
+		status_label.size = Vector2(36.0, 10.0)
+		status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		status_label.visible = false
+		operator_slot.add_child(status_label)
+		_operator_status_labels[String(operator_id)] = status_label
 		var frames: SpriteFrames = ASSETS.make_operator_frames(operator_id)
 		assert(frames != null, "Missing animation frames for operator '%s'." % operator_id)
 		var playback := PortraitPlayback.new()
@@ -307,6 +356,9 @@ func _build_interface() -> void:
 	_enemy_hp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail_row.add_child(_enemy_hp_label)
 	_timer_label = _make_label("자동 처리 중", 9)
+	_timer_label.custom_minimum_size.x = 142.0
+	_timer_label.clip_text = true
+	_timer_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_timer_label.add_theme_color_override("font_color", COLOR_MUTED)
 	detail_row.add_child(_timer_label)
@@ -500,6 +552,17 @@ func _mode_display_text(mode: String) -> String:
 			return "[완료] 대기"
 		_:
 			return "[자동] 전투"
+
+
+func _failure_display(reason: String) -> String:
+	match reason:
+		"normal_all_down":
+			return "일반전 전원 DOWN"
+		"boss_all_down":
+			return "보스전 전원 DOWN"
+		"boss_timeout":
+			return "보스 시간 초과"
+	return reason
 
 
 func _mode_color(mode: String) -> Color:

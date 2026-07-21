@@ -185,6 +185,7 @@ func _render_data() -> void:
 	_save_panel.add_theme_stylebox_override(
 		"panel", UI.make_style(UI.COLOR_PANEL, save_color, 2, 4, 6)
 	)
+	_primary_button.text = _data.primary_action_label
 	_primary_button.disabled = false
 
 
