@@ -394,3 +394,16 @@ Waveform은 설치됐지만 최초 실행 설정과 사용자 VST3 경로 스캔
 10. 새 게임을 시작해 저장 후 `%APPDATA%\Godot\app_userdata\Pixel Night Shift\pixel_night_shift`에 파일이 생성되는지 확인한다. 프로젝트 위치가 바뀌어도 `user://` 데이터는 자동으로 D프로젝트 안으로 이동하지 않는다.
 11. Android 작업을 시작하기 전에 export template, SDK/JDK, preset과 서명 파일 위치를 새 환경에서 다시 확인한다. 비밀값이나 서명 암호는 저장소와 이 문서에 기록하지 않는다.
 12. D드라이브 checkout을 충분히 검증하기 전에는 기존 C/OneDrive 폴더와 외부 작업 보관소를 삭제하지 않는다.
+
+## 17. 2026-07-22 D드라이브 이전 완료 기록
+
+- 권위 checkout을 `D:\자체제작게임\방치형게임2`의 `main`으로 통일하고 `origin/main`에 반영했다.
+- `codex/sprite-roster-batch`와 `codex/combat-v2-integration`의 고유 변경을 병합했다.
+- `codex/app-shell-preview`는 `main`에 이미 동일 패치가 들어 있음을 확인한 뒤 정리했다.
+- C드라이브 Combat V2 linked worktree를 제거하고 D 저장소의 stale worktree 메타데이터를 prune했다.
+- 옮겨온 `.godot` 캐시를 삭제하고 D 경로에서 Godot 4.7 headless editor import로 다시 생성했다.
+- 재import가 만든 누락 `.uid`와 `.import` 보조 메타데이터를 별도 커밋으로 기록했다.
+- 프로젝트 밖 원본·후보·QA 자료 5개는 Git 저장소 밖인 `D:\자체제작게임\PixelNightShift-Archive`로 이동했다.
+- 이전 C/OneDrive checkout의 내용은 제거했다. 폴더 자체는 다른 프로세스가 점유 중이면 빈 디렉터리로 남을 수 있으며, 점유가 풀린 뒤 삭제해도 된다.
+
+최종 검증은 픽셀 에셋, 오디오, 핵심 12개 테스트, 앱 셸 6개 테스트, AppRoot 통합 8개 테스트, 밸런스 리포트, Combat V2 핵심 13개 테스트, 어필 7개 테스트, 통합 4개 테스트, 정책 비교 리포트, 일반 및 Combat V2 메인 장면 headless 실행을 포함한다. 모든 실행은 종료 코드 0으로 통과했다. 정책 비교 리포트의 기존 밸런스 `RISK` 항목은 실패가 아니며 후속 튜닝 대상으로 남아 있다.
