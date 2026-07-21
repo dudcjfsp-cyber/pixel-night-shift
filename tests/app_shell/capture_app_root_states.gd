@@ -83,6 +83,14 @@ func _capture_gameplay_and_onboarding(output_directory: String) -> int:
 	_emit_button(app, "SkipButton")
 	await _wait_frames(8)
 	errors += await _save_capture(output_directory.path_join("06_gameplay_sprites.png"))
+	app._process(0.12)
+	var gameplay_view := app.find_child("MainView", true, false) as MainView
+	assert(gameplay_view != null, "Combat capture requires the active MainView.")
+	gameplay_view.refresh_from_session()
+	var battle_lane := app.find_child("BattleLaneView", true, false) as BattleLaneView
+	assert(battle_lane != null, "Combat capture requires BattleLaneView.")
+	battle_lane._process(0.08)
+	errors += await _save_capture(output_directory.path_join("06a_combat_projectile.png"))
 	await _unmount(app)
 	return errors
 

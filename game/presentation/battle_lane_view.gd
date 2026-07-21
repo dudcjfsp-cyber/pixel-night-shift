@@ -2,6 +2,11 @@ class_name BattleLaneView
 extends PanelContainer
 
 const ASSETS: GDScript = preload("res://game/presentation/presentation_assets.gd")
+const COMBAT_EFFECT_LAYER_SCRIPT: GDScript = preload(
+	"res://game/presentation/combat_effect_layer.gd"
+)
+
+signal combat_impact(damage: float)
 
 const COLOR_PANEL := Color("182232")
 const COLOR_BORDER := Color("40526c")
@@ -12,6 +17,14 @@ const COLOR_GREEN := Color("7be495")
 const COLOR_YELLOW := Color("f4c95d")
 const COLOR_CYAN := Color("52d6c8")
 const OPERATOR_UPGRADE_DURATION := 0.55
+const OPERATOR_ATTACK_DURATION := 0.16
+const ATTACK_CADENCE_SECONDS := 0.28
+const OPERATOR_ATTACK_COLORS := {
+	"debugger": Color("52d6c8"),
+	"build_engineer": Color("f4c95d"),
+	"sprite_artist": Color("d67bff"),
+	"qa_imp": Color("7be495"),
+}
 
 
 class PortraitPlayback extends RefCounted:
@@ -70,6 +83,7 @@ var _operator_portraits: Dictionary = {}
 var _operator_playbacks: Dictionary = {}
 var _operator_base_modulates: Dictionary = {}
 var _operator_upgrade_times: Dictionary = {}
+var _operator_attack_times: Dictionary = {}
 var _enemy_portrait_slot: Control
 var _enemy_portrait: TextureRect
 var _enemy_playback: PortraitPlayback
@@ -77,7 +91,13 @@ var _enemy_asset_id: StringName = &""
 var _enemy_hp_bar: ProgressBar
 var _enemy_hp_label: Label
 var _timer_label: Label
+var _combat_effect_layer: CombatEffectLayer
 var _hit_feedback_time_left: float = 0.0
+var _attack_cooldown: float = 0.0
+var _pending_damage: float = 0.0
+var _attack_operator_cursor := 0
+var _active_operator_ids: Array[String] = []
+var _current_mode := "combat"
 var _enemy_base_modulate := Color.WHITE
 var _reduced_flashes := false
 var _reduced_motion := false
@@ -113,10 +133,16 @@ func _process(delta_seconds: float) -> void:
 		if _enemy_playback != null:
 			_enemy_playback.advance(delta_seconds)
 	_hit_feedback_time_left = maxf(0.0, _hit_feedback_time_left - delta_seconds)
+	_attack_cooldown = maxf(0.0, _attack_cooldown - delta_seconds)
 	if _hit_feedback_time_left <= 0.0 and is_instance_valid(_enemy_portrait):
 		_enemy_portrait.modulate = _enemy_base_modulate
+	if _combat_effect_layer != null:
+		_combat_effect_layer.advance(delta_seconds)
+	_try_play_pending_attack()
 	if not _reduced_motion and not _reduced_flashes:
 		_update_operator_upgrade_effects(delta_seconds)
+	if not _reduced_motion:
+		_update_operator_attack_effects(delta_seconds)
 
 
 func play_operator_upgrade(operator_id: StringName) -> void:
@@ -140,6 +166,7 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 	var enemy_index := int(snapshot["stage_enemy_index"])
 	var enemy_total := int(snapshot["stage_enemy_total"])
 	var mode := String(snapshot["mode"])
+	_current_mode = mode
 	var hp := float(enemy["hp"])
 	var max_hp := maxf(1.0, float(enemy["max_hp"]))
 
@@ -154,6 +181,7 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 	if _hit_feedback_time_left <= 0.0:
 		_enemy_portrait.modulate = _enemy_base_modulate
 
+	_active_operator_ids.clear()
 	for item: Variant in snapshot["operators"]:
 		var operator_data: Dictionary = item
 		var operator_id := String(operator_data["id"])
@@ -162,6 +190,8 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 		_operator_base_modulates[operator_id] = base_modulate
 		if float(_operator_upgrade_times.get(operator_id, 0.0)) <= 0.0:
 			portrait.modulate = base_modulate
+		if bool(operator_data["unlocked"]) and float(operator_data["dps"]) > 0.0:
+			_active_operator_ids.append(operator_id)
 
 	_enemy_hp_bar.value = clampf(hp / max_hp * 100.0, 0.0, 100.0)
 	_enemy_hp_label.text = "HP %s / %s" % [_format_number(hp), _format_number(max_hp)]
@@ -175,6 +205,10 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 		_timer_label.text = "자동 처리 중"
 		_timer_label.add_theme_color_override("font_color", COLOR_MUTED)
 
+	if not previous_snapshot.is_empty() and not _is_same_target(previous_snapshot, snapshot):
+		_reset_combat_effects()
+	if mode not in ["combat", "boss"]:
+		_reset_combat_effects()
 	_show_damage_feedback(previous_snapshot, snapshot)
 
 
@@ -250,6 +284,12 @@ func _build_interface() -> void:
 	_enemy_portrait.name = "EnemyPortrait"
 	_enemy_portrait_slot.add_child(_enemy_portrait)
 
+	_combat_effect_layer = COMBAT_EFFECT_LAYER_SCRIPT.new()
+	_combat_effect_layer.name = "CombatEffectLayer"
+	_combat_effect_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_combat_effect_layer.impact.connect(_on_combat_effect_impact)
+	arena.add_child(_combat_effect_layer)
+
 	_enemy_hp_bar = ProgressBar.new()
 	_enemy_hp_bar.custom_minimum_size.y = 17.0
 	_enemy_hp_bar.min_value = 0.0
@@ -273,21 +313,71 @@ func _build_interface() -> void:
 
 
 func _show_damage_feedback(previous_snapshot: Dictionary, snapshot: Dictionary) -> void:
-	if previous_snapshot.is_empty() or _hit_feedback_time_left > 0.0:
+	if previous_snapshot.is_empty() or _current_mode not in ["combat", "boss"]:
 		return
-	if int(previous_snapshot["stage"]) != int(snapshot["stage"]):
-		return
-	if int(previous_snapshot["stage_enemy_index"]) != int(snapshot["stage_enemy_index"]):
+	if not _is_same_target(previous_snapshot, snapshot):
 		return
 	var previous_enemy: Dictionary = previous_snapshot["enemy"]
 	var current_enemy: Dictionary = snapshot["enemy"]
-	if float(current_enemy["hp"]) >= float(previous_enemy["hp"]):
+	var damage := float(previous_enemy["hp"]) - float(current_enemy["hp"])
+	if damage <= 0.000001 or not is_finite(damage):
 		return
 	if not _reduced_flashes:
 		_hit_feedback_time_left = 0.18
 		_enemy_portrait.modulate = Color("ff9ca6")
 	if _enemy_playback != null and not _reduced_motion:
 		_enemy_playback.play(&"hurt")
+	_pending_damage += damage
+	_try_play_pending_attack()
+
+
+func _is_same_target(previous_snapshot: Dictionary, snapshot: Dictionary) -> bool:
+	return (
+		int(previous_snapshot["stage"]) == int(snapshot["stage"])
+		and int(previous_snapshot["stage_enemy_index"])
+			== int(snapshot["stage_enemy_index"])
+		and String(previous_snapshot["mode"]) == String(snapshot["mode"])
+	)
+
+
+func _try_play_pending_attack() -> void:
+	if (
+		_pending_damage <= 0.000001
+		or _attack_cooldown > 0.0
+		or _current_mode not in ["combat", "boss"]
+		or _active_operator_ids.is_empty()
+		or _combat_effect_layer == null
+	):
+		return
+	var operator_id := _active_operator_ids[_attack_operator_cursor % _active_operator_ids.size()]
+	_attack_operator_cursor = (_attack_operator_cursor + 1) % _active_operator_ids.size()
+	var portrait := _operator_portraits[operator_id] as TextureRect
+	var source_position := (
+		portrait.get_global_rect().get_center() - _combat_effect_layer.get_global_rect().position
+	)
+	var target_position := (
+		_enemy_portrait_slot.get_global_rect().get_center()
+		- _combat_effect_layer.get_global_rect().position
+	)
+	var damage := _pending_damage
+	var accent: Color = OPERATOR_ATTACK_COLORS[operator_id]
+	if not _combat_effect_layer.play_attack(
+		source_position,
+		target_position,
+		damage,
+		accent,
+		_reduced_motion,
+		_reduced_flashes
+	):
+		return
+	_pending_damage = 0.0
+	_attack_cooldown = ATTACK_CADENCE_SECONDS
+	if not _reduced_motion:
+		_operator_attack_times[operator_id] = OPERATOR_ATTACK_DURATION
+
+
+func _on_combat_effect_impact(damage: float) -> void:
+	combat_impact.emit(damage)
 
 
 func _clear_transient_effects() -> void:
@@ -300,10 +390,27 @@ func _clear_transient_effects() -> void:
 			continue
 		var portrait := _operator_portraits[operator_id] as TextureRect
 		portrait.scale = Vector2.ONE
+		portrait.rotation = 0.0
 		portrait.z_index = 0
 		if _operator_base_modulates.has(operator_id):
 			portrait.modulate = _operator_base_modulates[operator_id]
 	_operator_upgrade_times.clear()
+	for operator_id_value: Variant in _operator_attack_times.keys():
+		var operator_id := String(operator_id_value)
+		if not _operator_portraits.has(operator_id):
+			continue
+		var portrait := _operator_portraits[operator_id] as TextureRect
+		portrait.scale = Vector2.ONE
+		portrait.rotation = 0.0
+	_operator_attack_times.clear()
+	_reset_combat_effects()
+
+
+func _reset_combat_effects() -> void:
+	_pending_damage = 0.0
+	_attack_cooldown = 0.0
+	if _combat_effect_layer != null:
+		_combat_effect_layer.clear()
 
 
 func _bind_enemy(asset_id: StringName, stage: int, is_boss: bool, mode: String) -> void:
@@ -338,6 +445,7 @@ func _update_operator_upgrade_effects(delta_seconds: float) -> void:
 		var base_modulate: Color = _operator_base_modulates[operator_id]
 		if time_left <= 0.0:
 			portrait.scale = Vector2.ONE
+			portrait.rotation = 0.0
 			portrait.modulate = base_modulate
 			portrait.z_index = 0
 			_operator_upgrade_times.erase(operator_id)
@@ -351,6 +459,35 @@ func _update_operator_upgrade_effects(delta_seconds: float) -> void:
 		var pulse := sin(progress * PI)
 		portrait.scale = Vector2.ONE * (1.0 + pulse * 0.18)
 		portrait.modulate = base_modulate.lerp(COLOR_CYAN, pulse * 0.9)
+
+
+func _update_operator_attack_effects(delta_seconds: float) -> void:
+	var active_ids: Array = _operator_attack_times.keys()
+	for operator_id_value: Variant in active_ids:
+		var operator_id := String(operator_id_value)
+		var time_left := maxf(
+			0.0,
+			float(_operator_attack_times[operator_id]) - delta_seconds
+		)
+		var portrait := _operator_portraits[operator_id] as TextureRect
+		portrait.pivot_offset = Vector2(portrait.size.x * 0.5, portrait.size.y)
+		if time_left <= 0.0:
+			if float(_operator_upgrade_times.get(operator_id, 0.0)) <= 0.0:
+				portrait.scale = Vector2.ONE
+				portrait.rotation = 0.0
+			_operator_attack_times.erase(operator_id)
+			continue
+		_operator_attack_times[operator_id] = time_left
+		if float(_operator_upgrade_times.get(operator_id, 0.0)) > 0.0:
+			continue
+		var progress := clampf(
+			1.0 - time_left / OPERATOR_ATTACK_DURATION,
+			0.0,
+			1.0
+		)
+		var pulse := sin(progress * PI)
+		portrait.scale = Vector2(1.0 + pulse * 0.10, 1.0 - pulse * 0.04)
+		portrait.rotation = pulse * 0.05
 
 
 func _mode_display_text(mode: String) -> String:

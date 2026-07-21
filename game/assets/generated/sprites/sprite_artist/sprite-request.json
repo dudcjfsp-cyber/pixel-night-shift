@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-request",
+  "engine": "component-row",
+  "character": {
+    "id": "sprite_artist",
+    "description": "Accepted Pixel Night Shift sprite artist identity: compact chibi operator with asymmetric magenta beret and attached cyan digital stylus.",
+    "base_image": "base-source.png"
+  },
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "green",
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "selection": "manual"
+  },
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "subtle breathing and one soft blink; the asymmetric beret, cyan stylus, hands, and planted feet stay stable; frame four returns naturally toward frame one"
+    },
+    "upgrade": {
+      "frames": 4,
+      "fps": 6,
+      "loop": false,
+      "action": "clear creative-tool upgrade gesture with planted feet and the same broad body scale as the idle anchor: neutral start, draw the attached cyan stylus inward to focus, lift it decisively as the torso rises, then finish in one confident upgraded pose; preserve the rectangular apron pocket, tiny cyan-magenta pins, round cyan eyes, bare ears, and asymmetric beret in every frame; absolutely no earring, ear ring, hair ornament, logo, circular emblem, detached effect, extra accessory, or thinner redesign"
+    }
+  },
+  "style": "Match the accepted canonical base exactly: original Pixel Night Shift compact chibi sprite_artist, asymmetric raspberry-magenta beret, attached bright-cyan digital stylus, purple work apron, midnight-navy clothes, cool pale face, crisp chunky pixel clusters, restrained existing dark outline, limited ten-color target palette, no extra equipment or redesign.",
+  "motion_phase_guides": false,
+  "fit": {
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom",
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 12,
+    "detail_bias": false,
+    "outline": false,
+    "pitch_hint": 31
+  },
+  "chroma": {
+    "unmix_reach": 4,
+    "spill_max_fraction": 0.005
+  }
+}

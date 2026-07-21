@@ -15,7 +15,9 @@
 
 런타임은 알파를 분석하거나 그리드를 추측하지 않습니다. 매니페스트, 해시, 셀 크기 또는 사각형이 잘못되면 `PresentationAssets` 초기화가 명시적으로 실패합니다.
 
-## Run 구조
+## 작업 Run과 Git 배송 구조
+
+생성·추출·검수 중에는 `sprite-gen`의 전체 run 구조를 유지합니다.
 
 ```text
 game/assets/generated/sprites/<asset-id>/
@@ -37,7 +39,19 @@ game/assets/generated/sprites/<asset-id>/
   qa-notes.md
 ```
 
-Base 후보와 잠금 근거는 `game/assets/generated/sprites/_base-lock/`에 보존합니다. 한 대상에는 하나의 canonical base만 사용하며, 선택 파일의 SHA-256과 기술 근거를 감사 기록에 남깁니다.
+활성화가 승인되고 모든 QA가 끝나면 Git에는 다음 배송 파일만 남깁니다.
+
+```text
+game/assets/generated/sprites/<asset-id>/
+  sprite-request.json
+  sprite-sheet-alpha.png
+  sprite-sheet-alpha.png.import
+  sprite-sheet-alpha.report.json
+  manifest.json
+  qa-notes.md
+```
+
+Base 후보, raw row, 추출 프레임, 프롬프트, layout guide, GIF와 접촉 시트는 작업 이력입니다. 최종 해시를 고정하기 전 저장소 밖의 보관 디렉터리로 이동하며 Git에는 넣지 않습니다. 한 대상에는 하나의 canonical base만 사용하고, 선택 근거와 최종 해시는 축약된 `qa-notes.md`에 남깁니다.
 
 ## 재생성 순서
 
@@ -61,13 +75,15 @@ python "$env:SPRITE_GEN\scripts\serve_curation.py" --run-dir $run --lang ko --po
 
 Base Lock은 전신 비크롭, 최종 비율·스타일, 정체성/소품 보존, 작은 크기 실루엣, 단일 idle 포즈와 크로마 준비도를 확인하는 차단 게이트입니다. Base Lock 전에는 상태 행을 대량 생성하지 않습니다.
 
+각 캐릭터의 Base A/B는 실제 이미지 생성으로 만든 뒤 기술 기준으로 자동 비교합니다. Base Lock 게이트 자체는 유지하며, 두 후보 중 목표 크기 실루엣·정체성/소품·안전 여백·planted idle 정렬·크로마 분리·단순한 외곽이 더 안정적인 하나만 canonical identity로 사용합니다. 선택되지 않은 후보는 현재 run이나 manifest에 연결하지 않으며, 필요하면 저장소 밖 작업 보관소에서만 유지합니다. 사람 검수는 두 후보가 모두 실패하거나 기술 판단이 충돌하는 예외와 최종 선택적 감사에만 사용하며, strict 자동·독립 QA가 통과한 정상 run의 차단 조건은 아닙니다.
+
 최종 후보 검토는 다음 명령으로 다시 엽니다.
 
 ```powershell
 python "$env:SPRITE_GEN\scripts\serve_curation.py" --run-dir "game\assets\generated\sprites\debugger" --lang ko --port 0
 ```
 
-서버가 출력한 로컬 URL을 열고 상태별 프레임·GIF를 확인합니다. 선택 정보는 run의 `curation/curation.json`에 남으므로 같은 run 디렉터리로 재개할 수 있습니다. 큐레이션 전후의 원본 row와 추출 프레임은 삭제하지 않습니다.
+서버가 출력한 로컬 URL을 열고 상태별 프레임·GIF를 확인합니다. 선택 정보는 작업 run의 `curation/curation.json`에 남으므로 같은 run 디렉터리로 재개할 수 있습니다. 큐레이션 전후의 원본 row와 추출 프레임은 최종 QA와 해시 고정 전까지 유지하고, 활성화 후에는 저장소 밖 작업 보관소로 이동합니다.
 
 ## QA 및 활성화
 
@@ -82,6 +98,8 @@ python "$env:SPRITE_GEN\scripts\serve_curation.py" --run-dir "game\assets\genera
 - `qa-notes.md`에 상태별 `pass`, `best-effort` 또는 `experimental`과 근거가 있음
 
 `game/assets/manifest.json` schema 2의 `active_sprite_runs`가 원자적인 활성화 지점입니다. 각 항목은 run 매니페스트와 atlas의 SHA-256, 매니페스트 계약 버전, 생성기 버전과 라이선스를 기록합니다. 기존 정적 `assets` 23개 항목은 롤백·검증 자료로 계속 유지합니다.
+
+Git 배송 파일만 보존하는 run은 root 항목에 `delivery_profile: "final-only"`를 기록합니다. 이 프로필에서도 `sprite-request.json`, atlas, atlas report, run manifest와 QA 요약은 필수이며, 런타임 manifest·atlas 해시와 프레임 사각형 검증은 동일하게 유지합니다. 전체 작업 run은 최종 QA가 끝나기 전에만 사용합니다.
 
 활성 run의 `manifest.json` 권위 바이트는 `.gitattributes`와 동일한 LF입니다. CR 바이트가 있으면 검증에 실패하며, root의 `manifest_sha256`은 의미상 정규화한 JSON이 아니라 LF 실제 바이트의 SHA-256을 pin합니다. 생성 결과가 CRLF라면 먼저 LF로 정규화한 뒤 pin을 갱신해야 합니다. 런타임은 이 바이트를 자동 정규화하거나 폴백하지 않고 raw-byte SHA를 그대로 비교합니다.
 

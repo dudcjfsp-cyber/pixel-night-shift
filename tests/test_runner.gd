@@ -462,7 +462,13 @@ func _check_active_sprite_byte_contract() -> void:
 	if not runs_value is Dictionary:
 		return
 	var runs: Dictionary = runs_value
-	var required_ids: Array[StringName] = [&"debugger", &"broken_pixel"]
+	var required_ids: Array[StringName] = [
+		&"debugger",
+		&"build_engineer",
+		&"sprite_artist",
+		&"qa_imp",
+		&"broken_pixel",
+	]
 	for asset_id: StringName in required_ids:
 		var run_key := String(asset_id)
 		_check(runs.has(run_key), "%s active sprite entry must exist" % asset_id)
@@ -473,6 +479,11 @@ func _check_active_sprite_byte_contract() -> void:
 		if not entry_value is Dictionary:
 			continue
 		var entry: Dictionary = entry_value
+		if asset_id in [&"build_engineer", &"sprite_artist", &"qa_imp"]:
+			_check(
+				String(entry.get("delivery_profile", "")) == "final-only",
+				"%s active sprite entry must use final-only delivery" % asset_id
+			)
 		var manifest_path := String(entry.get("manifest_path", ""))
 		var manifest_absolute := ProjectSettings.globalize_path(manifest_path)
 		var manifest_file := FileAccess.open(manifest_absolute, FileAccess.READ)
@@ -690,7 +701,109 @@ func _test_battle_lane_animation_events_and_layout() -> void:
 		enemy_portrait.modulate == Color("ff9ca6"),
 		"enemy damage event must preserve the existing hit tint"
 	)
+	var projectile := lane.find_child("CombatProjectile*", true, false) as Control
+	_check(projectile != null, "actual enemy HP loss must launch a visible team projectile")
+	lane._process(0.19)
+	var damage_number := lane.find_child("DamageNumber*", true, false) as Label
+	_check(damage_number != null, "projectile impact must create an enemy damage number")
+	if damage_number != null:
+		_check(damage_number.text == "-1", "damage number must equal the observed 1 HP loss")
 	lane.queue_free()
+
+	var switched_lane := BattleLaneViewScript.new()
+	root.add_child(switched_lane)
+	switched_lane.update_from_snapshot(snapshot, {})
+	var switched_snapshot: Dictionary = snapshot.duplicate(true)
+	switched_snapshot["stage_enemy_index"] = int(snapshot["stage_enemy_index"]) + 1
+	var switched_enemy: Dictionary = switched_snapshot["enemy"]
+	switched_enemy["hp"] = maxf(0.0, float(switched_enemy["hp"]) - 5.0)
+	switched_snapshot["enemy"] = switched_enemy
+	switched_lane.update_from_snapshot(switched_snapshot, snapshot)
+	switched_lane._process(0.5)
+	_check(
+		switched_lane.find_child("CombatProjectile*", true, false) == null,
+		"a new enemy snapshot must not turn its lower starting HP into a false attack"
+	)
+	_check(
+		switched_lane.find_child("DamageNumber*", true, false) == null,
+		"a target change must not create a false damage number"
+	)
+	switched_lane.queue_free()
+
+	_test_upgrade_damage_feedback()
+
+
+func _test_upgrade_damage_feedback() -> void:
+	var session := GameSessionScript.new()
+	var saved_state: Dictionary = session.export_state()
+	saved_state["bits"] = 100.0
+	var restore_errors: PackedStringArray = session.restore_state(saved_state)
+	_check(restore_errors.is_empty(), "damage feedback test state must restore atomically")
+	if not restore_errors.is_empty():
+		return
+
+	var before_base: Dictionary = session.snapshot()
+	session.tick(0.1)
+	var after_base: Dictionary = session.snapshot()
+	var base_damage := _enemy_hp(before_base) - _enemy_hp(after_base)
+	_check(base_damage > 0.0, "unupgraded operators must deal observable combat damage")
+
+	_check(session.upgrade_operator(&"debugger"), "funded debugger upgrade must succeed")
+	var before_upgrade: Dictionary = session.snapshot()
+	session.tick(0.1)
+	var after_upgrade: Dictionary = session.snapshot()
+	var upgraded_damage := _enemy_hp(before_upgrade) - _enemy_hp(after_upgrade)
+	_check(
+		upgraded_damage > base_damage,
+		"the next real-time HP delta must increase immediately after an operator upgrade"
+	)
+
+	var lane := BattleLaneViewScript.new()
+	root.add_child(lane)
+	lane.update_from_snapshot(before_base, {})
+	lane.update_from_snapshot(after_base, before_base)
+	lane._process(0.19)
+	var first_number := _latest_damage_number(lane)
+	_check(first_number != null, "base damage must reach the damage-number layer")
+	if first_number != null:
+		_check(
+			first_number.text == _expected_damage_text(base_damage),
+			"base damage number must use the actual GameSession HP delta"
+		)
+
+	lane.update_from_snapshot(before_upgrade, after_base)
+	lane.update_from_snapshot(after_upgrade, before_upgrade)
+	lane._process(0.10)
+	lane._process(0.19)
+	var upgraded_number := _latest_damage_number(lane)
+	_check(upgraded_number != null, "upgraded damage must reach the damage-number layer")
+	if upgraded_number != null:
+		_check(
+			upgraded_number.text == _expected_damage_text(upgraded_damage),
+			"upgraded damage number must use the new actual GameSession HP delta"
+		)
+	lane.queue_free()
+
+
+func _enemy_hp(snapshot: Dictionary) -> float:
+	return float((snapshot["enemy"] as Dictionary)["hp"])
+
+
+func _latest_damage_number(lane: Node) -> Label:
+	var latest: Label = null
+	var latest_serial := -1
+	for node: Node in lane.find_children("DamageNumber*", "Label", true, false):
+		var serial := String(node.name).trim_prefix("DamageNumber").to_int()
+		if serial > latest_serial:
+			latest = node as Label
+			latest_serial = serial
+	return latest
+
+
+func _expected_damage_text(damage: float) -> String:
+	if is_equal_approx(damage, roundf(damage)):
+		return "-%d" % int(roundf(damage))
+	return "-%.1f" % damage
 
 
 func _test_presentation_assets() -> void:
@@ -713,21 +826,22 @@ func _test_presentation_assets() -> void:
 			_check(texture.get_size() == Vector2(16.0, 16.0), "UI texture '%s' must be 16x16" % icon_id)
 
 	var audio_paths: PackedStringArray = [
-		"res://game/assets/audio/bgm/night_shift_loop.wav",
-		"res://game/assets/audio/bgm/watchdog_loop.wav",
+		"res://game/assets/audio/bgm/night_shift_loop.ogg",
+		"res://game/assets/audio/bgm/watchdog_loop.ogg",
 		"res://game/assets/audio/bgm/maintenance_loop.wav",
-		"res://game/assets/audio/sfx/ui_move.wav",
-		"res://game/assets/audio/sfx/ui_confirm.wav",
-		"res://game/assets/audio/sfx/ui_error.wav",
-		"res://game/assets/audio/sfx/enemy_break.wav",
-		"res://game/assets/audio/sfx/stage_clear.wav",
-		"res://game/assets/audio/sfx/operator_upgrade.wav",
-		"res://game/assets/audio/sfx/patch_apply.wav",
-		"res://game/assets/audio/sfx/patch_remove.wav",
-		"res://game/assets/audio/sfx/boss_warning.wav",
-		"res://game/assets/audio/sfx/maintenance_enter.wav",
-		"res://game/assets/audio/sfx/update_ready.wav",
-		"res://game/assets/audio/sfx/version_update.wav",
+		"res://game/assets/audio/sfx/ui_move.ogg",
+		"res://game/assets/audio/sfx/ui_confirm.ogg",
+		"res://game/assets/audio/sfx/ui_error.ogg",
+		"res://game/assets/audio/sfx/enemy_break.ogg",
+		"res://game/assets/audio/sfx/combat_hit.ogg",
+		"res://game/assets/audio/sfx/stage_clear.ogg",
+		"res://game/assets/audio/sfx/operator_upgrade.ogg",
+		"res://game/assets/audio/sfx/patch_apply.ogg",
+		"res://game/assets/audio/sfx/patch_remove.ogg",
+		"res://game/assets/audio/sfx/boss_warning.ogg",
+		"res://game/assets/audio/sfx/maintenance_enter.ogg",
+		"res://game/assets/audio/sfx/update_ready.ogg",
+		"res://game/assets/audio/sfx/version_update.ogg",
 	]
 	for audio_path: String in audio_paths:
 		var stream: Resource = load(audio_path)

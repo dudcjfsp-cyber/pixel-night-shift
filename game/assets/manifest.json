@@ -9,6 +9,16 @@
       "manifest_sha256": "b6a4ddb4d07efca7494707f5c55410d39cf0bfcb25d8426caaa8917225a34745",
       "sprite_gen_version": "1.56.6"
     },
+    "build_engineer": {
+      "atlas_sha256": "46bb73368cea3a15525721486f1d0febed45d60d530c51f18fc82857e516139c",
+      "category": "operator",
+      "delivery_profile": "final-only",
+      "license": "LicenseRef-PixelNightShift-Original",
+      "manifest_contract": 1.0,
+      "manifest_path": "res://game/assets/generated/sprites/build_engineer/manifest.json",
+      "manifest_sha256": "83d6fd36692928ef112ecaae251fdd0a27504ab1a1e8aa08a5fbb42787644ec0",
+      "sprite_gen_version": "1.56.6"
+    },
     "debugger": {
       "atlas_sha256": "0674c5aa53c6deadefe44491f023092abc9cd9a9a6182f7a57935e09e3b1034d",
       "category": "operator",
@@ -16,6 +26,26 @@
       "manifest_contract": 1.0,
       "manifest_path": "res://game/assets/generated/sprites/debugger/manifest.json",
       "manifest_sha256": "cc2e10e9aeea9f06034c6f443a8727770d565b520422973acc98b94059eda6fb",
+      "sprite_gen_version": "1.56.6"
+    },
+    "qa_imp": {
+      "atlas_sha256": "e806c3f4f5dd3974f9d8ac83da29214bf214d57df51d27e55863b5e03f541ef7",
+      "category": "operator",
+      "delivery_profile": "final-only",
+      "license": "LicenseRef-PixelNightShift-Original",
+      "manifest_contract": 1.0,
+      "manifest_path": "res://game/assets/generated/sprites/qa_imp/manifest.json",
+      "manifest_sha256": "8862f920a5b17d606601f62a39d9726eda86122a606200b7a995385f1fff2936",
+      "sprite_gen_version": "1.56.6"
+    },
+    "sprite_artist": {
+      "atlas_sha256": "f0f8ca89cc5c0a0107cb6b2bf6aaf31d88ac6096eb78bf38403fd80e89d0c3f9",
+      "category": "operator",
+      "delivery_profile": "final-only",
+      "license": "LicenseRef-PixelNightShift-Original",
+      "manifest_contract": 1.0,
+      "manifest_path": "res://game/assets/generated/sprites/sprite_artist/manifest.json",
+      "manifest_sha256": "9f52a2f17ce16da19e4f08d0877a075f3e015b7916c1c87be93998a1571c85b5",
       "sprite_gen_version": "1.56.6"
     }
   },

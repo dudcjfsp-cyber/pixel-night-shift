@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "kind": "sprite-gen-request",
+  "engine": "component-row",
+  "character": {
+    "id": "qa_imp",
+    "description": "front-facing original Pixel Night Shift QA Imp operator with two symmetric small horns, dominant violet body, navy boots and outline, pale face, and a central attached checklist with mint check; preserve the exact locked identity",
+    "base_image": "base-source.png"
+  },
+  "cell": {
+    "shape": "square",
+    "width": 32,
+    "height": 32,
+    "safe_margin_x": 3,
+    "safe_margin_y": 3,
+    "size": 32,
+    "safe_margin": 3
+  },
+  "chroma_key": {
+    "name": "magenta",
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ],
+    "selection": "manual"
+  },
+  "states": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true,
+      "action": "exact four-phase planted QA idle loop: frame 1 neutral checklist hold, frame 2 tiny inhale with a subtle horn and shoulder rise, frame 3 gentle exhale, frame 4 near-neutral return matching frame 1 feet, checklist height, horn spacing, and silhouette; keep both feet fixed and the central checklist attached; in every frame preserve one broad hard-edged mint #6EE7A2 check glyph physically inside the pale checklist, occupying roughly half of the checklist width and height with strokes at least two final logical pixels thick so it survives reduction to 26 logical pixels; distribute readable low-amplitude motion without duplicate holds or detached marks"
+    },
+    "upgrade": {
+      "frames": 4,
+      "fps": 6,
+      "loop": false,
+      "action": "brief quality-upgrade acknowledgement with clear start-middle-end poses: start near idle, raise the attached central checklist clearly while giving one small confident nod, brighten one broad hard-edged mint #6EE7A2 check glyph that stays physically inside the pale checklist, then lower the checklist and settle toward idle; in every frame the mint check fills about 70 percent of the checklist interior with strokes at least two final logical pixels thick, while the pale checklist remains large enough for the mint to survive reduction to 26 logical pixels; both feet stay planted and all anatomy, horns, and checklist remain one connected silhouette"
+    }
+  },
+  "style": "match the attached canonical base image EXACTLY: same chunky pixel density, low compact proportions, symmetric small horns, outline weight, violet/navy/pale/mint palette, central attached checklist, shading style, and detail density. Use a deliberately limited flat subject palette of at most 8 opaque colors across navy outline, dark violet, main violet, light violet, pale face/checklist, white eye highlights, mint check, and at most one extra shadow; do not create many near-duplicate violet shades. Do not restyle or add detail. Avoid painterly rendering, anime key art, 3D, vector polish, soft gradients, and anti-aliased high-detail edges.",
+  "motion_phase_guides": false,
+  "fit": {
+    "pixel_perfect": true,
+    "logical_height": 26,
+    "palette_size": 12,
+    "pitch_hint": 1,
+    "detail_bias": false,
+    "outline": false,
+    "resample": "kcentroid",
+    "align_x": "foot-centroid",
+    "align_y": "bottom"
+  },
+  "chroma": {
+    "unmix_reach": 4,
+    "spill_max_fraction": 0.005
+  }
+}
