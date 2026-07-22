@@ -5,7 +5,12 @@ const EPSILON := 0.000001
 const MAX_EVENTS_PER_TICK := 100000
 
 
-static func advance(state: GameState, catalog: ContentCatalog, delta_seconds: float) -> void:
+static func advance(
+	state: GameState,
+	catalog: ContentCatalog,
+	delta_seconds: float,
+	hybrid_boss_enabled: bool = false
+) -> void:
 	if delta_seconds <= 0.0 or state.can_prestige:
 		return
 	var remaining := delta_seconds
@@ -15,11 +20,18 @@ static func advance(state: GameState, catalog: ContentCatalog, delta_seconds: fl
 		assert(event_count <= MAX_EVENTS_PER_TICK, "Combat event loop exceeded its safety limit")
 		var consumed := 0.0
 		if state.is_maintenance:
-			consumed = _advance_normal_enemy(state, catalog, remaining, true)
+			consumed = _advance_normal_enemy(
+				state, catalog, remaining, true, hybrid_boss_enabled
+			)
 		elif ProgressionRules.is_boss_stage(state.stage):
-			consumed = _advance_boss(state, catalog, remaining)
+			if hybrid_boss_enabled:
+				consumed = _advance_hybrid_boss(state, catalog, remaining)
+			else:
+				consumed = _advance_boss(state, catalog, remaining)
 		else:
-			consumed = _advance_normal_enemy(state, catalog, remaining, false)
+			consumed = _advance_normal_enemy(
+				state, catalog, remaining, false, hybrid_boss_enabled
+			)
 		if consumed > EPSILON:
 			remaining -= consumed
 
@@ -28,7 +40,8 @@ static func _advance_normal_enemy(
 	state: GameState,
 	catalog: ContentCatalog,
 	available_seconds: float,
-	maintenance: bool
+	maintenance: bool,
+	hybrid_boss_enabled: bool
 ) -> float:
 	var dps := ProgressionRules.total_dps(state, catalog)
 	if dps <= EPSILON:
@@ -39,14 +52,15 @@ static func _advance_normal_enemy(
 	var consumed: float = minf(available_seconds, time_to_kill)
 	state.enemy_health = maxf(0.0, state.enemy_health - dps * consumed)
 	if state.enemy_health <= EPSILON:
-		_complete_normal_enemy(state, catalog, maintenance)
+		_complete_normal_enemy(state, catalog, maintenance, hybrid_boss_enabled)
 	return consumed
 
 
 static func _complete_normal_enemy(
 	state: GameState,
 	catalog: ContentCatalog,
-	maintenance: bool
+	maintenance: bool,
+	hybrid_boss_enabled: bool
 ) -> void:
 	var combat_stage := state.stage - 1 if maintenance else state.stage
 	var modifiers := ProgressionRules.patch_modifiers(state.equipped_patch_ids, catalog)
@@ -64,7 +78,7 @@ static func _complete_normal_enemy(
 			state.enemy_index = 1
 			state.enemy_health = ProgressionRules.current_enemy_max_hp(state, catalog)
 			return
-		_retry_boss(state, catalog)
+		_retry_boss(state, catalog, hybrid_boss_enabled)
 		return
 
 	state.stage += 1
@@ -73,6 +87,25 @@ static func _complete_normal_enemy(
 	ProgressionRules.refresh_unlocks(state, catalog)
 	state.enemy_health = ProgressionRules.current_enemy_max_hp(state, catalog)
 	state.status_message = "스테이지 %d 진입" % state.stage
+
+
+static func _advance_hybrid_boss(
+	state: GameState,
+	catalog: ContentCatalog,
+	available_seconds: float
+) -> float:
+	if (
+		state.operator_combat_states.is_empty()
+		or not is_finite(state.enemy_attack_remaining)
+	):
+		state.boss_attempt_serial += 1
+		HybridBossSimulator.reset_attempt(state, catalog)
+	var consumed := HybridBossSimulator.advance(state, catalog, available_seconds)
+	if state.enemy_health <= EPSILON:
+		_complete_boss(state, catalog, true)
+	elif not state.last_boss_failure_reason.is_empty():
+		_fail_boss(state, catalog, state.last_boss_failure_reason)
+	return consumed
 
 
 static func _advance_boss(
@@ -128,7 +161,13 @@ static func _advance_boss(
 	return consumed
 
 
-static func _complete_boss(state: GameState, catalog: ContentCatalog) -> void:
+static func _complete_boss(
+	state: GameState,
+	catalog: ContentCatalog,
+	hybrid_boss_enabled: bool = false
+) -> void:
+	if hybrid_boss_enabled:
+		HybridBossSimulator.clear_attempt(state)
 	var modifiers := ProgressionRules.patch_modifiers(state.equipped_patch_ids, catalog)
 	state.bits += ProgressionRules.enemy_reward(
 		state.stage, catalog.balance, float(modifiers.bits)
@@ -147,7 +186,12 @@ static func _complete_boss(state: GameState, catalog: ContentCatalog) -> void:
 	state.status_message = "감시견 프로세스를 격리했습니다."
 
 
-static func _fail_boss(state: GameState, catalog: ContentCatalog) -> void:
+static func _fail_boss(
+	state: GameState,
+	catalog: ContentCatalog,
+	reason: StringName = &"boss_timeout"
+) -> void:
+	state.last_boss_failure_reason = reason
 	state.boss_failure_count += 1
 	if state.boss_failure_count == 1:
 		state.free_patch_swaps += 1
@@ -158,11 +202,18 @@ static func _fail_boss(state: GameState, catalog: ContentCatalog) -> void:
 	state.status_message = "보스 실패: 유지보수 파밍 후 자동 재시도합니다."
 
 
-static func _retry_boss(state: GameState, catalog: ContentCatalog) -> void:
+static func _retry_boss(
+	state: GameState,
+	catalog: ContentCatalog,
+	hybrid_boss_enabled: bool
+) -> void:
 	state.is_maintenance = false
 	state.enemy_index = 1
 	_reset_boss_attempt(state)
 	state.enemy_health = ProgressionRules.current_enemy_max_hp(state, catalog)
+	if hybrid_boss_enabled:
+		state.boss_attempt_serial += 1
+		HybridBossSimulator.reset_attempt(state, catalog)
 	state.status_message = "유지보수 완료: 감시견에 자동 재접속합니다."
 
 

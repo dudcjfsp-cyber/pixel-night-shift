@@ -11,6 +11,57 @@ const REQUIRED_OPERATOR_IDS: Array[StringName] = [
 const REQUIRED_PATCH_IDS: Array[StringName] = [
 	&"frame_skip", &"unsafe_build", &"reward_bypass", &"rollback_lock", &"safe_mode"
 ]
+const OPERATOR_KEYS: PackedStringArray = [
+	"id",
+	"name",
+	"role_name",
+	"base_dps",
+	"base_cost",
+	"cost_growth",
+	"dps_exponent",
+	"unlock_stage",
+	"base_hp",
+	"attack_interval",
+	"threat_weight",
+	"outgoing_multiplier",
+	"incoming_multiplier",
+	"boss_multiplier",
+	"team_interval_multiplier",
+	"qa_rescue_enabled",
+]
+const BALANCE_KEYS: PackedStringArray = [
+	"normal_enemy_count",
+	"enemy_base_health",
+	"enemy_health_growth",
+	"post_stage_10_health_growth",
+	"enemy_reward_base",
+	"enemy_reward_growth",
+	"boss_health_multiplier",
+	"boss_time_limit",
+	"operator_hp_growth",
+	"qa_rescue_delay",
+	"qa_rescue_hp_fraction",
+	"stage_10_poll_interval",
+	"stage_10_poll_damage",
+	"stage_10_special_interval",
+	"stage_10_special_damage",
+	"stage_10_recovery_interval",
+	"stage_10_recovery_fraction",
+	"stage_20_poll_interval",
+	"stage_20_poll_damage",
+	"stage_20_special_interval",
+	"stage_20_special_damage",
+	"stage_20_recovery_interval",
+	"stage_20_recovery_fraction",
+	"stage_20_debuff_time",
+	"stage_20_debuff_multiplier",
+	"maintenance_cycles",
+	"target_normal_ttk",
+	"legacy_cache_bonus",
+	"legacy_cache_cost",
+	"max_legacy_cache_level",
+	"patch_slot_unlock_stages",
+]
 
 
 static func load_default() -> ContentLoadResult:
@@ -86,13 +137,37 @@ static func _parse_operators(raw_items: Array, result: ContentLoadResult) -> Arr
 			continue
 		var data := raw_item as Dictionary
 		var start_error_count := result.errors.size()
+		_validate_allowed_keys(data, OPERATOR_KEYS, context, result)
 		var id := _required_string(data, "id", context, result)
 		var display_name := _required_string(data, "name", context, result)
+		var role_name := _required_string(data, "role_name", context, result)
 		var base_dps := _required_positive_float(data, "base_dps", context, result)
 		var base_cost := _required_positive_float(data, "base_cost", context, result)
 		var cost_growth := _required_positive_float(data, "cost_growth", context, result)
 		var dps_exponent := _required_positive_float(data, "dps_exponent", context, result)
 		var unlock_stage := _required_positive_int(data, "unlock_stage", context, result)
+		var base_hp := _required_positive_float(data, "base_hp", context, result)
+		var attack_interval := _required_positive_float(
+			data, "attack_interval", context, result
+		)
+		var threat_weight := _required_positive_float(
+			data, "threat_weight", context, result
+		)
+		var outgoing_multiplier := _required_positive_float(
+			data, "outgoing_multiplier", context, result
+		)
+		var incoming_multiplier := _required_positive_float(
+			data, "incoming_multiplier", context, result
+		)
+		var boss_multiplier := _required_positive_float(
+			data, "boss_multiplier", context, result
+		)
+		var team_interval_multiplier := _required_positive_float(
+			data, "team_interval_multiplier", context, result
+		)
+		var qa_rescue_enabled := _required_bool(
+			data, "qa_rescue_enabled", context, result
+		)
 		if unlock_stage > PROTOTYPE_MAX_STAGE:
 			result.errors.append(
 				"%s.unlock_stage: must be within prototype stages 1..%d"
@@ -106,7 +181,22 @@ static func _parse_operators(raw_items: Array, result: ContentLoadResult) -> Arr
 			continue
 		seen_ids[id] = true
 		definitions.append(OperatorDefinition.new(
-			StringName(id), display_name, base_dps, base_cost, cost_growth, dps_exponent, unlock_stage
+			StringName(id),
+			display_name,
+			role_name,
+			base_dps,
+			base_cost,
+			cost_growth,
+			dps_exponent,
+			unlock_stage,
+			base_hp,
+			attack_interval,
+			threat_weight,
+			outgoing_multiplier,
+			incoming_multiplier,
+			boss_multiplier,
+			team_interval_multiplier,
+			qa_rescue_enabled
 		))
 	return definitions
 
@@ -156,6 +246,7 @@ static func _parse_patches(raw_items: Array, result: ContentLoadResult) -> Array
 
 static func _parse_balance(data: Dictionary, result: ContentLoadResult) -> BalanceDefinition:
 	var balance := BalanceDefinition.new()
+	_validate_allowed_keys(data, BALANCE_KEYS, "balance", result)
 	balance.normal_enemy_count = _required_positive_int(data, "normal_enemy_count", "balance", result)
 	balance.enemy_base_health = _required_positive_float(data, "enemy_base_health", "balance", result)
 	balance.enemy_health_growth = _required_positive_float(data, "enemy_health_growth", "balance", result)
@@ -166,8 +257,41 @@ static func _parse_balance(data: Dictionary, result: ContentLoadResult) -> Balan
 	balance.enemy_reward_growth = _required_positive_float(data, "enemy_reward_growth", "balance", result)
 	balance.boss_health_multiplier = _required_positive_float(data, "boss_health_multiplier", "balance", result)
 	balance.boss_time_limit = _required_positive_float(data, "boss_time_limit", "balance", result)
+	balance.operator_hp_growth = _required_positive_float(
+		data, "operator_hp_growth", "balance", result
+	)
+	balance.qa_rescue_delay = _required_positive_float(
+		data, "qa_rescue_delay", "balance", result
+	)
+	balance.qa_rescue_hp_fraction = _required_fraction(
+		data, "qa_rescue_hp_fraction", "balance", result
+	)
+	balance.stage_10_poll_interval = _required_positive_float(
+		data, "stage_10_poll_interval", "balance", result
+	)
+	balance.stage_10_poll_damage = _required_positive_float(
+		data, "stage_10_poll_damage", "balance", result
+	)
+	balance.stage_10_special_interval = _required_positive_float(
+		data, "stage_10_special_interval", "balance", result
+	)
+	balance.stage_10_special_damage = _required_positive_float(
+		data, "stage_10_special_damage", "balance", result
+	)
 	balance.stage_10_recovery_interval = _required_positive_float(data, "stage_10_recovery_interval", "balance", result)
 	balance.stage_10_recovery_fraction = _required_positive_float(data, "stage_10_recovery_fraction", "balance", result)
+	balance.stage_20_poll_interval = _required_positive_float(
+		data, "stage_20_poll_interval", "balance", result
+	)
+	balance.stage_20_poll_damage = _required_positive_float(
+		data, "stage_20_poll_damage", "balance", result
+	)
+	balance.stage_20_special_interval = _required_positive_float(
+		data, "stage_20_special_interval", "balance", result
+	)
+	balance.stage_20_special_damage = _required_positive_float(
+		data, "stage_20_special_damage", "balance", result
+	)
 	balance.stage_20_recovery_interval = _required_positive_float(data, "stage_20_recovery_interval", "balance", result)
 	balance.stage_20_recovery_fraction = _required_positive_float(data, "stage_20_recovery_fraction", "balance", result)
 	balance.stage_20_debuff_time = _required_positive_float(data, "stage_20_debuff_time", "balance", result)
@@ -186,6 +310,8 @@ static func _parse_balance(data: Dictionary, result: ContentLoadResult) -> Balan
 		result.errors.append("balance.post_stage_10_health_growth: must be greater than 1")
 	if balance.enemy_reward_growth <= 1.0:
 		result.errors.append("balance.enemy_reward_growth: must be greater than 1")
+	if balance.operator_hp_growth <= 1.0:
+		result.errors.append("balance.operator_hp_growth: must be greater than 1")
 	if balance.patch_slot_unlock_stages.size() != 3:
 		result.errors.append("balance.patch_slot_unlock_stages: exactly three entries are required")
 	for unlock_stage: int in balance.patch_slot_unlock_stages:
@@ -206,6 +332,16 @@ static func _validate_required_ids(catalog: ContentCatalog, result: ContentLoadR
 			result.errors.append("operators: missing required id '%s'" % required_id)
 	if catalog.operators.size() != REQUIRED_OPERATOR_IDS.size():
 		result.errors.append("operators: prototype requires exactly four definitions")
+	for definition: OperatorDefinition in catalog.operators:
+		if definition.id == &"qa_imp":
+			if not definition.qa_rescue_enabled:
+				result.errors.append(
+					"operators: 'qa_imp' must enable the automatic QA rescue role"
+				)
+		elif definition.qa_rescue_enabled:
+			result.errors.append(
+				"operators: only 'qa_imp' may enable the automatic QA rescue role"
+			)
 
 	var patch_ids: Dictionary = {}
 	for definition: PatchDefinition in catalog.patches:
@@ -262,6 +398,30 @@ static func _required_positive_int(
 	return value
 
 
+static func _required_fraction(
+	data: Dictionary,
+	key: String,
+	context: String,
+	result: ContentLoadResult
+) -> float:
+	var value := _required_positive_float(data, key, context, result)
+	if value > 1.0:
+		result.errors.append("%s.%s: must be no greater than 1" % [context, key])
+	return value
+
+
+static func _required_bool(
+	data: Dictionary,
+	key: String,
+	context: String,
+	result: ContentLoadResult
+) -> bool:
+	if not data.has(key) or typeof(data[key]) != TYPE_BOOL:
+		result.errors.append("%s.%s: boolean is required" % [context, key])
+		return false
+	return bool(data[key])
+
+
 static func _required_positive_int_array(
 	data: Dictionary,
 	key: String,
@@ -287,6 +447,17 @@ static func _required_positive_int_array(
 		values.append(value)
 		previous = value
 	return values
+
+
+static func _validate_allowed_keys(
+	data: Dictionary,
+	allowed_keys: PackedStringArray,
+	context: String,
+	result: ContentLoadResult
+) -> void:
+	for raw_key: Variant in data.keys():
+		if typeof(raw_key) != TYPE_STRING or not allowed_keys.has(String(raw_key)):
+			result.errors.append("%s.%s: unexpected field" % [context, String(raw_key)])
 
 
 static func _is_number(value: Variant) -> bool:

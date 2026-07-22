@@ -2,37 +2,73 @@
   {
     "id": "debugger",
     "name": "디버거",
+    "role_name": "전열 안정화",
     "base_dps": 5.2,
     "base_cost": 12.0,
     "cost_growth": 1.16,
     "dps_exponent": 1.30,
-    "unlock_stage": 1
+    "unlock_stage": 1,
+    "base_hp": 200.0,
+    "attack_interval": 1.0,
+    "threat_weight": 4.0,
+    "outgoing_multiplier": 0.90,
+    "incoming_multiplier": 0.70,
+    "boss_multiplier": 1.0,
+    "team_interval_multiplier": 1.0,
+    "qa_rescue_enabled": false
   },
   {
     "id": "build_engineer",
     "name": "빌드 엔지니어",
+    "role_name": "보스 화력",
     "base_dps": 3.8,
     "base_cost": 15.0,
     "cost_growth": 1.16,
     "dps_exponent": 1.32,
-    "unlock_stage": 1
+    "unlock_stage": 1,
+    "base_hp": 160.0,
+    "attack_interval": 1.5,
+    "threat_weight": 2.0,
+    "outgoing_multiplier": 1.0,
+    "incoming_multiplier": 1.0,
+    "boss_multiplier": 1.35,
+    "team_interval_multiplier": 1.0,
+    "qa_rescue_enabled": false
   },
   {
     "id": "sprite_artist",
     "name": "스프라이트 장인",
+    "role_name": "팀 템포",
     "base_dps": 3.2,
     "base_cost": 18.0,
     "cost_growth": 1.17,
     "dps_exponent": 1.34,
-    "unlock_stage": 3
+    "unlock_stage": 3,
+    "base_hp": 125.0,
+    "attack_interval": 0.75,
+    "threat_weight": 1.0,
+    "outgoing_multiplier": 1.0,
+    "incoming_multiplier": 1.0,
+    "boss_multiplier": 1.0,
+    "team_interval_multiplier": 0.90,
+    "qa_rescue_enabled": false
   },
   {
     "id": "qa_imp",
     "name": "QA 임프",
+    "role_name": "자동 복구",
     "base_dps": 2.8,
     "base_cost": 22.0,
     "cost_growth": 1.18,
     "dps_exponent": 1.38,
-    "unlock_stage": 6
+    "unlock_stage": 6,
+    "base_hp": 140.0,
+    "attack_interval": 1.2,
+    "threat_weight": 1.0,
+    "outgoing_multiplier": 0.85,
+    "incoming_multiplier": 1.0,
+    "boss_multiplier": 1.0,
+    "team_interval_multiplier": 1.0,
+    "qa_rescue_enabled": true
   }
 ]

@@ -34,9 +34,14 @@ const SAVE_STATE_KEYS: Array[String] = [
 var _catalog: ContentCatalog
 var _state: GameState
 var _last_error: String = ""
+var _hybrid_boss_enabled := false
 
 
-func _init(catalog_override: ContentCatalog = null) -> void:
+func _init(
+	catalog_override: ContentCatalog = null,
+	hybrid_boss_enabled: bool = false
+) -> void:
+	_hybrid_boss_enabled = hybrid_boss_enabled
 	if catalog_override != null:
 		_catalog = catalog_override
 	else:
@@ -58,7 +63,7 @@ func tick(delta_seconds: float) -> void:
 		_reject("경과 시간은 0 이상의 유한한 값이어야 합니다.")
 		return
 	_last_error = ""
-	BattleSimulator.advance(_state, _catalog, delta_seconds)
+	BattleSimulator.advance(_state, _catalog, delta_seconds, _hybrid_boss_enabled)
 
 
 func upgrade_operator(operator_id: StringName) -> bool:
@@ -68,6 +73,19 @@ func upgrade_operator(operator_id: StringName) -> bool:
 		return _reject("아직 해금되지 않은 요원입니다.")
 	var definition := _catalog.get_operator(operator_id)
 	var level := int(_state.operator_levels.get(operator_id, 0))
+	var runtime := _state.get_operator_combat_state(operator_id)
+	var hybrid_boss_active := (
+		_hybrid_boss_enabled
+		and ProgressionRules.is_boss_stage(_state.stage)
+		and not _state.is_maintenance
+	)
+	var previous_hp_ratio := 0.0
+	if hybrid_boss_active and runtime != null and runtime.is_active():
+		var previous_max_hp := HybridBossSimulator.operator_max_hp(
+			_state, _catalog, operator_id
+		)
+		if previous_max_hp > SAVE_COMPARISON_EPSILON:
+			previous_hp_ratio = clampf(runtime.current_hp / previous_max_hp, 0.0, 1.0)
 	var cost := ProgressionRules.operator_upgrade_cost(
 		level, definition.base_cost, definition.cost_growth
 	)
@@ -75,6 +93,11 @@ func upgrade_operator(operator_id: StringName) -> bool:
 		return _reject("비트가 부족합니다.")
 	_state.bits = maxf(0.0, _state.bits - cost)
 	_state.operator_levels[operator_id] = level + 1
+	if hybrid_boss_active and runtime != null and runtime.is_active():
+		runtime.current_hp = (
+			HybridBossSimulator.operator_max_hp(_state, _catalog, operator_id)
+			* previous_hp_ratio
+		)
 	_state.status_message = "%s 레벨 %d" % [definition.display_name, level + 1]
 	return _accept()
 
@@ -139,6 +162,20 @@ func prestige() -> bool:
 	_state.boss_recovery_count = 0
 	_state.boss_recovered_health = 0.0
 	_state.boss_debuff_applied = false
+	_state.operator_combat_states.clear()
+	_state.enemy_attack_remaining = INF
+	_state.boss_special_remaining = INF
+	_state.boss_rollback_remaining = INF
+	_state.boss_attempt_serial = 0
+	_state.last_boss_failure_reason = &""
+	_state.qa_rescue_consumed = false
+	_state.qa_rescue_target_id = &""
+	_state.qa_rescue_remaining = 0.0
+	_state.qa_rescue_count = 0
+	_state.boss_event_serial = 0
+	_state.recent_boss_events.clear()
+	_state.total_operator_down_count = 0
+	_state.total_operator_down_time = 0.0
 	for definition: OperatorDefinition in _catalog.operators:
 		_state.operator_levels[definition.id] = 0
 	ProgressionRules.refresh_unlocks(_state, _catalog)
@@ -165,12 +202,34 @@ func snapshot() -> Dictionary:
 	var operator_rows: Array[Dictionary] = []
 	for definition: OperatorDefinition in _catalog.operators:
 		var level := int(_state.operator_levels.get(definition.id, 0))
+		var runtime := _state.get_operator_combat_state(definition.id)
+		var max_operator_hp := 0.0
+		if boss and _hybrid_boss_enabled and runtime != null and _state.is_operator_unlocked(definition.id):
+			max_operator_hp = HybridBossSimulator.operator_max_hp(
+				_state, _catalog, definition.id
+			)
 		operator_rows.append({
 			"id": String(definition.id),
 			"name": definition.display_name,
+			"role": definition.role_name,
 			"level": level,
 			"unlocked": _state.is_operator_unlocked(definition.id),
 			"dps": ProgressionRules.operator_dps(definition, level),
+			"effective_dps": (
+				HybridBossSimulator.operator_effective_dps(_state, _catalog, definition.id)
+				if boss and _hybrid_boss_enabled and runtime != null
+				else ProgressionRules.operator_dps(definition, level)
+			),
+			"hp": runtime.current_hp if boss and _hybrid_boss_enabled and runtime != null else 0.0,
+			"max_hp": max_operator_hp,
+			"down": boss and _hybrid_boss_enabled and runtime != null and _state.is_operator_unlocked(definition.id) and not runtime.is_active(),
+			"process_down": boss and _hybrid_boss_enabled and runtime != null and _state.is_operator_unlocked(definition.id) and not runtime.is_active(),
+			"attack_remaining": runtime.attack_remaining if boss and _hybrid_boss_enabled and runtime != null else INF,
+			"damage_dealt": runtime.damage_dealt if runtime != null else 0.0,
+			"damage_taken": runtime.damage_taken if runtime != null else 0.0,
+			"down_count": runtime.down_count if runtime != null else 0,
+			"active_time": runtime.active_time if runtime != null else 0.0,
+			"down_time": runtime.down_time if runtime != null else 0.0,
 			"upgrade_cost": ProgressionRules.operator_upgrade_cost(
 				level, definition.base_cost, definition.cost_growth
 			),
@@ -191,6 +250,9 @@ func snapshot() -> Dictionary:
 			"equipped": _state.equipped_patch_ids.has(definition.id),
 		})
 
+	var next_action := {"label": "", "seconds": 0.0}
+	if boss and _hybrid_boss_enabled:
+		next_action = HybridBossSimulator.next_action(_state)
 	return {
 		"stage": _state.stage,
 		"stage_enemy_index": 1 if boss else _state.enemy_index,
@@ -205,6 +267,8 @@ func snapshot() -> Dictionary:
 			"max_hp": max_hp,
 			"is_boss": boss,
 			"time_left": max(0.0, _catalog.balance.boss_time_limit - _state.boss_elapsed) if boss else 0.0,
+			"next_action": String(next_action["label"]),
+			"next_action_in": float(next_action["seconds"]),
 		},
 		"operators": operator_rows,
 		"patch_slots": slot_rows,
@@ -219,6 +283,17 @@ func snapshot() -> Dictionary:
 			else _catalog.balance.legacy_cache_cost
 		),
 		"maintenance_time_left": _estimated_maintenance_time(),
+		"hybrid_combat_enabled": _hybrid_boss_enabled,
+		"boss_failure_count": _state.boss_failure_count,
+		"last_failure_reason": String(_state.last_boss_failure_reason),
+		"qa_rescue": {
+			"available": boss and not _state.qa_rescue_consumed,
+			"pending": _state.qa_rescue_target_id != &"",
+			"target_id": String(_state.qa_rescue_target_id),
+			"remaining": _state.qa_rescue_remaining,
+			"count": _state.qa_rescue_count,
+		},
+		"recent_boss_events": _state.recent_boss_events.duplicate(true),
 		"combat_v2_test_mode": false,
 		"combat_v2_complete": false,
 		"offline_progress_supported": true,
