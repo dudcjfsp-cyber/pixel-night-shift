@@ -253,6 +253,14 @@ func snapshot() -> Dictionary:
 	var next_action := {"label": "", "seconds": 0.0}
 	if boss and _hybrid_boss_enabled:
 		next_action = HybridBossSimulator.next_action(_state)
+	var diagnosis := get_diagnosis()
+	var appeals: Array[Dictionary] = []
+	if _hybrid_boss_enabled and not _state.can_prestige and (boss or _state.is_maintenance):
+		appeals = HybridOperatorAppealRules.evaluate(
+			diagnosis,
+			_current_stage_boss_events(),
+			operator_rows
+		)
 	return {
 		"stage": _state.stage,
 		"stage_enemy_index": 1 if boss else _state.enemy_index,
@@ -274,7 +282,9 @@ func snapshot() -> Dictionary:
 		"patch_slots": slot_rows,
 		"patches": patch_rows,
 		"unlocked_patch_slots": _state.unlocked_patch_slots,
-		"diagnosis": get_diagnosis(),
+		"diagnosis": diagnosis,
+		"appeals": appeals,
+		"appeal_limit": HybridOperatorAppealRules.MAX_VISIBLE_APPEALS,
 		"prestige_available": _state.can_prestige,
 		"legacy_cache_level": _state.legacy_cache_level,
 		"legacy_cache_cost": (
@@ -303,7 +313,20 @@ func snapshot() -> Dictionary:
 
 
 func get_diagnosis() -> Dictionary:
+	if _hybrid_boss_enabled and ProgressionRules.is_boss_stage(_state.stage):
+		return HybridBossDiagnosisRules.evaluate(_state, _catalog)
 	return DiagnosisRules.evaluate(_state, _catalog)
+
+
+func _current_stage_boss_events() -> Array[Dictionary]:
+	var events: Array[Dictionary] = []
+	for event: Dictionary in _state.recent_boss_events:
+		if (
+			int(event.get("stage", -1)) == _state.stage
+			and int(event.get("attempt_serial", -1)) == _state.boss_attempt_serial
+		):
+			events.append(event.duplicate(true))
+	return events
 
 
 func get_patch_preview(slot_index: int, patch_id: StringName) -> Dictionary:

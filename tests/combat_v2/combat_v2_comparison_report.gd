@@ -609,6 +609,12 @@ static func _choose_from_diagnosis(
 	catalog: ContentCatalog
 ) -> StringName:
 	var diagnosis := snapshot["diagnosis"] as Dictionary
+	var raw_recommended: Variant = diagnosis.get("recommended_operator_ids", [])
+	if raw_recommended is Array:
+		for raw_operator_id: Variant in raw_recommended as Array:
+			var recommended_id := StringName(String(raw_operator_id))
+			if affordable.has(recommended_id):
+				return recommended_id
 	var kind := String(diagnosis["kind"])
 	if kind in ["incoming_damage", "recovery_delay", "maintenance"]:
 		for operator_id: StringName in RECOVERY_PRIORITY:
@@ -896,6 +902,8 @@ static func _validate_snapshot(
 				"boss_failure_count",
 				"last_failure_reason",
 				"qa_rescue",
+				"appeals",
+				"appeal_limit",
 			],
 			"snapshot",
 			errors
@@ -960,6 +968,12 @@ static func _validate_snapshot(
 				typeof(qa_rescue["count"]) != TYPE_INT or int(qa_rescue["count"]) < 0
 			):
 				errors.append("snapshot.qa_rescue.count must be a non-negative integer")
+		if typeof(snapshot["appeal_limit"]) != TYPE_INT or int(snapshot["appeal_limit"]) != 2:
+			errors.append("snapshot.appeal_limit must be exactly 2")
+		if typeof(snapshot["appeals"]) != TYPE_ARRAY:
+			errors.append("snapshot.appeals must be an array")
+		else:
+			_validate_hybrid_appeals(snapshot["appeals"] as Array, errors)
 	if not errors.is_empty():
 		return errors
 
@@ -985,6 +999,32 @@ static func _validate_snapshot(
 	):
 		errors.append("snapshot.diagnosis.kind must be a non-empty string")
 	return errors
+
+
+static func _validate_hybrid_appeals(
+	appeals: Array,
+	errors: PackedStringArray
+) -> void:
+	if appeals.size() > 2:
+		errors.append("snapshot.appeals must contain at most two entries")
+	var seen_ids: Dictionary = {}
+	for index: int in appeals.size():
+		if typeof(appeals[index]) != TYPE_DICTIONARY:
+			errors.append("snapshot.appeals[%d] must be a dictionary" % index)
+			continue
+		var appeal := appeals[index] as Dictionary
+		_require_fields(
+			appeal,
+			["operator_id", "message", "evidence", "diagnosis_kind"],
+			"snapshot.appeals[%d]" % index,
+			errors
+		)
+		var operator_id := String(appeal.get("operator_id", ""))
+		if operator_id.is_empty() or seen_ids.has(operator_id):
+			errors.append("snapshot.appeals must use distinct non-empty operator ids")
+		seen_ids[operator_id] = true
+		if String(appeal.get("evidence", "")).strip_edges().is_empty():
+			errors.append("snapshot.appeals[%d].evidence must be non-empty" % index)
 
 
 static func _validate_combat_metrics(
@@ -1381,8 +1421,17 @@ static func _check_hybrid_balance_targets(results: Array[Dictionary]) -> bool:
 	if not non_focus_margin:
 		print("FAIL: no HYBRID non-focus policy meets the 10%/failure margin")
 		passed = false
+	var diagnosis := hybrid_results["diagnosis_follow"] as Dictionary
+	if (
+		float(diagnosis["clear_time"]) > float(balanced["clear_time"]) * 1.10 + EPSILON
+		or int(diagnosis["total_failures"]) > int(balanced["total_failures"]) + 1
+	):
+		print("FAIL: HYBRID diagnosis_follow exceeds the balanced 10%/failure margin")
+		passed = false
 	if passed:
-		print("PASS: HYBRID balanced timing/failure targets and non-focus margin")
+		print(
+			"PASS: HYBRID timing/failures, non-focus margin, diagnosis policy, and appeal cap"
+		)
 	return passed
 
 
