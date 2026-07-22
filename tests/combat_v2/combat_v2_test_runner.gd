@@ -35,6 +35,7 @@ func _run_all() -> void:
 	_run_test("forecast uses the actual simulator", _test_forecast_matches_actual)
 	_run_test("all-down and timeout failures enter six-second maintenance", _test_maintenance_retry)
 	_run_test("failed attempts retry deterministically without a soft lock", _test_all_down_no_softlock)
+	_run_test("20-stage report override keeps both boss milestones", _test_twenty_stage_override)
 	_run_test("anti-debugger policy matrix", _test_anti_debugger_matrix)
 	await _run_greybox_headless_load()
 	print("================================================")
@@ -804,6 +805,32 @@ func _test_all_down_no_softlock() -> void:
 	_check(state.total_elapsed >= 36.001 - EPSILON, "no-softlock path must consume elapsed time")
 
 
+func _test_twenty_stage_override() -> void:
+	var load_result := V2_LOADER.load_default()
+	_check(load_result.is_valid(), "20-stage override requires valid Combat V2 content")
+	if not load_result.is_valid():
+		return
+	var catalog: CombatV2Catalog = load_result.catalog
+	catalog.balance.max_stage = 20
+
+	var first_boss := _stage_fixture(catalog, 10)
+	first_boss.progression.enemy_health = 0.001
+	for runtime: CombatV2State.OperatorRuntime in first_boss.operators:
+		if runtime.is_active():
+			runtime.attack_remaining = 0.0
+	V2_SIMULATOR.advance(first_boss, catalog, 0.001)
+	_check(first_boss.progression.stage == 11, "stage 10 boss must advance to stage 11")
+	_check(not first_boss.progression.can_prestige, "stage 10 must not complete a 20-stage run")
+
+	var final_boss := _stage_fixture(catalog, 20)
+	final_boss.progression.enemy_health = 0.001
+	for runtime: CombatV2State.OperatorRuntime in final_boss.operators:
+		if runtime.is_active():
+			runtime.attack_remaining = 0.0
+	V2_SIMULATOR.advance(final_boss, catalog, 0.001)
+	_check(final_boss.progression.can_prestige, "stage 20 boss must complete the run")
+
+
 func _test_anti_debugger_matrix() -> void:
 	var results: Array[Dictionary] = []
 	for policy: String in ["debugger_focus", "cheapest", "balanced", "diagnosis_follow"]:
@@ -895,7 +922,7 @@ func _stage_fixture(catalog: CombatV2Catalog, stage: int) -> CombatV2State:
 	V2_SIMULATOR.reset_team_full(state, catalog)
 	state.progression.enemy_health = V2_FORECAST.enemy_max_hp(state, catalog)
 	var profile := V2_SIMULATOR.current_enemy_profile(state, catalog)
-	if stage == catalog.balance.max_stage:
+	if stage <= catalog.balance.max_stage and ProgressionRules.is_boss_stage(stage):
 		state.enemy_attack_remaining = profile.poll_interval
 		state.boss_special_remaining = profile.special_interval
 		state.boss_rollback_remaining = profile.rollback_interval

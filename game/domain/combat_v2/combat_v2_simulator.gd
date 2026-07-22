@@ -795,12 +795,34 @@ static func _complete_boss(state: CombatV2State, catalog: CombatV2Catalog) -> vo
 	state.total_enemies_defeated += 1
 	state.total_stages_cleared += 1
 	state.progression.enemy_health = 0.0
-	state.progression.can_prestige = true
+	var cleared_stage := state.progression.stage
 	_reset_stage_recovery_state(state)
 	reset_team_full(state, catalog)
+	if cleared_stage >= catalog.balance.max_stage:
+		state.encounter_serial += 1
+		state.progression.can_prestige = true
+		state.progression.status_message = "Combat V2 stage %d cleared." % cleared_stage
+		state.record_event(&"boss_defeated", {
+			"cleared_stage": cleared_stage,
+			"completed_run": true,
+		})
+		return
+	state.progression.stage += 1
+	state.progression.highest_stage = maxi(
+		state.progression.highest_stage, state.progression.stage
+	)
+	state.progression.enemy_index = 1
+	ProgressionRules.refresh_unlocks(state.progression, catalog.base_catalog)
+	state.reset_stage_metrics()
+	_reset_boss_attempt(state)
+	state.attempt_serial += 1
 	state.encounter_serial += 1
-	state.progression.status_message = "Combat V2 stage 10 cleared."
-	state.record_event(&"boss_defeated")
+	_initialize_encounter(state, catalog)
+	state.progression.status_message = "Combat V2 stage %d cleared." % cleared_stage
+	state.record_event(&"boss_defeated", {
+		"cleared_stage": cleared_stage,
+		"completed_run": false,
+	})
 
 
 static func _fail_attempt(
@@ -966,7 +988,8 @@ static func _boss_interval_multiplier(
 static func _is_boss_combat(state: CombatV2State, catalog: CombatV2Catalog) -> bool:
 	return (
 		not state.progression.is_maintenance
-		and state.progression.stage == catalog.balance.max_stage
+		and state.progression.stage <= catalog.balance.max_stage
+		and ProgressionRules.is_boss_stage(state.progression.stage)
 	)
 
 

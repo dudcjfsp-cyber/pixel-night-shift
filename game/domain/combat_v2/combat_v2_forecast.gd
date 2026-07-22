@@ -97,7 +97,10 @@ static func enemy_max_hp(
 		patch_ids = _validated_patch_ids(patch_ids_override, catalog)
 	# Maintenance preserves the failed stage and its enemy HP for the retry.
 	var combat_stage := state.progression.stage
-	var is_boss := combat_stage == catalog.balance.max_stage
+	var is_boss := (
+		combat_stage <= catalog.balance.max_stage
+		and ProgressionRules.is_boss_stage(combat_stage)
+	)
 	var modifiers := ProgressionRules.patch_modifiers(patch_ids, catalog.base_catalog)
 	return ProgressionRules.enemy_max_hp(
 		combat_stage,
@@ -157,7 +160,11 @@ static func _was_resolved(
 		return false
 	if not initial_maintenance and state.progression.is_maintenance:
 		return false
-	var was_boss := initial_stage == catalog.balance.max_stage and not initial_maintenance
+	var was_boss := (
+		initial_stage <= catalog.balance.max_stage
+		and ProgressionRules.is_boss_stage(initial_stage)
+		and not initial_maintenance
+	)
 	if was_boss:
 		return not state.progression.is_maintenance
 	if initial_maintenance:

@@ -2,12 +2,17 @@ extends SceneTree
 
 const CurrentSessionScript := preload("res://game/app/game_session.gd")
 const V2SessionScript := preload("res://game/app/combat_v2_integration_session.gd")
+const V2PrototypeScript := preload("res://game/app/combat_v2_prototype_session.gd")
+const V2LoaderScript := preload("res://game/content/combat_v2/combat_v2_loader.gd")
 const ContentLoaderScript := preload("res://game/content/content_loader.gd")
 const ProgressionRulesScript := preload("res://game/domain/progression_rules.gd")
 
-const STEP := 0.25
+const LEGACY_STEP := 0.25
+const REPORT_STEP := 5.0
 const DECISION_INTERVAL := 60.0
-const MAX_SECONDS := 1800.0
+const LEGACY_TARGET_STAGE := 10
+const FULL_RUN_TARGET_STAGE := 20
+const MAX_SECONDS := 2400.0
 const EPSILON := 0.000001
 
 const CURRENT_POLICIES: Array[String] = [
@@ -45,13 +50,14 @@ func _init() -> void:
 func _run() -> void:
 	var results: Array[Dictionary] = []
 	for policy: String in CURRENT_POLICIES:
-		results.append(simulate_current_policy(policy))
+		results.append(simulate_current_twenty_stage_policy(policy))
 	for policy: String in V2_POLICIES:
-		results.append(simulate_v2_policy(policy))
+		results.append(simulate_v2_twenty_stage_policy(policy))
 
-	print("Pixel Night Shift - CURRENT / Combat V2 policy comparison")
+	print("Pixel Night Shift - 20-stage CURRENT / Combat V2 policy comparison")
 	print("================================================================")
 	_print_table(results)
+	_print_milestone_table(results)
 
 	var passed := true
 	for result: Dictionary in results:
@@ -63,22 +69,54 @@ func _run() -> void:
 			])
 			passed = false
 
-	if passed:
+	if passed and _all_results_completed(results):
 		var anti_debugger_passed := _check_anti_debugger(results)
 		_report_product_risks(results)
 		passed = anti_debugger_passed
+	elif passed:
+		_report_incomplete_risk(results)
 	quit(0 if passed else 1)
 
 
 static func simulate_v2_policy(policy: String) -> Dictionary:
-	return _simulate_policy(V2SessionScript.new(), policy, true)
+	return _simulate_policy(
+		V2SessionScript.new(), policy, true, LEGACY_TARGET_STAGE, LEGACY_STEP
+	)
 
 
 static func simulate_current_policy(policy: String) -> Dictionary:
-	return _simulate_policy(CurrentSessionScript.new(), policy, false)
+	return _simulate_policy(
+		CurrentSessionScript.new(), policy, false, LEGACY_TARGET_STAGE, LEGACY_STEP
+	)
 
 
-static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> Dictionary:
+static func simulate_v2_twenty_stage_policy(policy: String) -> Dictionary:
+	var load_result: Variant = V2LoaderScript.load_default()
+	if not load_result.is_valid():
+		return _invalid_result(
+			"V2", policy,
+			"Combat V2 content failed validation: %s" % "; ".join(load_result.errors)
+		)
+	load_result.catalog.balance.max_stage = FULL_RUN_TARGET_STAGE
+	var prototype: Variant = V2PrototypeScript.new(load_result.catalog)
+	return _simulate_policy(
+		V2SessionScript.new(prototype), policy, true, FULL_RUN_TARGET_STAGE, REPORT_STEP
+	)
+
+
+static func simulate_current_twenty_stage_policy(policy: String) -> Dictionary:
+	return _simulate_policy(
+		CurrentSessionScript.new(), policy, false, FULL_RUN_TARGET_STAGE, REPORT_STEP
+	)
+
+
+static func _simulate_policy(
+	session: Variant,
+	policy: String,
+	is_v2: bool,
+	target_stage: int,
+	step_seconds: float
+) -> Dictionary:
 	var engine := "V2" if is_v2 else "CURRENT"
 	if not (V2_POLICIES if is_v2 else CURRENT_POLICIES).has(policy):
 		return _invalid_result(engine, policy, "unknown policy")
@@ -95,13 +133,21 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 	var elapsed := 0.0
 	var next_decision := 0.0
 	var stage_10_arrival := INF
+	var stage_10_clear := INF
 	var maintenance_entries := 0
+	var boss_failures_by_stage := {"10": 0, "20": 0}
+	var boss_failure_reasons := {"10": {}, "20": {}}
 	var command_spent_bits := 0.0
 	var initial_bits := 0.0
 	var has_initial_bits := false
 	var previous_mode := ""
+	var decision_count := 0
+	var first_decision_at := INF
+	var last_decision_at := 0.0
+	var longest_action_gap := 0.0
+	var first_patch_at := INF
 	var last_snapshot: Dictionary = {}
-	var decision_interval := 5.0 if policy in ["appeal_only", "diagnosis_plus_appeal"] else DECISION_INTERVAL
+	var decision_interval := DECISION_INTERVAL
 
 	while elapsed <= MAX_SECONDS + EPSILON:
 		last_snapshot = session.snapshot()
@@ -132,13 +178,27 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 			has_initial_bits = true
 		if stage >= 10 and not is_finite(stage_10_arrival):
 			stage_10_arrival = elapsed
+		if stage >= 11 and not is_finite(stage_10_clear):
+			stage_10_clear = elapsed
 		if mode == "maintenance" and previous_mode != "maintenance":
 			maintenance_entries += 1
+			if previous_mode == "boss" and boss_failures_by_stage.has(str(stage)):
+				var stage_key := str(stage)
+				boss_failures_by_stage[stage_key] += 1
+				var reason := (
+					String(last_snapshot["last_failure_reason"])
+					if is_v2
+					else "boss_timeout"
+				)
+				var reasons := boss_failure_reasons[stage_key] as Dictionary
+				reasons[reason] = int(reasons.get(reason, 0)) + 1
 		previous_mode = mode
 
-		if _is_complete(last_snapshot, is_v2):
+		if _is_complete(last_snapshot, is_v2, target_stage):
 			if not is_finite(stage_10_arrival):
 				return _invalid_result(engine, policy, "completion preceded stage 10 arrival")
+			if target_stage >= FULL_RUN_TARGET_STAGE and not is_finite(stage_10_clear):
+				return _invalid_result(engine, policy, "completion preceded stage 10 clear")
 			if is_v2 and int(last_snapshot["failure_count"]) != maintenance_entries:
 				return _invalid_result(
 					engine,
@@ -146,20 +206,40 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 					"observed %d maintenance entries but snapshot reports %d total failures"
 					% [maintenance_entries, int(last_snapshot["failure_count"])]
 				)
-			return _completed_result(
+			var completed_result := _completed_result(
 				engine,
 				policy,
 				elapsed,
 				stage_10_arrival,
+				stage_10_clear,
 				maintenance_entries,
+				boss_failures_by_stage,
+				boss_failure_reasons,
 				last_snapshot,
 				catalog,
 				is_v2,
 				initial_bits,
-				command_spent_bits
+				command_spent_bits,
+				target_stage,
+				decision_count,
+				first_decision_at,
+				first_patch_at,
+				maxf(longest_action_gap, elapsed - last_decision_at),
+				true
 			)
+			if not is_v2 and target_stage >= FULL_RUN_TARGET_STAGE:
+				var second_run := _simulate_second_run_stage_10(session, policy, catalog)
+				if not bool(second_run["valid"]):
+					return _invalid_result(engine, policy, String(second_run["error"]))
+				completed_result["second_run_stage_10_arrival"] = float(second_run["elapsed"])
+				completed_result["second_run_stage_10_reduction"] = (
+					1.0 - float(second_run["elapsed"]) / stage_10_arrival
+				)
+			return completed_result
 
 		if elapsed + EPSILON >= next_decision:
+			var decision_signature_before := _decision_signature(last_snapshot)
+			var patch_slots_before := (last_snapshot["patch_slots"] as Array).duplicate()
 			var bits_before_decision := float(last_snapshot["bits"])
 			var decision_error := _apply_decision(session, last_snapshot, policy, catalog)
 			if not decision_error.is_empty():
@@ -189,16 +269,78 @@ static func _simulate_policy(session: Variant, policy: String, is_v2: bool) -> D
 					)
 				)
 			command_spent_bits += maxf(0.0, bits_before_decision - bits_after_decision)
+			if _decision_signature(post_decision_snapshot) != decision_signature_before:
+				decision_count += 1
+				if not is_finite(first_decision_at):
+					first_decision_at = elapsed
+				longest_action_gap = maxf(longest_action_gap, elapsed - last_decision_at)
+				last_decision_at = elapsed
+				if (
+					not is_finite(first_patch_at)
+					and (post_decision_snapshot["patch_slots"] as Array) != patch_slots_before
+				):
+					first_patch_at = elapsed
 			next_decision += decision_interval
 
-		session.tick(STEP)
-		elapsed += STEP
+		session.tick(step_seconds)
+		elapsed += step_seconds
 
-	var timeout := _invalid_result(engine, policy, "timed out after %.0fs" % MAX_SECONDS)
+	if last_snapshot.is_empty():
+		return _invalid_result(engine, policy, "simulation produced no snapshot")
+	var timeout := _completed_result(
+		engine,
+		policy,
+		elapsed,
+		stage_10_arrival,
+		stage_10_clear,
+		maintenance_entries,
+		boss_failures_by_stage,
+		boss_failure_reasons,
+		last_snapshot,
+		catalog,
+		is_v2,
+		initial_bits,
+		command_spent_bits,
+		target_stage,
+		decision_count,
+		first_decision_at,
+		first_patch_at,
+		maxf(longest_action_gap, elapsed - last_decision_at),
+		false
+	)
 	timeout["timed_out"] = true
-	if not last_snapshot.is_empty():
-		timeout["stage"] = int(last_snapshot["stage"])
+	timeout["error"] = "timed out after %.0fs" % MAX_SECONDS
 	return timeout
+
+
+static func _simulate_second_run_stage_10(
+	session: Variant,
+	policy: String,
+	catalog: ContentCatalog
+) -> Dictionary:
+	if not session.prestige():
+		return {"valid": false, "error": "current session rejected version update"}
+	if not session.buy_legacy_cache():
+		return {"valid": false, "error": "current session rejected legacy cache purchase"}
+	var elapsed := 0.0
+	var next_decision := 0.0
+	while elapsed <= MAX_SECONDS + EPSILON:
+		var snapshot: Dictionary = session.snapshot()
+		if int(snapshot["stage"]) >= 10:
+			return {"valid": true, "error": "", "elapsed": elapsed}
+		if elapsed + EPSILON >= next_decision:
+			var decision_error := _apply_decision(session, snapshot, policy, catalog)
+			if not decision_error.is_empty():
+				return {
+					"valid": false,
+					"error": "second-run decision failed at %.2fs: %s" % [
+						elapsed, decision_error,
+					],
+				}
+			next_decision += DECISION_INTERVAL
+		session.tick(REPORT_STEP)
+		elapsed += REPORT_STEP
+	return {"valid": false, "error": "second run timed out before stage 10"}
 
 
 static func _apply_decision(
@@ -211,7 +353,8 @@ static func _apply_decision(
 	if not patch_error.is_empty():
 		return patch_error
 
-	var operator_id := _choose_upgrade(snapshot, policy, catalog)
+	var decision_snapshot: Dictionary = session.snapshot()
+	var operator_id := _choose_upgrade(decision_snapshot, policy, catalog)
 	if operator_id == &"":
 		return ""
 	if not session.upgrade_operator(operator_id):
@@ -226,7 +369,11 @@ static func _sync_product_patch(session: Variant, snapshot: Dictionary) -> Strin
 	if slots.is_empty():
 		return "unlocked patch slot is missing from patch_slots"
 
-	var desired_id := &"rollback_lock" if int(snapshot["stage"]) == 10 else &"frame_skip"
+	var desired_id := (
+		&"rollback_lock"
+		if ProgressionRulesScript.is_boss_stage(int(snapshot["stage"]))
+		else &"frame_skip"
+	)
 	var desired_unlocked := false
 	for raw_patch: Variant in snapshot["patches"] as Array:
 		var patch := raw_patch as Dictionary
@@ -383,7 +530,10 @@ static func _choose_offense(
 	affordable: Dictionary,
 	catalog: ContentCatalog
 ) -> StringName:
-	if int(snapshot["stage"]) == 10 and affordable.has(&"build_engineer"):
+	if (
+		ProgressionRulesScript.is_boss_stage(int(snapshot["stage"]))
+		and affordable.has(&"build_engineer")
+	):
 		return &"build_engineer"
 	var selected := &""
 	var selected_score := -INF
@@ -402,7 +552,17 @@ static func _choose_offense(
 	return selected
 
 
-static func _is_complete(snapshot: Dictionary, is_v2: bool) -> bool:
+static func _decision_signature(snapshot: Dictionary) -> String:
+	var levels: Array[String] = []
+	for raw_operator: Variant in snapshot["operators"] as Array:
+		var operator := raw_operator as Dictionary
+		levels.append("%s:%d" % [String(operator["id"]), int(operator["level"])])
+	return "%s|%s" % [",".join(levels), str(snapshot["patch_slots"])]
+
+
+static func _is_complete(snapshot: Dictionary, is_v2: bool, target_stage: int) -> bool:
+	if target_stage >= FULL_RUN_TARGET_STAGE:
+		return bool(snapshot["prestige_available"])
 	if is_v2:
 		return bool(snapshot["prestige_available"])
 	return int(snapshot["stage"]) > 10
@@ -413,12 +573,21 @@ static func _completed_result(
 	policy: String,
 	elapsed: float,
 	stage_10_arrival: float,
+	stage_10_clear: float,
 	maintenance_entries: int,
+	boss_failures_by_stage: Dictionary,
+	boss_failure_reasons: Dictionary,
 	snapshot: Dictionary,
 	catalog: ContentCatalog,
 	is_v2: bool,
 	initial_bits: float,
-	command_spent_bits: float
+	command_spent_bits: float,
+	target_stage: int,
+	decision_count: int,
+	first_decision_at: float,
+	first_patch_at: float,
+	longest_action_gap: float,
+	completed: bool
 ) -> Dictionary:
 	var economics := _reconstruct_economics(snapshot, catalog)
 	var normal_failures := 0
@@ -446,8 +615,14 @@ static func _completed_result(
 		"policy": policy,
 		"stage": int(snapshot["stage"]),
 		"stage_10_arrival": stage_10_arrival,
+		"stage_10_clear": stage_10_clear,
+		"stage_20_clear": (
+			elapsed if completed and target_stage >= FULL_RUN_TARGET_STAGE else INF
+		),
 		"clear_time": elapsed,
 		"maintenance_entries": maintenance_entries,
+		"boss_failures_by_stage": boss_failures_by_stage.duplicate(true),
+		"boss_failure_reasons": boss_failure_reasons.duplicate(true),
 		"normal_failures": normal_failures,
 		"boss_failures": boss_failures,
 		"total_failures": total_failures,
@@ -469,6 +644,14 @@ static func _completed_result(
 		"appeals_accepted": 0,
 		"appeals_ignored": 0,
 		"appeal_rule_count": 0,
+		"decision_count": decision_count,
+		"first_decision_at": first_decision_at,
+		"first_patch_at": first_patch_at,
+		"longest_action_gap": longest_action_gap,
+		"target_stage": target_stage,
+		"completed": completed,
+		"second_run_stage_10_arrival": INF,
+		"second_run_stage_10_reduction": INF,
 	}
 	if is_v2:
 		if paid_redeploys != 0 or emergency_spent_bits > EPSILON:
@@ -798,9 +981,27 @@ static func _invalid_result(engine: String, policy: String, error: String) -> Di
 	}
 
 
+static func _all_results_completed(results: Array[Dictionary]) -> bool:
+	for result: Dictionary in results:
+		if not bool(result.get("valid", false)) or not bool(result.get("completed", false)):
+			return false
+	return true
+
+
+static func _report_incomplete_risk(results: Array[Dictionary]) -> void:
+	for result: Dictionary in results:
+		if not bool(result.get("valid", false)) or bool(result.get("completed", false)):
+			continue
+		print("RISK: %s/%s did not complete the 20-stage run (stage %d)" % [
+			String(result["engine"]),
+			String(result["policy"]),
+			int(result["stage"]),
+		])
+
+
 static func _print_table(results: Array[Dictionary]) -> void:
 	print(
-		"ENGINE  POLICY             ST10(s)  CLEAR(s)  NF  BF  TF  QA  PAID  "
+		"ENGINE  POLICY             ST10(s)    END(s)  NF  BF  TF  QA  PAID  "
 		+ "SPENT   GROSS  NET    VALUE  LEVELS          AP(S/A/I)  V2 UPTIME             V2 DOWNS"
 	)
 	for result: Dictionary in results:
@@ -841,6 +1042,47 @@ static func _print_table(results: Array[Dictionary]) -> void:
 			uptime_text,
 			downs_text,
 		])
+
+
+static func _print_milestone_table(results: Array[Dictionary]) -> void:
+	print("")
+	print(
+		"ENGINE  POLICY                 ST10 ARR  ST10 CLR  ST20 CLR  "
+		+ "B10  B20  DEC  FIRST  PATCH  MAX GAP  RUN2 ST10  REDUCE"
+	)
+	for result: Dictionary in results:
+		if not bool(result.get("valid", false)):
+			continue
+		var boss_failures := result["boss_failures_by_stage"] as Dictionary
+		print("%-7s %-22s %8.2f  %8.2f  %8.2f  %3d  %3d  %3d  %5s  %5s  %7.2f  %9s  %6s" % [
+			String(result["engine"]),
+			String(result["policy"]),
+			float(result["stage_10_arrival"]),
+			float(result["stage_10_clear"]),
+			float(result["stage_20_clear"]),
+			int(boss_failures["10"]),
+			int(boss_failures["20"]),
+			int(result["decision_count"]),
+			_time_text(float(result["first_decision_at"])),
+			_time_text(float(result["first_patch_at"])),
+			float(result["longest_action_gap"]),
+			_time_text(float(result["second_run_stage_10_arrival"])),
+			_percent_text(float(result["second_run_stage_10_reduction"])),
+		])
+		var reasons := result["boss_failure_reasons"] as Dictionary
+		if not (reasons["10"] as Dictionary).is_empty() or not (reasons["20"] as Dictionary).is_empty():
+			print("        boss failure reasons: ST10=%s ST20=%s" % [
+				str(reasons["10"]),
+				str(reasons["20"]),
+			])
+
+
+static func _time_text(value: float) -> String:
+	return "-" if not is_finite(value) else "%.1f" % value
+
+
+static func _percent_text(value: float) -> String:
+	return "-" if not is_finite(value) else "%.1f%%" % (value * 100.0)
 
 
 static func _levels_text(levels: Dictionary) -> String:
@@ -943,7 +1185,7 @@ static func _report_product_risks(results: Array[Dictionary]) -> void:
 		(diagnosis["operator_investment_share"] as Dictionary)["debugger"]
 	)
 	var diagnosis_similar_to_focus := (
-		time_gap_from_focus <= maxf(focus_time * 0.05, STEP) + EPSILON
+		time_gap_from_focus <= maxf(focus_time * 0.05, REPORT_STEP) + EPSILON
 		and int(diagnosis["total_failures"]) == int(focus["total_failures"])
 		and absf(diagnosis_debugger_share - focus_debugger_share) <= 0.10 + EPSILON
 	)

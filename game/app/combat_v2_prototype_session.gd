@@ -339,7 +339,8 @@ func _patch_change_cost(replacing: bool) -> float:
 
 func _is_boss() -> bool:
 	return (
-		_state.progression.stage == _catalog.balance.max_stage
+		_state.progression.stage <= _catalog.balance.max_stage
+		and ProgressionRules.is_boss_stage(_state.progression.stage)
 		and not _state.progression.is_maintenance
 	)
 

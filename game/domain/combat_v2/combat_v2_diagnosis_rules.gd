@@ -11,13 +11,14 @@ static func evaluate(state: CombatV2State, catalog: CombatV2Catalog) -> Dictiona
 		return _diagnosis(
 			"complete",
 			"수직 슬라이스 완료",
-			"스테이지 10의 감시견 프로세스를 격리했습니다.",
+			"스테이지 %d의 감시견 프로세스를 격리했습니다." % catalog.balance.max_stage,
 			"info",
 			_evidence_data(state, catalog, {})
 		)
 
 	var is_boss := (
-		state.progression.stage == catalog.balance.max_stage
+		state.progression.stage <= catalog.balance.max_stage
+		and ProgressionRules.is_boss_stage(state.progression.stage)
 		and not state.progression.is_maintenance
 	)
 	var down_count := _current_down_count(state)
