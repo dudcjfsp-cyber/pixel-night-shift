@@ -585,9 +585,12 @@ static func _record_event(
 	details: Dictionary = {}
 ) -> void:
 	state.boss_event_serial += 1
-	var event := details.duplicate(true)
+	var event: Dictionary = {}
+	for raw_key: Variant in details.keys():
+		var value: Variant = details[raw_key]
+		event[String(raw_key)] = String(value) if value is StringName else value
 	event["serial"] = state.boss_event_serial
-	event["kind"] = kind
+	event["kind"] = String(kind)
 	event["time"] = state.boss_elapsed
 	event["stage"] = state.stage
 	event["attempt_serial"] = state.boss_attempt_serial

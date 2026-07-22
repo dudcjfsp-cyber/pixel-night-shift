@@ -311,7 +311,7 @@ func _route_from_load_result(load_result: SaveLoadResult) -> void:
 			_show_first_start()
 		SaveLoadResult.Status.LOADED:
 			_restore_primary(load_result)
-		SaveLoadResult.Status.RECOVERED_BACKUP, SaveLoadResult.Status.CORRUPT, SaveLoadResult.Status.NEWER_SCHEMA:
+		SaveLoadResult.Status.RECOVERED_BACKUP, SaveLoadResult.Status.CORRUPT, SaveLoadResult.Status.NEWER_SCHEMA, SaveLoadResult.Status.MIGRATION_FAILED:
 			_recovery_result = load_result
 			_session = null
 			_show_save_recovery()
@@ -324,12 +324,12 @@ func _route_from_load_result(load_result: SaveLoadResult) -> void:
 
 func _restore_primary(load_result: SaveLoadResult) -> void:
 	var candidate: Variant = _make_session()
-	var restore_errors: PackedStringArray = candidate.restore_state(load_result.session_data)
+	var restore_errors := _restore_candidate(candidate, load_result)
 	if not restore_errors.is_empty():
 		var backup_result: SaveLoadResult = _active_save_repository().load_backup()
 		if backup_result.has_session_candidate():
 			var backup_candidate: Variant = _make_session()
-			var backup_errors: PackedStringArray = backup_candidate.restore_state(backup_result.session_data)
+			var backup_errors := _restore_candidate(backup_candidate, backup_result)
 			if backup_errors.is_empty():
 				backup_result.errors.append("Primary session data failed validation.")
 				for error_message: String in restore_errors:
@@ -347,6 +347,8 @@ func _restore_primary(load_result: SaveLoadResult) -> void:
 		_show_save_recovery()
 		return
 
+	if not _persist_schema_2_migration(candidate, load_result):
+		return
 	_session = candidate
 	_last_gameplay_tab = load_result.last_gameplay_tab
 	_last_saved_at_unix = load_result.saved_at_unix
@@ -355,6 +357,57 @@ func _restore_primary(load_result: SaveLoadResult) -> void:
 		_save_status = "Combat V2 테스트 저장 복구됨 · 오프라인 진행 미지원"
 	else:
 		_apply_offline_progress(load_result.saved_at_unix)
+
+
+func _restore_candidate(
+	candidate: Variant,
+	load_result: SaveLoadResult
+) -> PackedStringArray:
+	if (
+		not _combat_v2_test_mode
+		and load_result.schema_version == SaveRepository.LEGACY_SCHEMA_VERSION
+	):
+		return candidate.restore_schema1_state(load_result.session_data)
+	return candidate.restore_state(load_result.session_data)
+
+
+func _persist_schema_2_migration(
+	candidate: Variant,
+	load_result: SaveLoadResult
+) -> bool:
+	if (
+		_combat_v2_test_mode
+		or load_result.schema_version != SaveRepository.LEGACY_SCHEMA_VERSION
+	):
+		return true
+	var save_error: Error = _save_repository.save(
+		candidate.export_state(),
+		load_result.saved_at_unix,
+		load_result.last_gameplay_tab
+	)
+	if save_error == OK:
+		return true
+	_show_migration_failure(load_result, save_error)
+	return false
+
+
+func _show_migration_failure(
+	load_result: SaveLoadResult,
+	save_error: Error
+) -> void:
+	var failure := SaveLoadResult.new()
+	failure.status = SaveLoadResult.Status.MIGRATION_FAILED
+	failure.schema_version = load_result.schema_version
+	failure.saved_at_unix = load_result.saved_at_unix
+	failure.last_gameplay_tab = load_result.last_gameplay_tab
+	failure.source_path = load_result.source_path
+	failure.errors = load_result.errors.duplicate()
+	failure.errors.append("Schema 1 migration save failed with error %d." % save_error)
+	_recovery_result = failure
+	_session = null
+	_save_has_error = true
+	_save_status = "저장 전환 실패 (오류 %d)" % save_error
+	_show_save_recovery()
 
 
 func _show_boot() -> void:
@@ -440,6 +493,9 @@ func _show_save_recovery() -> void:
 	var newer := _recovery_result != null and (
 		_recovery_result.status == SaveLoadResult.Status.NEWER_SCHEMA
 	)
+	var migration_failed := _recovery_result != null and (
+		_recovery_result.status == SaveLoadResult.Status.MIGRATION_FAILED
+	)
 	var backup_available := _recovery_result != null and (
 		_recovery_result.status == SaveLoadResult.Status.RECOVERED_BACKUP
 	)
@@ -448,6 +504,9 @@ func _show_save_recovery() -> void:
 	if newer:
 		title_text = "[업데이트 필요] 근무 기록을 열 수 없습니다."
 		detail_text = "이 기록을 만든 버전보다 현재 게임이 오래되었습니다. 게임 업데이트가 필요합니다."
+	elif migration_failed:
+		title_text = "[저장 전환 실패] 기존 기록을 열지 못했습니다."
+		detail_text = "기존 기록은 활성화하지 않았습니다. 저장 공간을 확인한 뒤 다시 시도해 주세요."
 	elif backup_available:
 		detail_text = "가장 최근 기록을 읽을 수 없습니다. 이전 백업은 사용할 수 있습니다."
 	var backup_label := ""
@@ -651,13 +710,15 @@ func _on_backup_restore_requested() -> void:
 		_set_recovery_view_error("사용할 수 있는 백업 후보가 없습니다.")
 		return
 	var candidate: Variant = _make_session()
-	var restore_errors: PackedStringArray = candidate.restore_state(_recovery_result.session_data)
+	var restore_errors := _restore_candidate(candidate, _recovery_result)
 	if not restore_errors.is_empty():
 		_set_recovery_view_error("백업 세션 검증 실패: %s" % "; ".join(restore_errors))
 		return
 	var promote_error: Error = _active_save_repository().promote_backup()
 	if promote_error != OK:
 		_set_recovery_view_error("백업 파일 복구 실패 (오류 %d)" % promote_error)
+		return
+	if not _persist_schema_2_migration(candidate, _recovery_result):
 		return
 	_session = candidate
 	_last_gameplay_tab = _recovery_result.last_gameplay_tab

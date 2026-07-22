@@ -5,7 +5,7 @@ const PROTOTYPE_MAX_STAGE := 20
 const EQUIPPED_PATCH_SLOT_COUNT := 3
 const MAX_SAFE_JSON_INTEGER := 9007199254740991
 const SAVE_COMPARISON_EPSILON := 0.000001
-const SAVE_STATE_KEYS: Array[String] = [
+const SCHEMA_1_STATE_KEYS: PackedStringArray = [
 	"stage",
 	"highest_stage",
 	"bits",
@@ -30,16 +30,53 @@ const SAVE_STATE_KEYS: Array[String] = [
 	"free_patch_swaps",
 	"status_message",
 ]
+const SAVE_STATE_KEYS: PackedStringArray = GameSessionStateDto.ROOT_KEYS
+const BOSS_FAILURE_REASONS: PackedStringArray = [
+	"",
+	"boss_all_down",
+	"boss_timeout",
+]
+const BOSS_EVENT_REQUIRED_KEYS: PackedStringArray = [
+	"serial",
+	"kind",
+	"time",
+	"stage",
+	"attempt_serial",
+]
+const BOSS_EVENT_KINDS: PackedStringArray = [
+	"boss_attempt_started",
+	"boss_attempt_cleared",
+	"boss_defeated",
+	"boss_debuff_applied",
+	"qa_rescue_succeeded",
+	"boss_rollback",
+	"boss_attack_missed",
+	"operator_damaged",
+	"operator_down",
+	"qa_rescue_scheduled",
+	"qa_rescue_cancelled",
+	"boss_attempt_failed",
+]
+const BOSS_ATTACK_KINDS: PackedStringArray = [
+	"boss_poll",
+	"boss_special",
+]
+const QA_RESCUE_CANCEL_REASONS: PackedStringArray = [
+	"attempt_cleared",
+	"attempt_failed",
+	"qa_process_down",
+	"qa_unavailable",
+]
 
 var _catalog: ContentCatalog
 var _state: GameState
 var _last_error: String = ""
-var _hybrid_boss_enabled := false
+var _hybrid_boss_enabled := true
 
 
 func _init(
 	catalog_override: ContentCatalog = null,
-	hybrid_boss_enabled: bool = false
+	hybrid_boss_enabled: bool = true
 ) -> void:
 	_hybrid_boss_enabled = hybrid_boss_enabled
 	if catalog_override != null:
@@ -366,53 +403,55 @@ func get_patch_preview(slot_index: int, patch_id: StringName) -> Dictionary:
 
 
 func export_state() -> Dictionary:
-	var operator_levels: Dictionary = {}
-	for definition: OperatorDefinition in _catalog.operators:
-		operator_levels[String(definition.id)] = int(
-			_state.operator_levels.get(definition.id, 0)
-		)
-
-	var unlocked_operator_ids: Array[String] = []
-	for operator_id: StringName in _state.unlocked_operator_ids:
-		unlocked_operator_ids.append(String(operator_id))
-	var discovered_patch_ids: Array[String] = []
-	for patch_id: StringName in _state.discovered_patch_ids:
-		discovered_patch_ids.append(String(patch_id))
-	var equipped_patch_ids: Array[String] = []
-	for patch_id: StringName in _state.equipped_patch_ids:
-		equipped_patch_ids.append(String(patch_id))
-
-	return {
-		"stage": _state.stage,
-		"highest_stage": _state.highest_stage,
-		"bits": _state.bits,
-		"patch_notes": _state.patch_notes,
-		"run_count": _state.run_count,
-		"legacy_cache_level": _state.legacy_cache_level,
-		"operator_levels": operator_levels,
-		"unlocked_operator_ids": unlocked_operator_ids,
-		"discovered_patch_ids": discovered_patch_ids,
-		"equipped_patch_ids": equipped_patch_ids,
-		"unlocked_patch_slots": _state.unlocked_patch_slots,
-		"enemy_index": _state.enemy_index,
-		"enemy_health": _state.enemy_health,
-		"boss_elapsed": _state.boss_elapsed,
-		"boss_recovery_count": _state.boss_recovery_count,
-		"boss_recovered_health": _state.boss_recovered_health,
-		"boss_debuff_applied": _state.boss_debuff_applied,
-		"boss_failure_count": _state.boss_failure_count,
-		"is_maintenance": _state.is_maintenance,
-		"maintenance_cycles_remaining": _state.maintenance_cycles_remaining,
-		"can_prestige": _state.can_prestige,
-		"free_patch_swaps": _state.free_patch_swaps,
-		"status_message": _state.status_message,
-	}
+	return GameSessionStateDto.export_state(_state, _catalog)
 
 
 func restore_state(data: Dictionary) -> PackedStringArray:
 	var errors: Array[String] = []
-	_validate_save_keys(data, errors)
+	_validate_save_keys(data, SAVE_STATE_KEYS, errors)
+	var candidate := _read_base_save_candidate(data, errors)
+	_read_schema_2_combat_state(candidate, data, errors)
 
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	_validate_save_candidate(candidate, errors)
+	_validate_schema_2_combat_state(candidate, errors)
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	_state = candidate
+	_last_error = ""
+	return PackedStringArray()
+
+
+func restore_schema1_state(data: Dictionary) -> PackedStringArray:
+	var errors: Array[String] = []
+	_validate_save_keys(data, SCHEMA_1_STATE_KEYS, errors)
+	var candidate := _read_base_save_candidate(data, errors)
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	_validate_save_candidate(candidate, errors)
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	if ProgressionRules.is_boss_stage(candidate.stage) and not candidate.can_prestige:
+		_migrate_schema_1_boss_attempt(candidate)
+	_validate_save_candidate(candidate, errors)
+	_validate_schema_2_combat_state(candidate, errors)
+	if not errors.is_empty():
+		return PackedStringArray(errors)
+
+	_state = candidate
+	_last_error = ""
+	return PackedStringArray()
+
+
+func _read_base_save_candidate(
+	data: Dictionary,
+	errors: Array[String]
+) -> GameState:
 	var candidate := GameState.new()
 	candidate.stage = _read_save_int(
 		data, "stage", 1, PROTOTYPE_MAX_STAGE, errors
@@ -473,17 +512,81 @@ func restore_state(data: Dictionary) -> PackedStringArray:
 	candidate.status_message = _read_save_string(
 		data, "status_message", false, errors
 	)
+	return candidate
 
-	if not errors.is_empty():
-		return PackedStringArray(errors)
 
-	_validate_save_candidate(candidate, errors)
-	if not errors.is_empty():
-		return PackedStringArray(errors)
+func _read_schema_2_combat_state(
+	candidate: GameState,
+	data: Dictionary,
+	errors: Array[String]
+) -> void:
+	candidate.operator_combat_states = _read_operator_combat_states(data, errors)
+	candidate.enemy_attack_remaining = _read_save_timer(
+		data, "enemy_attack_remaining", errors
+	)
+	candidate.boss_special_remaining = _read_save_timer(
+		data, "boss_special_remaining", errors
+	)
+	candidate.boss_rollback_remaining = _read_save_timer(
+		data, "boss_rollback_remaining", errors
+	)
+	candidate.boss_attempt_serial = _read_save_int(
+		data, "boss_attempt_serial", 0, -1, errors
+	)
+	candidate.last_boss_failure_reason = StringName(
+		_read_save_string(data, "last_boss_failure_reason", true, errors)
+	)
+	candidate.qa_rescue_consumed = _read_save_bool(
+		data, "qa_rescue_consumed", errors
+	)
+	candidate.qa_rescue_target_id = StringName(
+		_read_save_string(data, "qa_rescue_target_id", true, errors)
+	)
+	candidate.qa_rescue_remaining = _read_save_float(
+		data, "qa_rescue_remaining", 0.0, -1.0, errors
+	)
+	candidate.qa_rescue_count = _read_save_int(
+		data, "qa_rescue_count", 0, -1, errors
+	)
+	candidate.boss_event_serial = _read_save_int(
+		data, "boss_event_serial", 0, -1, errors
+	)
+	candidate.recent_boss_events = _read_recent_boss_events(data, errors)
+	candidate.total_operator_down_count = _read_save_int(
+		data, "total_operator_down_count", 0, -1, errors
+	)
+	candidate.total_operator_down_time = _read_save_float(
+		data, "total_operator_down_time", 0.0, -1.0, errors
+	)
 
-	_state = candidate
-	_last_error = ""
-	return PackedStringArray()
+
+func _migrate_schema_1_boss_attempt(candidate: GameState) -> void:
+	candidate.is_maintenance = false
+	candidate.maintenance_cycles_remaining = 0
+	candidate.enemy_index = 1
+	candidate.enemy_health = ProgressionRules.current_enemy_max_hp(candidate, _catalog)
+	candidate.boss_elapsed = 0.0
+	candidate.boss_recovery_count = 0
+	candidate.boss_recovered_health = 0.0
+	candidate.boss_debuff_applied = false
+	candidate.operator_combat_states.clear()
+	candidate.enemy_attack_remaining = INF
+	candidate.boss_special_remaining = INF
+	candidate.boss_rollback_remaining = INF
+	candidate.boss_attempt_serial = 0
+	candidate.last_boss_failure_reason = &""
+	candidate.qa_rescue_consumed = false
+	candidate.qa_rescue_target_id = &""
+	candidate.qa_rescue_remaining = 0.0
+	candidate.qa_rescue_count = 0
+	candidate.boss_event_serial = 0
+	candidate.recent_boss_events.clear()
+	candidate.total_operator_down_count = 0
+	candidate.total_operator_down_time = 0.0
+	candidate.status_message = "저장 기록을 현재 보스 시도로 전환했습니다."
+	if _hybrid_boss_enabled:
+		candidate.boss_attempt_serial = 1
+		HybridBossSimulator.reset_attempt(candidate, _catalog)
 
 
 func _is_unlocked_slot(slot_index: int) -> bool:
@@ -551,8 +654,12 @@ func _reject(message: String) -> bool:
 	return false
 
 
-func _validate_save_keys(data: Dictionary, errors: Array[String]) -> void:
-	for key: String in SAVE_STATE_KEYS:
+func _validate_save_keys(
+	data: Dictionary,
+	expected_keys: PackedStringArray,
+	errors: Array[String]
+) -> void:
+	for key: String in expected_keys:
 		if not data.has(key):
 			errors.append("session.%s: required field is missing" % key)
 	for raw_key: Variant in data.keys():
@@ -560,7 +667,7 @@ func _validate_save_keys(data: Dictionary, errors: Array[String]) -> void:
 			errors.append("session: save field names must be strings")
 			continue
 		var key := String(raw_key)
-		if not SAVE_STATE_KEYS.has(key):
+		if not expected_keys.has(key):
 			errors.append("session.%s: unexpected field" % key)
 
 
@@ -647,6 +754,234 @@ func _read_save_string(
 	if not allow_empty and value.strip_edges().is_empty():
 		errors.append("session.%s: non-empty string is required" % key)
 	return value
+
+
+func _read_save_timer(
+	data: Dictionary,
+	key: String,
+	errors: Array[String]
+) -> float:
+	if not data.has(key):
+		return INF
+	var value: Variant = data[key]
+	if not GameSessionStateDto.is_timer_value(value):
+		errors.append(
+			"session.%s: null or a non-negative finite timer is required" % key
+		)
+		return INF
+	return GameSessionStateDto.decode_timer(value)
+
+
+func _read_operator_combat_states(
+	data: Dictionary,
+	errors: Array[String]
+) -> Array[OperatorCombatState]:
+	var result: Array[OperatorCombatState] = []
+	if not data.has("operator_combat_states"):
+		return result
+	if typeof(data["operator_combat_states"]) != TYPE_ARRAY:
+		errors.append("session.operator_combat_states: array is required")
+		return result
+
+	var rows := data["operator_combat_states"] as Array
+	if not rows.is_empty() and rows.size() != _catalog.operators.size():
+		errors.append(
+			"session.operator_combat_states: must be empty or cover every operator"
+		)
+	for index: int in rows.size():
+		var context := "session.operator_combat_states[%d]" % index
+		if typeof(rows[index]) != TYPE_DICTIONARY:
+			errors.append("%s: object is required" % context)
+			continue
+		var row := rows[index] as Dictionary
+		_validate_nested_keys(
+			row, GameSessionStateDto.OPERATOR_RUNTIME_KEYS, context, errors
+		)
+		var operator_text := _read_nested_string(
+			row, "operator_id", context, false, errors
+		)
+		var operator_id := StringName(operator_text)
+		if not _catalog.has_operator(operator_id):
+			errors.append("%s.operator_id: unknown operator id" % context)
+		elif index >= _catalog.operators.size():
+			errors.append("%s.operator_id: unexpected runtime row" % context)
+		elif _catalog.operators[index].id != operator_id:
+			errors.append("%s.operator_id: runtime order is not canonical" % context)
+
+		var runtime := OperatorCombatState.new(operator_id)
+		runtime.current_hp = _read_nested_float(
+			row, "current_hp", context, errors
+		)
+		runtime.attack_remaining = _read_nested_timer(
+			row, "attack_remaining", context, errors
+		)
+		runtime.damage_dealt = _read_nested_float(
+			row, "damage_dealt", context, errors
+		)
+		runtime.damage_taken = _read_nested_float(
+			row, "damage_taken", context, errors
+		)
+		runtime.down_count = _read_nested_int(
+			row, "down_count", context, errors
+		)
+		runtime.active_time = _read_nested_float(
+			row, "active_time", context, errors
+		)
+		runtime.down_time = _read_nested_float(
+			row, "down_time", context, errors
+		)
+		result.append(runtime)
+	return result
+
+
+func _read_recent_boss_events(
+	data: Dictionary,
+	errors: Array[String]
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if not data.has("recent_boss_events"):
+		return result
+	if typeof(data["recent_boss_events"]) != TYPE_ARRAY:
+		errors.append("session.recent_boss_events: array is required")
+		return result
+
+	var rows := data["recent_boss_events"] as Array
+	if rows.size() > GameSessionStateDto.MAX_RECENT_BOSS_EVENTS:
+		errors.append("session.recent_boss_events: bounded history exceeded")
+	for index: int in rows.size():
+		var context := "session.recent_boss_events[%d]" % index
+		if typeof(rows[index]) != TYPE_DICTIONARY:
+			errors.append("%s: object is required" % context)
+			continue
+		var source := rows[index] as Dictionary
+		for key: String in BOSS_EVENT_REQUIRED_KEYS:
+			if not source.has(key):
+				errors.append("%s.%s: required field is missing" % [context, key])
+		var event: Dictionary = {}
+		for raw_key: Variant in source.keys():
+			if typeof(raw_key) != TYPE_STRING:
+				errors.append("%s: event field names must be strings" % context)
+				continue
+			var key := String(raw_key)
+			var value: Variant = source[raw_key]
+			if not _is_json_scalar(value):
+				errors.append("%s.%s: finite JSON scalar is required" % [context, key])
+				continue
+			event[key] = value
+		if source.has("serial"):
+			event["serial"] = _read_nested_int(source, "serial", context, errors)
+		if source.has("kind"):
+			event["kind"] = _read_nested_string(source, "kind", context, false, errors)
+		if source.has("time"):
+			event["time"] = _read_nested_float(source, "time", context, errors)
+		if source.has("stage"):
+			event["stage"] = _read_nested_int(source, "stage", context, errors)
+		if source.has("attempt_serial"):
+			event["attempt_serial"] = _read_nested_int(
+				source, "attempt_serial", context, errors
+			)
+		result.append(event)
+	return result
+
+
+func _validate_nested_keys(
+	data: Dictionary,
+	expected_keys: PackedStringArray,
+	context: String,
+	errors: Array[String]
+) -> void:
+	for key: String in expected_keys:
+		if not data.has(key):
+			errors.append("%s.%s: required field is missing" % [context, key])
+	for raw_key: Variant in data.keys():
+		if typeof(raw_key) != TYPE_STRING or not expected_keys.has(String(raw_key)):
+			errors.append("%s.%s: unexpected field" % [context, String(raw_key)])
+
+
+func _read_nested_string(
+	data: Dictionary,
+	key: String,
+	context: String,
+	allow_empty: bool,
+	errors: Array[String]
+) -> String:
+	if not data.has(key):
+		return ""
+	if typeof(data[key]) != TYPE_STRING:
+		errors.append("%s.%s: string is required" % [context, key])
+		return ""
+	var value := String(data[key])
+	if not allow_empty and value.is_empty():
+		errors.append("%s.%s: non-empty string is required" % [context, key])
+	return value
+
+
+func _read_nested_float(
+	data: Dictionary,
+	key: String,
+	context: String,
+	errors: Array[String]
+) -> float:
+	if not data.has(key):
+		return 0.0
+	var value: Variant = data[key]
+	if typeof(value) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(value)):
+		errors.append("%s.%s: finite number is required" % [context, key])
+		return 0.0
+	var numeric := float(value)
+	if numeric < 0.0:
+		errors.append("%s.%s: non-negative number is required" % [context, key])
+	return numeric
+
+
+func _read_nested_int(
+	data: Dictionary,
+	key: String,
+	context: String,
+	errors: Array[String]
+) -> int:
+	if not data.has(key):
+		return 0
+	var value: Variant = data[key]
+	if typeof(value) not in [TYPE_INT, TYPE_FLOAT]:
+		errors.append("%s.%s: non-negative integer is required" % [context, key])
+		return 0
+	var numeric := float(value)
+	if (
+		not is_finite(numeric)
+		or floor(numeric) != numeric
+		or numeric < 0.0
+		or numeric > float(MAX_SAFE_JSON_INTEGER)
+	):
+		errors.append(
+			"%s.%s: non-negative JSON-safe integer is required" % [context, key]
+		)
+		return 0
+	return int(numeric)
+
+
+func _read_nested_timer(
+	data: Dictionary,
+	key: String,
+	context: String,
+	errors: Array[String]
+) -> float:
+	if not data.has(key):
+		return INF
+	var value: Variant = data[key]
+	if not GameSessionStateDto.is_timer_value(value):
+		errors.append(
+			"%s.%s: null or a non-negative finite timer is required"
+			% [context, key]
+		)
+		return INF
+	return GameSessionStateDto.decode_timer(value)
+
+
+func _is_json_scalar(value: Variant) -> bool:
+	if typeof(value) in [TYPE_STRING, TYPE_BOOL]:
+		return true
+	return typeof(value) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(value))
 
 
 func _read_operator_levels(data: Dictionary, errors: Array[String]) -> Dictionary:
@@ -832,6 +1167,296 @@ func _validate_save_candidate(state: GameState, errors: Array[String]) -> void:
 	_validate_progression_save_state(state, errors)
 	_validate_equipped_patch_save_state(state, errors)
 	_validate_combat_save_state(state, errors)
+
+
+func _validate_schema_2_combat_state(
+	state: GameState,
+	errors: Array[String]
+) -> void:
+	if not BOSS_FAILURE_REASONS.has(String(state.last_boss_failure_reason)):
+		errors.append("session.last_boss_failure_reason: unknown failure reason")
+	if (
+		state.qa_rescue_target_id != &""
+		and not _catalog.has_operator(state.qa_rescue_target_id)
+	):
+		errors.append("session.qa_rescue_target_id: unknown operator id")
+	if state.qa_rescue_count > state.boss_attempt_serial:
+		errors.append("session.qa_rescue_count: cannot exceed started boss attempts")
+
+	var has_runtimes := not state.operator_combat_states.is_empty()
+	if has_runtimes and state.operator_combat_states.size() != _catalog.operators.size():
+		errors.append("session.operator_combat_states: incomplete runtime set")
+	var seen_ids: Dictionary = {}
+	var active_unlocked_count := 0
+	var runtime_down_count := 0
+	var runtime_down_time := 0.0
+	for runtime: OperatorCombatState in state.operator_combat_states:
+		if not _catalog.has_operator(runtime.operator_id):
+			errors.append(
+				"session.operator_combat_states: unknown operator '%s'"
+				% runtime.operator_id
+			)
+			continue
+		if seen_ids.has(runtime.operator_id):
+			errors.append(
+				"session.operator_combat_states: duplicate operator '%s'"
+				% runtime.operator_id
+			)
+			continue
+		seen_ids[runtime.operator_id] = true
+		var unlocked := state.is_operator_unlocked(runtime.operator_id)
+		var max_hp := HybridBossSimulator.operator_max_hp(
+			state, _catalog, runtime.operator_id
+		)
+		if runtime.current_hp > max_hp + SAVE_COMPARISON_EPSILON:
+			errors.append(
+				"session.operator_combat_states.%s: HP exceeds current maximum"
+				% runtime.operator_id
+			)
+		if not unlocked and runtime.current_hp > SAVE_COMPARISON_EPSILON:
+			errors.append(
+				"session.operator_combat_states.%s: locked operator cannot have HP"
+				% runtime.operator_id
+			)
+		if unlocked and runtime.is_active():
+			active_unlocked_count += 1
+		runtime_down_count += runtime.down_count
+		runtime_down_time += runtime.down_time
+
+	if state.total_operator_down_count != runtime_down_count:
+		errors.append(
+			"session.total_operator_down_count: runtime counters are inconsistent"
+		)
+	if (
+		absf(state.total_operator_down_time - runtime_down_time)
+		> SAVE_COMPARISON_EPSILON
+	):
+		errors.append(
+			"session.total_operator_down_time: runtime timers are inconsistent"
+		)
+
+	var active_boss := (
+		ProgressionRules.is_boss_stage(state.stage)
+		and not state.is_maintenance
+		and not state.can_prestige
+	)
+	var hybrid_attempt := active_boss and has_runtimes
+	if active_boss and _hybrid_boss_enabled and not has_runtimes:
+		errors.append("session.operator_combat_states: active hybrid boss needs runtimes")
+	if hybrid_attempt:
+		if state.boss_attempt_serial < 1:
+			errors.append("session.boss_attempt_serial: active boss needs an attempt")
+		if active_unlocked_count < 1:
+			errors.append("session.operator_combat_states: active boss cannot be all down")
+		for pair: Array in [
+			["enemy_attack_remaining", state.enemy_attack_remaining],
+			["boss_special_remaining", state.boss_special_remaining],
+			["boss_rollback_remaining", state.boss_rollback_remaining],
+		]:
+			if is_inf(float(pair[1])):
+				errors.append("session.%s: active boss timer cannot be null" % pair[0])
+		for runtime: OperatorCombatState in state.operator_combat_states:
+			if runtime.is_active() and is_inf(runtime.attack_remaining):
+				errors.append(
+					"session.operator_combat_states.%s: active operator needs an attack timer"
+					% runtime.operator_id
+				)
+			elif not runtime.is_active() and not is_inf(runtime.attack_remaining):
+				errors.append(
+					"session.operator_combat_states.%s: down operator timer must be null"
+					% runtime.operator_id
+				)
+	else:
+		for pair: Array in [
+			["enemy_attack_remaining", state.enemy_attack_remaining],
+			["boss_special_remaining", state.boss_special_remaining],
+			["boss_rollback_remaining", state.boss_rollback_remaining],
+		]:
+			if not is_inf(float(pair[1])):
+				errors.append("session.%s: inactive boss timer must be null" % pair[0])
+		for runtime: OperatorCombatState in state.operator_combat_states:
+			if not is_inf(runtime.attack_remaining):
+				errors.append(
+					"session.operator_combat_states.%s: inactive attack timer must be null"
+					% runtime.operator_id
+				)
+
+	_validate_qa_rescue_save_state(state, hybrid_attempt, errors)
+	_validate_boss_event_save_state(state, errors)
+	if state.is_maintenance and state.last_boss_failure_reason == &"":
+		errors.append("session.last_boss_failure_reason: maintenance needs a reason")
+
+
+func _validate_qa_rescue_save_state(
+	state: GameState,
+	hybrid_attempt: bool,
+	errors: Array[String]
+) -> void:
+	if state.qa_rescue_target_id == &"":
+		if not is_zero_approx(state.qa_rescue_remaining):
+			errors.append("session.qa_rescue_remaining: targetless rescue must be zero")
+		return
+	if not hybrid_attempt:
+		errors.append("session.qa_rescue_target_id: rescue requires an active boss")
+	if not state.qa_rescue_consumed:
+		errors.append("session.qa_rescue_consumed: pending rescue must consume allowance")
+	if state.qa_rescue_remaining <= 0.0:
+		errors.append("session.qa_rescue_remaining: pending rescue needs positive time")
+	var target := state.get_operator_combat_state(state.qa_rescue_target_id)
+	if target == null:
+		errors.append("session.qa_rescue_target_id: runtime target is missing")
+	elif target.is_active():
+		errors.append("session.qa_rescue_target_id: rescue target must be process-down")
+	var qa_active := false
+	for definition: OperatorDefinition in _catalog.operators:
+		if not definition.qa_rescue_enabled:
+			continue
+		var qa_runtime := state.get_operator_combat_state(definition.id)
+		qa_active = qa_runtime != null and qa_runtime.is_active()
+		break
+	if not qa_active:
+		errors.append("session.qa_rescue_target_id: QA must be active")
+
+
+func _validate_boss_event_save_state(
+	state: GameState,
+	errors: Array[String]
+) -> void:
+	if state.recent_boss_events.is_empty():
+		if state.boss_event_serial != 0:
+			errors.append("session.boss_event_serial: empty history must start at zero")
+		return
+	var previous_serial := 0
+	for index: int in state.recent_boss_events.size():
+		var event := state.recent_boss_events[index]
+		if not event.has_all(BOSS_EVENT_REQUIRED_KEYS):
+			continue
+		var serial := int(event["serial"])
+		var event_stage := int(event["stage"])
+		var attempt_serial := int(event["attempt_serial"])
+		var kind := String(event["kind"])
+		if serial <= previous_serial:
+			errors.append(
+				"session.recent_boss_events[%d].serial: history must increase" % index
+			)
+		if event_stage not in [10, 20]:
+			errors.append(
+				"session.recent_boss_events[%d].stage: event requires a boss stage"
+				% index
+			)
+		if attempt_serial < 1 or attempt_serial > state.boss_attempt_serial:
+			errors.append(
+				"session.recent_boss_events[%d].attempt_serial: invalid attempt"
+				% index
+			)
+		if float(event["time"]) > _catalog.balance.boss_time_limit + SAVE_COMPARISON_EPSILON:
+			errors.append(
+				"session.recent_boss_events[%d].time: exceeds boss time limit" % index
+			)
+		if not BOSS_EVENT_KINDS.has(kind):
+			errors.append(
+				"session.recent_boss_events[%d].kind: unknown event kind" % index
+			)
+		else:
+			_validate_boss_event_details(event, index, kind, errors)
+		previous_serial = serial
+	if previous_serial != state.boss_event_serial:
+		errors.append("session.boss_event_serial: latest event serial is inconsistent")
+
+
+func _validate_boss_event_details(
+	event: Dictionary,
+	index: int,
+	kind: String,
+	errors: Array[String]
+) -> void:
+	var detail_keys := _boss_event_detail_keys(kind)
+	var context := "session.recent_boss_events[%d]" % index
+	for key: String in detail_keys:
+		if not event.has(key):
+			errors.append("%s.%s: required field is missing" % [context, key])
+	for raw_key: Variant in event.keys():
+		var key := String(raw_key)
+		if not BOSS_EVENT_REQUIRED_KEYS.has(key) and not detail_keys.has(key):
+			errors.append("%s.%s: unexpected field" % [context, key])
+
+	if "operator_id" in detail_keys and event.has("operator_id"):
+		if typeof(event["operator_id"]) != TYPE_STRING:
+			errors.append("%s.operator_id: string is required" % context)
+		elif not _catalog.has_operator(StringName(String(event["operator_id"]))):
+			errors.append("%s.operator_id: unknown operator" % context)
+	if "attack" in detail_keys:
+		_validate_event_enum(
+			event, "attack", context, BOSS_ATTACK_KINDS, errors
+		)
+	if "reason" in detail_keys:
+		var allowed_reasons := (
+			QA_RESCUE_CANCEL_REASONS
+			if kind == "qa_rescue_cancelled"
+			else BOSS_FAILURE_REASONS
+		)
+		_validate_event_enum(event, "reason", context, allowed_reasons, errors)
+		if kind == "boss_attempt_failed" and String(event.get("reason", "")).is_empty():
+			errors.append("%s.reason: failure reason cannot be empty" % context)
+	for numeric_key: String in ["multiplier", "hp", "healed", "damage", "delay"]:
+		if numeric_key in detail_keys:
+			_validate_event_number(event, numeric_key, context, errors)
+
+
+func _boss_event_detail_keys(kind: String) -> PackedStringArray:
+	match kind:
+		"boss_debuff_applied":
+			return PackedStringArray(["multiplier"])
+		"qa_rescue_succeeded":
+			return PackedStringArray(["operator_id", "hp"])
+		"boss_rollback":
+			return PackedStringArray(["healed"])
+		"boss_attack_missed":
+			return PackedStringArray(["attack"])
+		"operator_damaged":
+			return PackedStringArray(["operator_id", "attack", "damage"])
+		"operator_down":
+			return PackedStringArray(["operator_id", "attack"])
+		"qa_rescue_scheduled":
+			return PackedStringArray(["operator_id", "delay"])
+		"qa_rescue_cancelled":
+			return PackedStringArray(["operator_id", "reason"])
+		"boss_attempt_failed":
+			return PackedStringArray(["reason"])
+	return PackedStringArray()
+
+
+func _validate_event_enum(
+	event: Dictionary,
+	key: String,
+	context: String,
+	allowed: PackedStringArray,
+	errors: Array[String]
+) -> void:
+	if not event.has(key):
+		return
+	if typeof(event[key]) != TYPE_STRING:
+		errors.append("%s.%s: string is required" % [context, key])
+		return
+	if not allowed.has(String(event[key])):
+		errors.append("%s.%s: unknown value" % [context, key])
+
+
+func _validate_event_number(
+	event: Dictionary,
+	key: String,
+	context: String,
+	errors: Array[String]
+) -> void:
+	if not event.has(key):
+		return
+	var value: Variant = event[key]
+	if (
+		typeof(value) not in [TYPE_INT, TYPE_FLOAT]
+		or not is_finite(float(value))
+		or float(value) < 0.0
+	):
+		errors.append("%s.%s: non-negative finite number is required" % [context, key])
 
 
 func _validate_progression_save_state(

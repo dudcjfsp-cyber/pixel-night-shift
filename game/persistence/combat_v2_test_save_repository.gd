@@ -85,6 +85,7 @@ func _unwrap(stored: SaveLoadResult) -> SaveLoadResult:
 		return _error_result(SaveLoadResult.Status.CORRUPT, stored, errors)
 	var result := SaveLoadResult.new()
 	result.status = stored.status
+	result.schema_version = stored.schema_version
 	result.saved_at_unix = stored.saved_at_unix
 	result.last_gameplay_tab = stored.last_gameplay_tab
 	result.source_path = stored.source_path
@@ -153,6 +154,7 @@ func _error_result(
 ) -> SaveLoadResult:
 	var result := SaveLoadResult.new()
 	result.status = status
+	result.schema_version = stored.schema_version
 	result.saved_at_unix = stored.saved_at_unix
 	result.last_gameplay_tab = stored.last_gameplay_tab
 	result.source_path = stored.source_path

@@ -1,7 +1,8 @@
 class_name SaveRepository
 extends RefCounted
 
-const CURRENT_SCHEMA_VERSION := 1
+const CURRENT_SCHEMA_VERSION := 2
+const LEGACY_SCHEMA_VERSION := 1
 const DEFAULT_BASE_DIR := "user://pixel_night_shift"
 const PRIMARY_FILE_NAME := "work_record.json"
 const BACKUP_FILE_NAME := "work_record.backup.json"
@@ -134,7 +135,7 @@ func save(
 		"last_gameplay_tab": last_gameplay_tab,
 		"session": session_data.duplicate(true),
 	}
-	if not _validate_current_envelope(envelope).is_empty():
+	if not _validate_supported_envelope(envelope).is_empty():
 		return ERR_INVALID_PARAMETER
 
 	var directory_error := _ensure_base_directory()
@@ -255,12 +256,23 @@ func _rotate_valid_primary_to_backup() -> Error:
 func _replace_primary_with_temp() -> Error:
 	var primary_absolute := _absolute_path(PRIMARY_FILE_NAME)
 	var temp_absolute := _absolute_path(TEMP_FILE_NAME)
+	var had_primary := FileAccess.file_exists(primary_absolute)
 	var remove_primary_error := _remove_if_exists(primary_absolute)
 	if remove_primary_error != OK:
 		_remove_if_exists(temp_absolute)
 		return remove_primary_error
 	var rename_error := DirAccess.rename_absolute(temp_absolute, primary_absolute)
 	if rename_error != OK:
+		if had_primary:
+			var rollback_error := DirAccess.copy_absolute(
+				_absolute_path(BACKUP_FILE_NAME),
+				primary_absolute
+			)
+			if rollback_error != OK:
+				push_error(
+					"Work record replacement and primary rollback both failed: %d, %d"
+					% [rename_error, rollback_error]
+				)
 		return rename_error
 	return OK
 
@@ -319,14 +331,14 @@ func _read_envelope(path: String) -> EnvelopeReadResult:
 		)
 		return result
 
-	result.errors = _validate_current_envelope(envelope)
+	result.errors = _validate_supported_envelope(envelope)
 	if result.errors.is_empty():
 		result.kind = EnvelopeKind.CURRENT
 		result.envelope = envelope.duplicate(true)
 	return result
 
 
-func _validate_current_envelope(envelope: Dictionary) -> PackedStringArray:
+func _validate_supported_envelope(envelope: Dictionary) -> PackedStringArray:
 	var errors := PackedStringArray()
 	for required_key: String in REQUIRED_ENVELOPE_KEYS:
 		if not envelope.has(required_key):
@@ -340,8 +352,11 @@ func _validate_current_envelope(envelope: Dictionary) -> PackedStringArray:
 
 	if not _is_integer_number(envelope["schema_version"]):
 		errors.append("schema_version must be an integer.")
-	elif int(envelope["schema_version"]) != CURRENT_SCHEMA_VERSION:
-		errors.append("schema_version must equal %d." % CURRENT_SCHEMA_VERSION)
+	elif int(envelope["schema_version"]) not in [LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]:
+		errors.append(
+			"schema_version must equal supported schema %d or %d."
+			% [LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]
+		)
 
 	if not _is_integer_number(envelope["saved_at_unix"]):
 		errors.append("saved_at_unix must be an integer.")
@@ -369,6 +384,11 @@ func _make_load_result(
 	result.status = status
 	result.errors = read_result.errors.duplicate()
 	result.source_path = source_path
+	if (
+		read_result.envelope.has("schema_version")
+		and _is_integer_number(read_result.envelope["schema_version"])
+	):
+		result.schema_version = int(read_result.envelope["schema_version"])
 	if read_result.kind == EnvelopeKind.CURRENT:
 		result.saved_at_unix = int(read_result.envelope["saved_at_unix"])
 		result.last_gameplay_tab = int(read_result.envelope["last_gameplay_tab"])

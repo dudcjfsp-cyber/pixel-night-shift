@@ -47,6 +47,7 @@ func _run_all() -> void:
 	await _run_test("main scene and first-shift boot routing", _test_main_and_first_shift)
 	await _run_test("same session and gameplay tab survive navigation", _test_same_session_navigation)
 	await _run_test("GameSession durable roundtrip and atomic rejection", _test_session_roundtrip)
+	await _run_test("schema 1 migration saves before session activation", _test_schema_1_migration)
 	await _run_test("save repository backup and recovery statuses", _test_repository_recovery)
 	await _run_test("boot recovery matrix is explicit", _test_boot_recovery_matrix)
 	await _run_test("offline progress is capped and applied once", _test_offline_once_and_cap)
@@ -242,6 +243,56 @@ func _test_session_roundtrip() -> void:
 	_check(restored.export_state() == before, "exported dictionaries must not alias session state")
 
 
+func _test_schema_1_migration() -> void:
+	var saved_at := 2_000_005_000
+	var legacy_state := _schema_1_state(GameSession.new().export_state())
+
+	var success_dir := _case_dir("schema_1_migration")
+	_clean_case(success_dir)
+	var success_repo := SaveRepository.new(success_dir)
+	_write_json(success_repo.primary_path(), {
+		"schema_version": SaveRepository.LEGACY_SCHEMA_VERSION,
+		"saved_at_unix": saved_at,
+		"last_gameplay_tab": 2,
+		"session": legacy_state,
+	})
+	var migrated_app := await _mount_app(success_repo, FakeClock.new(saved_at))
+	_check(migrated_app.session_instance_id() != 0, "valid schema 1 data must activate after migration")
+	_check(migrated_app.last_gameplay_tab() == 2, "migration must preserve the selected gameplay tab")
+	_check(
+		bool(migrated_app.session_snapshot().get("hybrid_combat_enabled", false)),
+		"migrated production sessions must enable hybrid boss combat"
+	)
+	_check(
+		success_repo.load().schema_version == SaveRepository.CURRENT_SCHEMA_VERSION,
+		"successful migration must persist schema 2 before boot completes"
+	)
+	await _unmount(migrated_app)
+
+	var failure_dir := _case_dir("schema_1_migration_failure")
+	_clean_case(failure_dir)
+	var failure_repo := FailNextSaveRepository.new(failure_dir)
+	_write_json(failure_repo.primary_path(), {
+		"schema_version": SaveRepository.LEGACY_SCHEMA_VERSION,
+		"saved_at_unix": saved_at,
+		"last_gameplay_tab": 1,
+		"session": legacy_state,
+	})
+	failure_repo.fail_next = true
+	var failed_app := await _mount_app(failure_repo, FakeClock.new(saved_at))
+	_check(
+		failed_app.current_screen_id() == AppRoot.SCREEN_SAVE_RECOVERY,
+		"failed migration save must route to explicit recovery"
+	)
+	_check(failed_app.session_instance_id() == 0, "failed migration must not activate its candidate")
+	_check(
+		failure_repo.load().schema_version == SaveRepository.LEGACY_SCHEMA_VERSION,
+		"failed migration must leave the legacy primary intact"
+	)
+	_check("저장 전환 실패" in _visible_text(failed_app), "migration failure must explain the next action")
+	await _unmount(failed_app)
+
+
 func _test_repository_recovery() -> void:
 	var base_dir := _case_dir("repository")
 	_clean_case(base_dir)
@@ -399,7 +450,11 @@ func _test_offline_once_and_cap() -> void:
 
 	var second := await _mount_app(repository, FakeClock.new(now))
 	_check(second.current_overlay_id() == AppRoot.OVERLAY_NONE, "same saved timestamp must not grant or report twice")
-	_check(second.session_snapshot() == reference.snapshot(), "second launch at same time must not advance state")
+	var second_snapshot := second.session_snapshot()
+	_check(
+		_variants_match_approximately(second_snapshot, reference.snapshot()),
+		"second launch at same time must not advance state"
+	)
 	await _unmount(second)
 
 	var failure_dir := _case_dir("offline_save_failure")
@@ -702,6 +757,16 @@ func _write_json(path: String, data: Dictionary) -> void:
 	_write_text(path, JSON.stringify(data))
 
 
+func _schema_1_state(schema_2_state: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	for key: String in GameSession.SCHEMA_1_STATE_KEYS:
+		var value: Variant = schema_2_state[key]
+		if value is Array or value is Dictionary:
+			value = value.duplicate(true)
+		result[key] = value
+	return result
+
+
 func _emit_button(node: Node, button_name: String) -> void:
 	var button := node.find_child(button_name, true, false) as Button
 	_check(button != null, "button '%s' must exist" % button_name)
@@ -723,6 +788,32 @@ func _visible_text(node: Node) -> String:
 	var parts := PackedStringArray()
 	_collect_visible_text(node, parts)
 	return "\n".join(parts)
+
+
+func _variants_match_approximately(actual: Variant, expected: Variant) -> bool:
+	if actual == expected:
+		return true
+	if typeof(actual) in [TYPE_INT, TYPE_FLOAT] and typeof(expected) in [TYPE_INT, TYPE_FLOAT]:
+		return (
+			is_finite(float(actual))
+			and is_finite(float(expected))
+			and is_equal_approx(float(actual), float(expected))
+		)
+	if actual is Dictionary and expected is Dictionary:
+		if actual.size() != expected.size():
+			return false
+		for key: Variant in actual.keys():
+			if not expected.has(key) or not _variants_match_approximately(actual[key], expected[key]):
+				return false
+		return true
+	if actual is Array and expected is Array:
+		if actual.size() != expected.size():
+			return false
+		for index: int in actual.size():
+			if not _variants_match_approximately(actual[index], expected[index]):
+				return false
+		return true
+	return false
 
 
 func _collect_visible_text(node: Node, parts: PackedStringArray) -> void:

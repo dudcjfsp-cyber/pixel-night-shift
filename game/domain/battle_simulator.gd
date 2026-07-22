@@ -86,6 +86,9 @@ static func _complete_normal_enemy(
 	state.enemy_index = 1
 	ProgressionRules.refresh_unlocks(state, catalog)
 	state.enemy_health = ProgressionRules.current_enemy_max_hp(state, catalog)
+	if hybrid_boss_enabled and ProgressionRules.is_boss_stage(state.stage):
+		state.boss_attempt_serial += 1
+		HybridBossSimulator.reset_attempt(state, catalog)
 	state.status_message = "스테이지 %d 진입" % state.stage
 
 

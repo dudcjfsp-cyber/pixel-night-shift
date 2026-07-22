@@ -144,7 +144,7 @@ static func simulate_v2_policy(policy: String) -> Dictionary:
 
 static func simulate_current_policy(policy: String) -> Dictionary:
 	return _simulate_policy(
-		CurrentSessionScript.new(), policy, false, LEGACY_TARGET_STAGE, LEGACY_STEP
+		CurrentSessionScript.new(null, false), policy, false, LEGACY_TARGET_STAGE, LEGACY_STEP
 	)
 
 
@@ -164,7 +164,7 @@ static func simulate_v2_twenty_stage_policy(policy: String) -> Dictionary:
 
 static func simulate_current_twenty_stage_policy(policy: String) -> Dictionary:
 	return _simulate_policy(
-		CurrentSessionScript.new(), policy, false, FULL_RUN_TARGET_STAGE, REPORT_STEP
+		CurrentSessionScript.new(null, false), policy, false, FULL_RUN_TARGET_STAGE, REPORT_STEP
 	)
 
 
