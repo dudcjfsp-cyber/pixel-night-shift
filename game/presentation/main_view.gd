@@ -441,7 +441,7 @@ func _build_operator_page(page_host: Control) -> void:
 
 func _build_patch_page(page_host: Control) -> void:
 	var page := VBoxContainer.new()
-	page.add_theme_constant_override("separation", 4)
+	page.add_theme_constant_override("separation", 2)
 	page_host.add_child(page)
 	page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_pages.append(page)
@@ -459,12 +459,12 @@ func _build_patch_page(page_host: Control) -> void:
 		_slot_buttons.append(slot_button)
 
 	var candidate_hint := _make_label("후보 5개 · 좌우로 넘겨 장점과 부작용 비교", 9)
-	candidate_hint.custom_minimum_size.y = 14.0
+	candidate_hint.custom_minimum_size.y = 12.0
 	candidate_hint.add_theme_color_override("font_color", COLOR_MUTED)
 	page.add_child(candidate_hint)
 
 	var candidate_scroll := ScrollContainer.new()
-	candidate_scroll.custom_minimum_size.y = 62.0
+	candidate_scroll.custom_minimum_size.y = 48.0
 	candidate_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	page.add_child(candidate_scroll)
 	_patch_list = HBoxContainer.new()
@@ -472,7 +472,7 @@ func _build_patch_page(page_host: Control) -> void:
 	candidate_scroll.add_child(_patch_list)
 
 	var preview_panel := _make_panel(Color("111a27"), COLOR_BORDER)
-	preview_panel.custom_minimum_size.y = 48.0
+	preview_panel.custom_minimum_size.y = 32.0
 	preview_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(preview_panel)
 	var preview_margin := MarginContainer.new()
@@ -991,7 +991,7 @@ func _create_patch_button(patch_data: Dictionary) -> void:
 	var patch_id := String(patch_data["id"])
 	var button := _make_button(String(patch_data["name"]), 9)
 	button.name = "PatchCandidate_%s" % patch_id
-	button.custom_minimum_size = Vector2(148.0, 62.0)
+	button.custom_minimum_size = Vector2(148.0, 48.0)
 	button.icon = ASSETS.patch_texture(StringName(patch_id))
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.tooltip_text = String(patch_data["description"])
