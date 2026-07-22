@@ -14,9 +14,15 @@ Godot 4.7 Project Manager에서 `project.godot`을 가져온 뒤 프로젝트를
 
 Windows의 Godot 4.7 공식 빌드에는 GUI 종료 시 네이티브 오류 창이 나타날 수 있는 엔진 문제가 있습니다. 자동 검증에는 GUI 실행 파일이나 `godot.bat`을 직접 사용하지 말고 아래 전용 실행기를 사용합니다.
 
+실제 화면과 소리를 확인하는 수동 E2E는 별도 세션 ID로 실행합니다. 새로운 ID는 빈 근무 기록으로 시작하고, 같은 ID를 다시 사용하면 방금 만든 테스트 기록을 이어갑니다. 실제 `user://`와 설정은 `.godot/manual-e2e-runtime/` 아래로 격리되며 종료 오류 대화상자도 억제됩니다.
+
+```powershell
+.\tools\run_godot_manual_e2e.ps1 -SessionId opening-check-001
+```
+
 ## 검증
 
-도메인 테스트는 별도 애드온 없이 Godot 자체의 스크립트 실행 기능으로 동작합니다. 전용 실행기는 Godot 프로세스를 하나씩 실행하고 로그와 `user://`를 프로젝트의 `.godot/` 아래에 격리합니다.
+도메인 테스트는 별도 애드온 없이 Godot 자체의 스크립트 실행 기능으로 동작합니다. 헤드리스 전용 실행기는 Godot 프로세스를 하나씩 실행하고 로그와 `user://`를 프로젝트의 `.godot/` 아래에 격리합니다.
 
 ```powershell
 .\tools\run_godot_headless.ps1 --script res://tools/validate_pixel_assets.gd

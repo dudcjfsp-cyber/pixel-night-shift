@@ -26,6 +26,11 @@ func _capture_all() -> void:
 		push_error("Cannot create AppRoot capture directory: error %d" % directory_error)
 		quit(1)
 		return
+	if OS.get_cmdline_user_args().has("--opening-e2e-only"):
+		var opening_errors := await _capture_opening_e2e(output_directory)
+		print("AppRoot opening E2E captures: %s" % output_directory)
+		quit(0 if opening_errors == 0 else 1)
+		return
 	var error_count := 0
 	error_count += await _capture_title_and_settings(output_directory)
 	error_count += await _capture_operations_and_offline(output_directory)
@@ -34,6 +39,71 @@ func _capture_all() -> void:
 	error_count += await _capture_version_update(output_directory)
 	print("AppRoot captures: %s" % output_directory)
 	quit(0 if error_count == 0 else 1)
+
+
+func _capture_opening_e2e(output_directory: String) -> int:
+	var base_dir := CAPTURE_BASE.path_join("opening_e2e")
+	_clean_case(base_dir)
+	var repository := SaveRepository.new(base_dir)
+	var clock := FakeClock.new(2_000_090_000)
+	var app := await _mount_app(repository, clock)
+	var errors := 0
+	errors += _expect(
+		app.current_screen_id() == AppRoot.SCREEN_TITLE and app.session_instance_id() == 0,
+		"fresh E2E run must begin at an inactive title"
+	)
+	errors += await _save_capture(output_directory.path_join("01_title_new.png"))
+	await _click_button(app, "PrimaryActionButton")
+
+	for step: int in range(AppShellPrologueView.STEP_COUNT):
+		errors += _expect(
+			app.current_screen_id() == AppRoot.SCREEN_PROLOGUE
+			and app.session_instance_id() == 0,
+			"prologue step %d must keep the session inactive" % (step + 1)
+		)
+		errors += await _save_capture(
+			output_directory.path_join("%02d_prologue_%d.png" % [step + 2, step + 1])
+		)
+		await _click_button(app, "PrimaryActionButton")
+
+	errors += _expect(
+		app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY
+		and app.current_overlay_id() == AppRoot.OVERLAY_ONBOARDING
+		and app.session_instance_id() != 0,
+		"prologue completion must save and enter gameplay onboarding"
+	)
+	errors += await _save_capture(output_directory.path_join("07_gameplay_onboarding.png"))
+	await _click_button(app, "SkipButton")
+	errors += _expect(
+		app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY
+		and app.current_overlay_id() == AppRoot.OVERLAY_NONE,
+		"onboarding skip must reveal active gameplay"
+	)
+	errors += await _save_capture(output_directory.path_join("08_gameplay.png"))
+	await _click_button(app, "OperationsRoomButton")
+	errors += _expect(
+		app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM,
+		"gameplay must return to the Operations Room"
+	)
+	errors += await _save_capture(output_directory.path_join("09_operations_room.png"))
+	await _unmount(app)
+
+	var resumed := await _mount_app(repository, clock)
+	errors += _expect(
+		resumed.current_screen_id() == AppRoot.SCREEN_TITLE
+		and resumed.session_instance_id() == 0,
+		"saved E2E run must relaunch at an inactive continue title"
+	)
+	errors += await _save_capture(output_directory.path_join("10_title_continue.png"))
+	await _click_button(resumed, "PrimaryActionButton")
+	errors += _expect(
+		resumed.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM
+		and resumed.session_instance_id() != 0,
+		"continue must activate the saved session in the Operations Room"
+	)
+	errors += await _save_capture(output_directory.path_join("11_operations_resumed.png"))
+	await _unmount(resumed)
+	return errors
 
 
 func _capture_title_and_settings(output_directory: String) -> int:
@@ -191,6 +261,32 @@ func _emit_button(node: Node, button_name: String) -> void:
 	var button := node.find_child(button_name, true, false) as Button
 	assert(button != null, "Capture requires button '%s'." % button_name)
 	button.pressed.emit()
+
+
+func _click_button(node: Node, button_name: String) -> void:
+	var button := node.find_child(button_name, true, false) as Button
+	assert(button != null, "Capture requires button '%s'." % button_name)
+	assert(button.visible and not button.disabled, "Capture button '%s' must be actionable." % button_name)
+	var click_position := button.get_global_rect().get_center()
+	var motion := InputEventMouseMotion.new()
+	motion.position = click_position
+	root.push_input(motion, true)
+	await process_frame
+	for pressed: bool in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.position = click_position
+		event.pressed = pressed
+		root.push_input(event, true)
+		await process_frame
+	await _wait_frames(2)
+
+
+func _expect(condition: bool, message: String) -> int:
+	if condition:
+		return 0
+	push_error(message)
+	return 1
 
 
 func _clean_case(base_dir: String) -> void:
