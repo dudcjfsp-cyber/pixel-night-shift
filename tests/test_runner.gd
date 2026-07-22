@@ -835,12 +835,14 @@ func _test_presentation_assets() -> void:
 			_check(texture.get_size() == Vector2(16.0, 16.0), "UI texture '%s' must be 16x16" % icon_id)
 
 	var audio_paths: PackedStringArray = [
+		"res://game/assets/audio/bgm/title_loop.wav",
 		"res://game/assets/audio/bgm/night_shift_loop.ogg",
 		"res://game/assets/audio/bgm/watchdog_loop.ogg",
 		"res://game/assets/audio/bgm/maintenance_loop.wav",
 		"res://game/assets/audio/sfx/ui_move.ogg",
 		"res://game/assets/audio/sfx/ui_confirm.ogg",
 		"res://game/assets/audio/sfx/ui_error.ogg",
+		"res://game/assets/audio/sfx/shift_authorized.wav",
 		"res://game/assets/audio/sfx/enemy_break.wav",
 		"res://game/assets/audio/sfx/combat_hit.wav",
 		"res://game/assets/audio/sfx/stage_clear.ogg",

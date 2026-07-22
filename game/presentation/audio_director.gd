@@ -2,12 +2,14 @@ class_name AudioDirector
 extends Node
 
 const MUSIC_STREAMS := {
+	&"title": preload("res://game/assets/audio/bgm/title_loop.wav"),
 	&"night": preload("res://game/assets/audio/bgm/night_shift_loop.ogg"),
 	&"watchdog": preload("res://game/assets/audio/bgm/watchdog_loop.ogg"),
 	&"maintenance": preload("res://game/assets/audio/bgm/maintenance_loop.wav"),
 }
 
 const CUE_STREAMS := {
+	&"shift_authorized": preload("res://game/assets/audio/sfx/shift_authorized.wav"),
 	&"ui_move": preload("res://game/assets/audio/sfx/ui_move.ogg"),
 	&"ui_confirm": preload("res://game/assets/audio/sfx/ui_confirm.ogg"),
 	&"ui_error": preload("res://game/assets/audio/sfx/ui_error.ogg"),
@@ -122,6 +124,20 @@ func play_cue(cue: StringName) -> void:
 	player.stop()
 	player.stream = stream_value as AudioStream
 	player.play()
+
+
+func play_title_music() -> void:
+	if not _playback_available:
+		return
+	_ensure_players()
+	_set_music(&"title")
+
+
+func retry_current_music_after_user_gesture() -> void:
+	if not _playback_available or not _music_enabled or _music_key.is_empty():
+		return
+	_ensure_players()
+	_start_current_music()
 
 
 func toggle_music() -> bool:

@@ -100,6 +100,15 @@ PNG는 `tools/generate_pixel_assets.gd`가 Godot `Image` API만 사용해 생성
 
 생성 파일을 수동 수정하면 매니페스트 해시가 달라져 검증이 실패합니다. 수정이 필요하면 생성기를 변경하고 전체를 다시 생성합니다.
 
+## 오프닝 배경 예외
+
+타이틀과 프롤로그의 큰 배경은 소형 전투 에셋 생성기와 분리해 `game/assets/opening/`에서 관리합니다. 프로젝트 전용 image generation 결과를 `.godot/opening-art-sources/`에 임시 보관하고, `tools/prepare_opening_art.gd`가 정확한 화면 크기·16색 팔레트·2배 최근접 픽셀 그리드로 정리합니다.
+
+- `title_background.png`: `360×640`, 시각 그리드 `180×320`
+- `city_network.png`: `344×224`, 시각 그리드 `172×112`
+- 생성 프롬프트, 도구, 출처와 최종 SHA-256은 `game/assets/opening/opening_art_manifest.json`에 기록합니다.
+- 큰 원본은 런타임과 Git에 넣지 않습니다.
+
 ## 라이선스와 출처
 
 모든 생성 PNG는 프로젝트 전용 오리지널 에셋이며 매니페스트에 `LicenseRef-PixelNightShift-Original`로 기록합니다. 생성기, 시드, 크기, SHA-256을 함께 기록해 출처가 섞이지 않도록 합니다.

@@ -179,10 +179,23 @@
 			"toolchain": "NumPy + Pedalboard"
 		},
 		{
+			"duration_seconds": 0.950023,
+			"file": "game/assets/audio/sfx/shift_authorized.wav",
+			"generator": "res://tools/generate_audio.gd",
+			"generator_version": "2.2.0",
+			"license": "Project-original",
+			"loop": false,
+			"provenance": "Deterministic procedural synthesis; no source audio or external samples.",
+			"sample_rate_hz": 22050,
+			"seed": 91223,
+			"sha256": "0270559f72f6babb7435f755cdfcc26034f405d11104889a357fc080c59e25b1",
+			"source_type": "generated"
+		},
+		{
 			"duration_seconds": 25.263175,
 			"file": "game/assets/audio/bgm/maintenance_loop.wav",
 			"generator": "res://tools/generate_audio.gd",
-			"generator_version": "2.1.0",
+			"generator_version": "2.2.0",
 			"license": "Project-original",
 			"loop": true,
 			"provenance": "Deterministic procedural synthesis; no source audio or external samples.",
@@ -190,14 +203,27 @@
 			"seed": 77213,
 			"sha256": "d558dec8816c5d6d22df7f6693064d9fd9394b17d63d7a2a960b832cf88033e0",
 			"source_type": "generated"
+		},
+		{
+			"duration_seconds": 53.333333,
+			"file": "game/assets/audio/bgm/title_loop.wav",
+			"generator": "res://tools/generate_audio.gd",
+			"generator_version": "2.2.0",
+			"license": "Project-original",
+			"loop": true,
+			"provenance": "Deterministic procedural synthesis; no source audio or external samples.",
+			"sample_rate_hz": 22050,
+			"seed": 91217,
+			"sha256": "508e3285d329566044a0de59ca542dd9e44f83f41cdbeee89cdab349722a5d6b",
+			"source_type": "generated"
 		}
 	],
 	"generated_channels": 1,
 	"generated_sample_format": "PCM signed 16-bit little-endian",
 	"generated_sample_rate_hz": 22050,
 	"generator": "res://tools/generate_audio.gd",
-	"generator_version": "2.1.0",
+	"generator_version": "2.2.0",
 	"license": "Per-file; see each entry and game/assets/audio/ATTRIBUTION.md.",
-	"provenance": "Mixed final delivery: external CC0 music and utility SFX, plus project-original maintenance music and four deterministic SFX synthesized with NumPy and Pedalboard by res://tools/generate_original_sfx.py without source audio or external samples.",
+	"provenance": "Mixed final delivery: external CC0 music and utility SFX, project-original title and maintenance music, one Godot-generated shift authorization cue, and four deterministic SFX synthesized with NumPy and Pedalboard. Generated audio contains no source recordings or external samples.",
 	"schema_version": 2
 }

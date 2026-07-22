@@ -1,0 +1,10 @@
+Use case: stylized-concept
+Asset type: full-screen title background for an original 2D portrait idle-management game
+Primary request: Create an original midnight server operations room that indirectly invites the viewer to become the night-shift operations lead.
+Scene/backdrop: tall server racks frame both sides of a narrow operations room; mostly healthy cyan status lights with only a few restrained red fault lights; a dark city network glows faintly through a high rear window.
+Subject: an empty central command chair viewed slightly from behind, facing a compact authorization console; four very small, distinct worker silhouettes operate separate terminals in the middle distance, clearly secondary to the empty chair and environment.
+Style/medium: authentic low-resolution 16-bit pixel-art game background; chunky hard-edged pixel clusters; no antialiasing, no painterly brushwork, no smooth 3D rendering; visually designed on a 180x320 pixel grid for nearest-neighbor 2x enlargement.
+Composition/framing: exact portrait 9:16 composition; straight-on centered perspective; reserve the upper 18 percent as low-detail dark negative space for a title rendered later by the game; keep the lower 27 percent dark and low-detail for buttons rendered later; place the empty chair and console in the central third without blocking those UI-safe zones.
+Lighting/mood: quiet, watchful, slightly lonely but hopeful night shift; low contrast in UI-safe zones.
+Color palette: no more than 16 visible colors, dominated by #050914, #101E2F, #183247; accents only in #31D2C9 cyan, #FFB34D amber, very small #DF4D67 red, and #8A78E6 violet.
+Constraints: fully opaque background; original design only; no readable text, letters, numbers, logos, trademarks, watermark, UI buttons, title treatment, character close-ups, mascot composition, comic panels, gradients, blur, bloom, translucent edges, or reference-game resemblance.

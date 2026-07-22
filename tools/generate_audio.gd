@@ -1,9 +1,9 @@
 extends SceneTree
 
 const SAMPLE_RATE := 22050
-const BGM_BARS := 8
+const DEFAULT_BGM_BARS := 8
 const OUTPUT_ROOT := "res://game/assets/audio"
-const GENERATOR_VERSION := "2.1.0"
+const GENERATOR_VERSION := "2.2.0"
 const TARGET_PEAK := 0.82
 const ORIGINAL_SFX_GENERATOR := "res://tools/generate_original_sfx.py"
 const ORIGINAL_SFX_GENERATOR_VERSION := "1.0.0"
@@ -20,6 +20,47 @@ const MUSIC_SPECS := [
 		"bass": [41, -1, -1, -1, 41, -1, -1, -1, 38, -1, -1, -1, 38, -1, -1, -1],
 		"drum_density": 0,
 		"lead_duty": 0.5,
+	},
+	{
+		"id": "title_loop",
+		"bpm": 72.0,
+		"bars": 16,
+		"seed": 91_217,
+		"target_peak": 0.70,
+		"lead": [
+			76, -1, -1, -1, -1, -1, 71, -1, 79, -1, -1, -1, 78, -1, -1, -1,
+			76, -1, -1, -1, 72, -1, -1, -1, 71, -1, -1, -1, 67, -1, -1, -1,
+			71, -1, -1, -1, -1, -1, 74, -1, 76, -1, -1, -1, 74, -1, -1, -1,
+			69, -1, -1, -1, 71, -1, -1, -1, 74, -1, -1, -1, 78, -1, -1, -1,
+		],
+		"harmony": [
+			64, -1, -1, -1, 67, -1, -1, -1, 71, -1, -1, -1, 67, -1, -1, -1,
+			60, -1, -1, -1, 64, -1, -1, -1, 67, -1, -1, -1, 71, -1, -1, -1,
+			55, -1, -1, -1, 59, -1, -1, -1, 62, -1, -1, -1, 64, -1, -1, -1,
+			50, -1, -1, -1, 57, -1, -1, -1, 64, -1, -1, -1, 57, -1, -1, -1,
+		],
+		"bass": [
+			40, -1, -1, -1, -1, -1, -1, -1, 35, -1, -1, -1, -1, -1, -1, -1,
+			36, -1, -1, -1, -1, -1, -1, -1, 31, -1, -1, -1, -1, -1, -1, -1,
+			31, -1, -1, -1, -1, -1, -1, -1, 38, -1, -1, -1, -1, -1, -1, -1,
+			38, -1, -1, -1, -1, -1, -1, -1, 33, -1, -1, -1, -1, -1, -1, -1,
+		],
+		"drum_density": 0,
+		"kick_gain": 0.0,
+		"ambient_tick_gain": 0.022,
+		"lead_duty": 0.25,
+		"lead_gain": 0.10,
+		"harmony_gain": 0.060,
+		"bass_gain": 0.17,
+	},
+]
+
+const GENERATED_SFX_SPECS := [
+	{
+		"id": "shift_authorized",
+		"duration_seconds": 0.95,
+		"seed": 91_223,
+		"target_peak": 0.78,
 	},
 ]
 
@@ -160,6 +201,13 @@ func _init() -> void:
 			quit(1)
 			return
 		entries.append(original_sfx_entry)
+	for spec: Dictionary in GENERATED_SFX_SPECS:
+		var samples := _render_shift_authorized(spec)
+		var resource_path := "%s/sfx/%s.wav" % [OUTPUT_ROOT, String(spec["id"])]
+		if not _write_wav(resource_path, samples):
+			quit(1)
+			return
+		entries.append(_manifest_entry(resource_path, samples.size(), false, int(spec["seed"])))
 	for spec: Dictionary in MUSIC_SPECS:
 		var samples := _render_music(spec)
 		var resource_path := "%s/bgm/%s.wav" % [OUTPUT_ROOT, String(spec["id"])]
@@ -176,7 +224,7 @@ func _init() -> void:
 		"generated_sample_rate_hz": SAMPLE_RATE,
 		"generated_channels": 1,
 		"generated_sample_format": "PCM signed 16-bit little-endian",
-		"provenance": "Mixed final delivery: external CC0 music and utility SFX, plus project-original maintenance music and four deterministic SFX synthesized with NumPy and Pedalboard by res://tools/generate_original_sfx.py without source audio or external samples.",
+		"provenance": "Mixed final delivery: external CC0 music and utility SFX, project-original title and maintenance music, one Godot-generated shift authorization cue, and four deterministic SFX synthesized with NumPy and Pedalboard. Generated audio contains no source recordings or external samples.",
 		"license": "Per-file; see each entry and game/assets/audio/ATTRIBUTION.md.",
 		"files": entries,
 	}
@@ -195,7 +243,7 @@ func _init() -> void:
 func _render_music(spec: Dictionary) -> PackedFloat32Array:
 	var bpm := float(spec["bpm"])
 	var step_seconds := 60.0 / bpm / 4.0
-	var total_steps := BGM_BARS * 16
+	var total_steps := int(spec.get("bars", DEFAULT_BGM_BARS)) * 16
 	var duration := step_seconds * float(total_steps)
 	var frame_count := int(round(duration * SAMPLE_RATE))
 	var samples := PackedFloat32Array()
@@ -207,6 +255,11 @@ func _render_music(spec: Dictionary) -> PackedFloat32Array:
 	var bass_pattern: Array = spec["bass"]
 	var drum_density := int(spec["drum_density"])
 	var lead_duty := float(spec["lead_duty"])
+	var lead_gain := float(spec.get("lead_gain", 0.16))
+	var harmony_gain := float(spec.get("harmony_gain", 0.085))
+	var bass_gain := float(spec.get("bass_gain", 0.21))
+	var kick_gain := float(spec.get("kick_gain", 0.20))
+	var ambient_tick_gain := float(spec.get("ambient_tick_gain", 0.035))
 
 	for frame: int in range(frame_count):
 		var time := float(frame) / SAMPLE_RATE
@@ -220,30 +273,71 @@ func _render_music(spec: Dictionary) -> PackedFloat32Array:
 		var mixed := 0.0
 		if lead_note >= 0:
 			var lead_frequency := _midi_frequency(lead_note)
-			mixed += _pulse(time * lead_frequency, lead_duty) * gate * 0.16
+			mixed += _pulse(time * lead_frequency, lead_duty) * gate * lead_gain
 		if harmony_note >= 0:
 			var harmony_frequency := _midi_frequency(harmony_note)
-			mixed += _pulse(time * harmony_frequency, 0.5) * gate * 0.085
+			mixed += _pulse(time * harmony_frequency, 0.5) * gate * harmony_gain
 		if bass_note >= 0:
 			var bass_frequency := _midi_frequency(bass_note)
-			mixed += _triangle(time * bass_frequency) * _note_envelope(step_phase, 0.025, 0.90) * 0.21
+			mixed += _triangle(time * bass_frequency) * _note_envelope(step_phase, 0.025, 0.90) * bass_gain
 
 		var beat_step := step_index % 16
 		var noise := rng.randf_range(-1.0, 1.0)
 		if beat_step == 0 or beat_step == 8 or (drum_density >= 2 and (beat_step == 4 or beat_step == 12)):
 			var kick_decay := exp(-step_time * 22.0)
-			mixed += sin(TAU * (72.0 - 28.0 * step_phase) * step_time) * kick_decay * 0.20
+			mixed += sin(TAU * (72.0 - 28.0 * step_phase) * step_time) * kick_decay * kick_gain
 		if drum_density > 0 and (beat_step == 4 or beat_step == 12):
 			mixed += noise * exp(-step_time * 28.0) * 0.16
 		var hat_interval := 1 if drum_density >= 2 else 2
 		if drum_density > 0 and beat_step % hat_interval == 0:
 			mixed += noise * exp(-step_time * 78.0) * 0.065
 		if drum_density == 0 and beat_step == 12:
-			mixed += noise * exp(-step_time * 42.0) * 0.035
+			mixed += noise * exp(-step_time * 42.0) * ambient_tick_gain
 		samples[frame] = mixed
 
 	_fade_loop_edges(samples, 0.004)
-	_normalize(samples, TARGET_PEAK)
+	_normalize(samples, float(spec.get("target_peak", TARGET_PEAK)))
+	return samples
+
+
+func _render_shift_authorized(spec: Dictionary) -> PackedFloat32Array:
+	var duration := float(spec["duration_seconds"])
+	var frame_count := int(round(duration * SAMPLE_RATE))
+	var samples := PackedFloat32Array()
+	samples.resize(frame_count)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(spec["seed"])
+	var notes := [
+		{"start": 0.08, "duration": 0.22, "note": 64},
+		{"start": 0.24, "duration": 0.22, "note": 67},
+		{"start": 0.40, "duration": 0.24, "note": 71},
+		{"start": 0.57, "duration": 0.34, "note": 76},
+	]
+
+	for frame: int in range(frame_count):
+		var time := float(frame) / SAMPLE_RATE
+		var mixed := 0.0
+		if time < 0.16:
+			var chirp_progress := time / 0.16
+			var chirp_phase := TAU * (150.0 * time + 1500.0 * time * time)
+			mixed += sin(chirp_phase) * exp(-chirp_progress * 2.2) * 0.09
+			mixed += rng.randf_range(-1.0, 1.0) * exp(-time * 38.0) * 0.045
+		for note_spec: Dictionary in notes:
+			var start := float(note_spec["start"])
+			var note_duration := float(note_spec["duration"])
+			var local_time := time - start
+			if local_time < 0.0 or local_time >= note_duration:
+				continue
+			var phase := local_time / note_duration
+			var envelope := _note_envelope(phase, 0.035, 0.72)
+			var frequency := _midi_frequency(int(note_spec["note"]))
+			var tone := _triangle(local_time * frequency) * 0.72
+			tone += sin(TAU * local_time * frequency * 2.0) * 0.28
+			mixed += tone * envelope * 0.19
+		samples[frame] = mixed
+
+	_fade_loop_edges(samples, 0.004)
+	_normalize(samples, float(spec["target_peak"]))
 	return samples
 
 

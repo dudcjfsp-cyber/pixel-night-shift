@@ -1,0 +1,32 @@
+{
+	"schema_version": 1,
+	"generated_on": "2026-07-22",
+	"generator": "OpenAI built-in imagegen",
+	"postprocess": "res://tools/prepare_opening_art.gd",
+	"provenance": "Project-original generated backgrounds. No external source art or reference-game assets were used; city_network used this project's generated title background as a style reference.",
+	"license": "LicenseRef-PixelNightShift-Original",
+	"files": [
+		{
+			"file": "game/assets/opening/title_background.png",
+			"purpose": "Full-screen title background",
+			"width": 360,
+			"height": 640,
+			"visual_grid_width": 180,
+			"visual_grid_height": 320,
+			"palette_colors": 16,
+			"prompt": "game/assets/opening/prompts/title_background.txt",
+			"sha256": "dfb7bef622a2fe18832d80e9fff0fe2137c70057d8b1466ab65f81bc4c1ec94a"
+		},
+		{
+			"file": "game/assets/opening/city_network.png",
+			"purpose": "First prologue environment panel",
+			"width": 344,
+			"height": 224,
+			"visual_grid_width": 172,
+			"visual_grid_height": 112,
+			"palette_colors": 16,
+			"prompt": "game/assets/opening/prompts/city_network.txt",
+			"sha256": "a5f539f76aedfaa8e9906b009e00ee7c2f8e9b2e65742eecdfd77427f4d4785f"
+		}
+	]
+}

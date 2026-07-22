@@ -2,12 +2,14 @@ extends SceneTree
 
 const MANIFEST_PATH := "res://game/assets/audio/manifest.json"
 const EXPECTED_PATHS: PackedStringArray = [
+	"game/assets/audio/bgm/title_loop.wav",
 	"game/assets/audio/bgm/night_shift_loop.ogg",
 	"game/assets/audio/bgm/watchdog_loop.ogg",
 	"game/assets/audio/bgm/maintenance_loop.wav",
 	"game/assets/audio/sfx/ui_move.ogg",
 	"game/assets/audio/sfx/ui_confirm.ogg",
 	"game/assets/audio/sfx/ui_error.ogg",
+	"game/assets/audio/sfx/shift_authorized.wav",
 	"game/assets/audio/sfx/enemy_break.wav",
 	"game/assets/audio/sfx/combat_hit.wav",
 	"game/assets/audio/sfx/stage_clear.ogg",

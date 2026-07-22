@@ -1,0 +1,11 @@
+Use case: stylized-concept
+Asset type: prologue environment panel for an original 2D portrait idle-management game
+Input images: the generated title background is a style, pixel treatment, lighting, and palette reference only; do not reuse its room layout or chair.
+Primary request: Generate a new landscape scene showing a sleeping midnight city whose digital services remain active.
+Scene/backdrop: compact dark city skyline viewed from a high technical observation window; thin cyan network paths connect rooftops and server-like utility towers; most nodes are healthy cyan, with only two or three tiny red fault nodes beginning to appear at the far edge.
+Subject: the city and its living network are the only subject; no people or characters.
+Style/medium: match the title background's authentic low-resolution 16-bit pixel art, chunky hard-edged pixel clusters, restrained detail, no antialiasing, no painterly or 3D rendering.
+Composition/framing: landscape 43:28 ratio intended for a 344x224 game panel; clear readable skyline silhouette; dark low-detail margins; no panel border.
+Lighting/mood: quiet night, systems still awake, calm before an incident.
+Color palette: match the title background and keep the palette restrained, dominated by #050914, #101E2F, #183247 with #31D2C9 cyan, small #FFB34D amber, and extremely sparse #DF4D67 red.
+Constraints: fully opaque; no text, letters, numbers, logos, trademarks, watermark, UI, comic layout, gradients, blur, bloom, translucent edges, character silhouettes, or reference-game resemblance.
