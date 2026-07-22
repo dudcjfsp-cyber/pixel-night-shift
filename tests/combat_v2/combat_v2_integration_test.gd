@@ -103,7 +103,7 @@ func _test_mode_routing() -> void:
 	var v2 := TrackingV2Repository.new(v2_dir)
 	var app := await _mount(production, v2, true, FakeClock.new(2_100_000_000))
 	_check(app.is_combat_v2_test_mode(), "explicit V2 mode must be active")
-	_check(app.current_screen_id() == AppRoot.SCREEN_FIRST_START, "missing V2 save must route to First Shift")
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "missing V2 save must route to title")
 	_check(production.load_calls == 0 and production.save_calls == 0, "V2 boot must not touch production save")
 	_check(v2.load_calls == 1, "V2 boot must load exactly its isolated slot")
 	_check(app.active_save_base_dir() == v2.base_dir(), "active save path must be the V2 slot")
@@ -191,7 +191,7 @@ func _test_commands_and_state_ui() -> void:
 	var command_session := _fixture_session(&"active")
 	_check(repository.save(command_session.export_state(), 3000, 0) == OK, "command fixture must save")
 	var app := await _mount(production, repository, true, FakeClock.new(3000))
-	await _click_named(app, "PrimaryActionButton")
+	await _continue_saved_to_gameplay(app)
 	var before_level := _operator_level(app.session_snapshot(), "debugger")
 	await _click_named(app, "UpgradeOperator_debugger")
 	_check(_operator_level(app.session_snapshot(), "debugger") == before_level + 1, "pointer upgrade must reach V2 simulator")
@@ -221,7 +221,7 @@ func _test_commands_and_state_ui() -> void:
 			true,
 			FakeClock.new(3100)
 		)
-		await _click_named(fixture_app, "PrimaryActionButton")
+		await _continue_saved_to_gameplay(fixture_app)
 		var text := _visible_text(fixture_app)
 		_check("HP" in text and "PROCESS DOWN" in text, "%s UI must show operator HP and process_down" % fixture_name)
 		if fixture_name == &"qa":
@@ -267,7 +267,7 @@ func _test_production_hybrid_ui() -> void:
 		false,
 		FakeClock.new(3500)
 	)
-	await _click_named(app, "PrimaryActionButton")
+	await _continue_saved_to_gameplay(app)
 	var snapshot := app.session_snapshot()
 	_check(
 		String(snapshot["mode"]) == "boss" and bool(snapshot["hybrid_combat_enabled"]),
@@ -358,7 +358,9 @@ func _test_result_and_default() -> void:
 		true,
 		FakeClock.new(4000)
 	)
-	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "completed test restore must enter Operations Room")
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "completed test restore must wait at title")
+	await _click_named(app, "PrimaryActionButton")
+	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "continue must enter Operations Room")
 	await _click_named(app, "PrimaryActionButton")
 	_check(app.current_screen_id() == AppRoot.SCREEN_COMBAT_V2_RESULT, "completed stage 10 must route to read-only result")
 	var result_text := _visible_text(app)
@@ -381,8 +383,10 @@ func _test_result_and_default() -> void:
 	_check(not default_app.is_combat_v2_test_mode(), "default launch must keep V2 disabled")
 	_check(production.load_calls == 1 and unused_v2.load_calls == 0, "default launch must use only production save")
 	await _click_named(default_app, "PrimaryActionButton")
+	_check(default_app.current_screen_id() == AppRoot.SCREEN_PROLOGUE, "default game start must open prologue")
+	await _click_named(default_app, "SkipButton")
 	var production_snapshot := default_app.session_snapshot()
-	_check(not bool(production_snapshot["combat_v2_test_mode"]), "default First Shift must create production GameSession")
+	_check(not bool(production_snapshot["combat_v2_test_mode"]), "default prologue completion must create production GameSession")
 	_check(bool(production_snapshot["hybrid_combat_enabled"]), "default production session must enable hybrid boss combat")
 	_check(
 		production_snapshot.has("appeals") and int(production_snapshot["appeal_limit"]) == 2,
@@ -539,6 +543,15 @@ func _unmount(app: AppRoot) -> void:
 	if is_instance_valid(app):
 		app.queue_free()
 	await _wait_frames(3)
+
+
+func _continue_saved_to_gameplay(app: AppRoot) -> void:
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "saved fixture must wait at title")
+	_check(app.session_instance_id() == 0, "saved fixture must remain inactive before continue")
+	await _click_named(app, "PrimaryActionButton")
+	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "continue must activate Operations Room")
+	await _click_named(app, "PrimaryActionButton")
+	_check(app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY, "Operations Room must enter gameplay")
 
 
 func _click_named(node: Node, button_name: String) -> void:

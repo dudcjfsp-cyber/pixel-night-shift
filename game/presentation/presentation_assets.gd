@@ -42,6 +42,12 @@ const UI_TEXTURES: Dictionary = {
 const BATTLE_BACKGROUND: Texture2D = preload(
 	"res://game/assets/generated/backgrounds/battle_server_room.png"
 )
+const TITLE_BACKGROUND: Texture2D = preload(
+	"res://game/assets/opening/title_background.png"
+)
+const CITY_NETWORK_BACKGROUND: Texture2D = preload(
+	"res://game/assets/opening/city_network.png"
+)
 
 static var _initialized := false
 static var _initialization_errors := PackedStringArray()

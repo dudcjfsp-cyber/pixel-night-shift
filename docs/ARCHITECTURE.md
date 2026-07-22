@@ -35,15 +35,17 @@ The run layout, regeneration, curation and provenance contract is documented in 
 
 ## App shell ownership
 
-Top-level screens are `BOOT`, `FIRST_START`, `OPERATIONS_ROOM`, `GAMEPLAY`, and `SAVE_RECOVERY`. At most one of `OFFLINE_REPORT`, `SETTINGS`, `VERSION_UPDATE_CONFIRM`, `RUN_SUMMARY`, or `ONBOARDING` may be open over the active screen.
+Top-level screens are `BOOT`, `TITLE`, `PROLOGUE`, `OPERATIONS_ROOM`, `GAMEPLAY`, and `SAVE_RECOVERY`. At most one of `OFFLINE_REPORT`, `SETTINGS`, `VERSION_UPDATE_CONFIRM`, `RUN_SUMMARY`, or `ONBOARDING` may be open over the active screen.
 
 - Views emit semantic requests; they do not open other scenes directly.
+- A validated save remains a pending candidate while `TITLE` is visible. `AppRoot` activates it only after `이어하기`, so combat ticks, periodic saves, and offline application cannot begin on the title screen.
+- A new `GameSession` becomes active only after `PROLOGUE` completes or is skipped and the first save succeeds.
 - `MainView` is retained as the gameplay view during this milestone and receives its session and audio director before entering the tree.
 - A live run keeps ticking while the operations room or settings is visible.
 - Background pause stops real-time ticks. `AppRoot` later applies a capped elapsed duration without exposing the system clock to the domain.
 - The Android Back request closes the active overlay, returns gameplay to the operations room, and exits only from a root screen.
 
-The full screen and lifecycle contract lives in [APP_SHELL_SPEC.md](APP_SHELL_SPEC.md).
+The cold-boot title and first-shift entry contract lives in [OPENING_EXPERIENCE_SPEC.md](OPENING_EXPERIENCE_SPEC.md). The remaining screen and lifecycle contract lives in [APP_SHELL_SPEC.md](APP_SHELL_SPEC.md).
 
 ## GameSession public surface
 

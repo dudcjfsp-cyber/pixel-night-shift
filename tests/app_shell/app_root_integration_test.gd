@@ -91,16 +91,26 @@ func _test_main_and_first_shift() -> void:
 	var repository := SaveRepository.new(base_dir)
 	var clock := FakeClock.new(2_000_000_000)
 	var app := await _mount_app(repository, clock)
-	_check(app.current_screen_id() == AppRoot.SCREEN_FIRST_START, "missing save must route to first start")
-	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "first start must not invent an overlay")
-	_check_touch_targets(app, "first start")
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "missing save must route to title")
+	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "title must not invent an overlay")
+	_check(app.session_instance_id() == 0, "title must not activate a session")
+	_check_touch_targets(app, "title")
 	_check(_host_child_count(app, "ScreenHost") == 1, "AppRoot must own one top-level screen")
 	_check(_host_child_count(app, "OverlayHost") == 0, "AppRoot overlay host must start empty")
 
 	var first_button := app.find_child("PrimaryActionButton", true, false) as Button
-	_check(first_button != null, "first shift must expose its primary action")
+	_check(first_button != null and first_button.text == "게임 시작", "new title must expose game start")
 	if first_button != null:
 		await _click_button(first_button)
+		await _wait_frames(3)
+	_check(app.current_screen_id() == AppRoot.SCREEN_PROLOGUE, "game start must open the prologue")
+	_check(app.session_instance_id() == 0, "prologue must not create a session before completion")
+	_check(repository.load().status == SaveLoadResult.Status.NOT_FOUND, "prologue must not save early")
+	_check("야간 인수인계 1 / 5" in _visible_text(app), "prologue must begin at its first story beat")
+	var prologue_skip := app.find_child("SkipButton", true, false) as Button
+	_check(prologue_skip != null, "prologue must expose a skip action")
+	if prologue_skip != null:
+		await _click_button(prologue_skip)
 		await _wait_frames(3)
 	_check(app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY, "first save success must enter gameplay")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_ONBOARDING, "first gameplay must open onboarding")
@@ -109,10 +119,10 @@ func _test_main_and_first_shift() -> void:
 	var saved := repository.load()
 	_check(saved.status == SaveLoadResult.Status.LOADED, "first shift must save before gameplay")
 	_check(saved.last_gameplay_tab == 0, "first shift must explicitly save gameplay tab 0")
-	var skip_button := app.find_child("SkipButton", true, false) as Button
-	_check(skip_button != null, "onboarding must expose its skip action")
-	if skip_button != null:
-		await _click_button(skip_button)
+	var onboarding_skip := app.find_child("SkipButton", true, false) as Button
+	_check(onboarding_skip != null, "onboarding must expose its skip action")
+	if onboarding_skip != null:
+		await _click_button(onboarding_skip)
 		await _wait_frames(2)
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "overlay controls must accept real pointer clicks")
 	await _unmount(app)
@@ -126,9 +136,11 @@ func _test_main_and_first_shift() -> void:
 	if failed_button != null:
 		failed_button.pressed.emit()
 		await _wait_frames(2)
+	_emit_button(failed_app, "SkipButton")
+	await _wait_frames(2)
 	_check(
-		failed_app.current_screen_id() == AppRoot.SCREEN_FIRST_START,
-		"failed first save must keep the player on first start"
+		failed_app.current_screen_id() == AppRoot.SCREEN_TITLE,
+		"failed first save must return the player to title"
 	)
 	_check(failed_app.session_instance_id() == 0, "failed first save must not retain an active session")
 	_check("최초 저장에 실패" in _visible_text(failed_app), "failed first save must explain the error")
@@ -141,6 +153,8 @@ func _test_same_session_navigation() -> void:
 	var app := await _mount_app(SaveRepository.new(base_dir), FakeClock.new(2_000_000_100))
 	_emit_button(app, "PrimaryActionButton")
 	await _wait_frames(2)
+	_emit_button(app, "SkipButton")
+	await _wait_frames(1)
 	_emit_button(app, "SkipButton")
 	await _wait_frames(1)
 	var identity := app.session_instance_id()
@@ -257,15 +271,18 @@ func _test_schema_1_migration() -> void:
 		"session": legacy_state,
 	})
 	var migrated_app := await _mount_app(success_repo, FakeClock.new(saved_at))
+	_check(migrated_app.current_screen_id() == AppRoot.SCREEN_TITLE, "migrated save must wait at title")
+	_check(migrated_app.session_instance_id() == 0, "migrated candidate must stay inactive before continue")
+	_check(
+		success_repo.load().schema_version == SaveRepository.CURRENT_SCHEMA_VERSION,
+		"successful migration must persist schema 2 before title"
+	)
+	await _continue_saved_shift(migrated_app)
 	_check(migrated_app.session_instance_id() != 0, "valid schema 1 data must activate after migration")
 	_check(migrated_app.last_gameplay_tab() == 2, "migration must preserve the selected gameplay tab")
 	_check(
 		bool(migrated_app.session_snapshot().get("hybrid_combat_enabled", false)),
 		"migrated production sessions must enable hybrid boss combat"
-	)
-	_check(
-		success_repo.load().schema_version == SaveRepository.CURRENT_SCHEMA_VERSION,
-		"successful migration must persist schema 2 before boot completes"
 	)
 	await _unmount(migrated_app)
 
@@ -439,6 +456,12 @@ func _test_offline_once_and_cap() -> void:
 		reference.tick(60.0)
 
 	var app := await _mount_app(repository, FakeClock.new(now))
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "valid save must wait at title")
+	_check(app.session_instance_id() == 0, "saved session must remain inactive before continue")
+	var saved_before_continue := repository.load().saved_at_unix
+	app._process(60.0)
+	_check(repository.load().saved_at_unix == saved_before_continue, "title wait must not overwrite offline baseline")
+	await _continue_saved_shift(app)
 	_check(app.current_screen_id() == AppRoot.SCREEN_OPERATIONS_ROOM, "valid save must boot to operations")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_OFFLINE_REPORT, "capped visible progress must show report")
 	_check("8시간 이후" in _visible_text(app), "capped report must explain the 8-hour limit")
@@ -449,6 +472,7 @@ func _test_offline_once_and_cap() -> void:
 	await _unmount(app)
 
 	var second := await _mount_app(repository, FakeClock.new(now))
+	await _continue_saved_shift(second)
 	_check(second.current_overlay_id() == AppRoot.OVERLAY_NONE, "same saved timestamp must not grant or report twice")
 	var second_snapshot := second.session_snapshot()
 	_check(
@@ -465,6 +489,7 @@ func _test_offline_once_and_cap() -> void:
 	failing.save(GameSession.new().export_state(), failure_baseline, 0)
 	failing.fail_next = true
 	var failed_app := await _mount_app(failing, failure_clock)
+	await _continue_saved_shift(failed_app)
 	var applied_snapshot := failed_app.session_snapshot()
 	_check(failed_app.current_overlay_id() == AppRoot.OVERLAY_NONE, "offline report must stay hidden before save succeeds")
 	_check(failed_app.save_has_error(), "offline save failure must remain visibly retryable")
@@ -485,6 +510,7 @@ func _test_offline_once_and_cap() -> void:
 	var backward_seed := GameSession.new()
 	backward_repo.save(backward_seed.export_state(), future_saved_at, 0)
 	var backward_app := await _mount_app(backward_repo, FakeClock.new(future_saved_at - 1000))
+	await _continue_saved_shift(backward_app)
 	_check(backward_app.session_snapshot() == backward_seed.snapshot(), "backward clock must apply zero offline progress")
 	_check(backward_repo.load().saved_at_unix == future_saved_at, "backward clock must not move the save timestamp backward")
 	await _unmount(backward_app)
@@ -499,6 +525,7 @@ func _test_version_update_atomicity() -> void:
 	var clock := FakeClock.new(2_000_020_000)
 	repository.save(ready.export_state(), clock.value, 2)
 	var app := await _mount_app(repository, clock)
+	await _continue_saved_shift(app)
 	_emit_button(app, "PrimaryActionButton")
 	await _wait_frames(2)
 	var gameplay := _host_child(app, "ScreenHost")
@@ -567,6 +594,8 @@ func _test_settings_back_and_safe_area() -> void:
 	await _wait_frames(2)
 	_emit_button(app, "SkipButton")
 	await _wait_frames(1)
+	_emit_button(app, "SkipButton")
+	await _wait_frames(1)
 	var lane := app.find_child("BattleLaneView", true, false) as BattleLaneView
 	var portrait := app.find_child("OperatorPortrait_debugger", true, false) as TextureRect
 	_check(lane != null and portrait != null and portrait.texture is AtlasTexture, "gameplay must expose animated sprite playback")
@@ -611,7 +640,7 @@ func _test_settings_back_and_safe_area() -> void:
 	await _wait_frames(2)
 	_check(repository.load().status == SaveLoadResult.Status.NOT_FOUND, "confirmed reset must clear progress records")
 	_check(settings_repository.load().status == SettingsRepository.LoadStatus.LOADED, "progress reset must preserve settings")
-	_check(app.current_screen_id() == AppRoot.SCREEN_FIRST_START, "confirmed reset must return to first start")
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "confirmed reset must return to title")
 	await _unmount(app)
 
 	var atomic_dir := _case_dir("settings_atomic_recovery")
@@ -697,6 +726,19 @@ func _mount_app(
 	app.set_process(false)
 	await _wait_frames(4)
 	return app
+
+
+func _continue_saved_shift(app: AppRoot) -> void:
+	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "saved shift must wait at title")
+	_check(app.session_instance_id() == 0, "saved shift must stay inactive before continue")
+	var continue_button := app.find_child("PrimaryActionButton", true, false) as Button
+	_check(
+		continue_button != null and continue_button.text == "이어하기",
+		"saved title must expose continue"
+	)
+	if continue_button != null:
+		await _click_button(continue_button)
+		await _wait_frames(2)
 
 
 func _unmount(app: AppRoot) -> void:

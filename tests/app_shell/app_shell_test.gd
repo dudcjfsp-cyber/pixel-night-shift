@@ -6,6 +6,12 @@ const BOOT_SCENE: PackedScene = preload(
 const FIRST_SHIFT_SCENE: PackedScene = preload(
 	"res://game/presentation/app_shell/views/first_shift_view.tscn"
 )
+const TITLE_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/title_view.tscn"
+)
+const PROLOGUE_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/prologue_view.tscn"
+)
 const OPERATIONS_ROOM_SCENE: PackedScene = preload(
 	"res://game/presentation/app_shell/views/operations_room_view.tscn"
 )
@@ -20,6 +26,12 @@ const BOOT_VIEW_SCRIPT: GDScript = preload(
 )
 const FIRST_SHIFT_VIEW_SCRIPT: GDScript = preload(
 	"res://game/presentation/app_shell/views/first_shift_view.gd"
+)
+const TITLE_VIEW_SCRIPT: GDScript = preload(
+	"res://game/presentation/app_shell/views/title_view.gd"
+)
+const PROLOGUE_VIEW_SCRIPT: GDScript = preload(
+	"res://game/presentation/app_shell/views/prologue_view.gd"
 )
 const OPERATIONS_ROOM_VIEW_SCRIPT: GDScript = preload(
 	"res://game/presentation/app_shell/views/operations_room_view.gd"
@@ -59,6 +71,7 @@ func _run_all() -> void:
 	print("===================================")
 	await _run_async_test("product and preview scene smoke load", _test_scene_smoke_load)
 	await _run_async_test("boot and first-shift contracts", _test_boot_and_first_shift)
+	await _run_async_test("title and prologue contracts", _test_title_and_prologue)
 	await _run_async_test("view-data validation boundaries", _test_view_data_validation)
 	await _run_async_test("operations-room states and signals", _test_operations_room)
 	await _run_async_test("offline-report variants and signals", _test_offline_report)
@@ -94,6 +107,8 @@ func _test_scene_smoke_load() -> void:
 	var cases: Array[Dictionary] = [
 		{"label": "boot", "scene": BOOT_SCENE},
 		{"label": "first shift", "scene": FIRST_SHIFT_SCENE},
+		{"label": "title", "scene": TITLE_SCENE},
+		{"label": "prologue", "scene": PROLOGUE_SCENE},
 		{"label": "operations room", "scene": OPERATIONS_ROOM_SCENE},
 		{"label": "offline report", "scene": OFFLINE_REPORT_SCENE},
 		{"label": "app-shell preview", "scene": PREVIEW_SCENE},
@@ -166,6 +181,87 @@ func _test_boot_and_first_shift() -> void:
 		_check(signal_counts[1] == 1, "first-shift settings must emit settings_requested once")
 		_check(first_shift.is_inside_tree(), "first-shift view must not navigate itself")
 	await _unmount(first_shift)
+
+
+func _test_title_and_prologue() -> void:
+	var title := TITLE_SCENE.instantiate() as TITLE_VIEW_SCRIPT
+	_check(title != null, "title scene must instantiate with its product script")
+	if title == null:
+		return
+	title.configure(false)
+	var title_signal_counts: Array[int] = [0, 0, 0]
+	title.start_requested.connect(func() -> void: title_signal_counts[0] += 1)
+	title.continue_requested.connect(func() -> void: title_signal_counts[1] += 1)
+	title.prologue_replay_requested.connect(func() -> void: title_signal_counts[2] += 1)
+	if not await _mount(title, "title contract"):
+		await _unmount(title)
+		return
+
+	var title_primary := _find_button(title, "PrimaryActionButton", "title primary")
+	var account_link := _find_button(title, "AccountLinkButton", "title account link")
+	var prologue_replay := _find_button(
+		title, "PrologueReplayButton", "title prologue replay"
+	)
+	_check(title_primary != null and title_primary.text == "게임 시작", "new title must offer game start")
+	_check(account_link != null and account_link.disabled, "account linking must remain disabled")
+	_check(prologue_replay != null and not prologue_replay.visible, "new title must hide replay")
+	_emit_pressed(title_primary)
+	_check(title_signal_counts[0] == 1, "new title primary must emit start_requested once")
+	_check(title_signal_counts[1] == 0, "new title primary must not emit continue_requested")
+
+	title.configure(true)
+	await _wait_frames(2)
+	_check(title_primary.text == "이어하기", "saved title must offer continue")
+	_check(prologue_replay.visible, "saved title must expose prologue replay")
+	_emit_pressed(title_primary)
+	_emit_pressed(prologue_replay)
+	_check(title_signal_counts[1] == 1, "saved title primary must emit continue_requested once")
+	_check(title_signal_counts[2] == 1, "title replay must emit prologue_replay_requested once")
+	await _unmount(title)
+
+	var prologue := PROLOGUE_SCENE.instantiate() as PROLOGUE_VIEW_SCRIPT
+	_check(prologue != null, "prologue scene must instantiate with its product script")
+	if prologue == null:
+		return
+	_check(prologue.configure(0, false, true), "first prologue step must configure")
+	var prologue_signal_counts: Array[int] = [0, 0]
+	prologue.advance_requested.connect(func() -> void: prologue_signal_counts[0] += 1)
+	prologue.skip_requested.connect(func() -> void: prologue_signal_counts[1] += 1)
+	if not await _mount(prologue, "prologue contract"):
+		await _unmount(prologue)
+		return
+
+	_check_copy(
+		prologue,
+		"first prologue step",
+		PackedStringArray([
+			"야간 인수인계 1 / 5",
+			"꺼지지 않는 도시",
+			"도시가 잠든 뒤에도 서비스는 멈추지 않습니다.",
+		])
+	)
+	var prologue_primary := _find_button(
+		prologue, "PrimaryActionButton", "prologue primary"
+	)
+	var prologue_skip := _find_button(prologue, "SkipButton", "prologue skip")
+	_emit_pressed(prologue_primary)
+	_emit_pressed(prologue_skip)
+	_check(prologue_signal_counts[0] == 1, "prologue primary must emit advance_requested once")
+	_check(prologue_signal_counts[1] == 1, "prologue skip must emit skip_requested once")
+
+	_check(prologue.configure(4, true, true), "last replay prologue step must configure")
+	await _wait_frames(2)
+	_check_copy(
+		prologue,
+		"last replay prologue step",
+		PackedStringArray(["야간 인수인계 5 / 5", "권한 인계"])
+	)
+	_check(
+		prologue_primary.text == "타이틀로 돌아가기",
+		"last replay primary must return to title"
+	)
+	_check(prologue_skip.text == "타이틀로 돌아가기", "replay skip must return to title")
+	await _unmount(prologue)
 
 
 func _test_operations_room() -> void:

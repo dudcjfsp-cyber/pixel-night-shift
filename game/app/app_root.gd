@@ -8,8 +8,11 @@ const MAIN_VIEW_SCENE: PackedScene = preload("res://game/presentation/main.tscn"
 const BOOT_SCENE: PackedScene = preload(
 	"res://game/presentation/app_shell/views/boot_view.tscn"
 )
-const FIRST_SHIFT_SCENE: PackedScene = preload(
-	"res://game/presentation/app_shell/views/first_shift_view.tscn"
+const TITLE_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/title_view.tscn"
+)
+const PROLOGUE_SCENE: PackedScene = preload(
+	"res://game/presentation/app_shell/views/prologue_view.tscn"
 )
 const OPERATIONS_ROOM_SCENE: PackedScene = preload(
 	"res://game/presentation/app_shell/views/operations_room_view.tscn"
@@ -48,7 +51,8 @@ const COMBAT_V2_LAUNCH_OPTION := "--combat-v2-test"
 
 const SCREEN_NONE: StringName = &"none"
 const SCREEN_BOOT: StringName = &"boot"
-const SCREEN_FIRST_START: StringName = &"first_start"
+const SCREEN_TITLE: StringName = &"title"
+const SCREEN_PROLOGUE: StringName = &"prologue"
 const SCREEN_OPERATIONS_ROOM: StringName = &"operations_room"
 const SCREEN_GAMEPLAY: StringName = &"gameplay"
 const SCREEN_SAVE_RECOVERY: StringName = &"save_recovery"
@@ -70,6 +74,7 @@ var _settings_repository: SettingsRepository
 var _clock: Variant = null
 var _services_configured := false
 var _session: Variant = null
+var _pending_session: Variant = null
 var _combat_v2_test_mode := false
 var _audio_director: AudioDirector
 var _settings: AppSettings
@@ -93,6 +98,10 @@ var _settings_has_error := false
 var _settings_status := "설정 저장 전"
 var _pending_offline_report: Dictionary = {}
 var _onboarding_step := 0
+var _pending_resume_saved_at_unix := 0
+var _title_has_saved_shift := false
+var _prologue_step := 0
+var _prologue_is_replay := false
 var _run_summary_data: Dictionary = {}
 var _save_elapsed := 0.0
 var _audio_refresh_left := 0.0
@@ -166,12 +175,15 @@ func handle_back_request() -> bool:
 		if recovery_view != null and recovery_view.is_confirming_new_shift():
 			recovery_view.show_new_shift_confirmation(false)
 			return false
+	if _screen_id == SCREEN_PROLOGUE:
+		_show_title(_title_has_saved_shift)
+		return false
 	if _screen_id in [SCREEN_GAMEPLAY, SCREEN_COMBAT_V2_RESULT]:
 		_show_operations_room()
 		_save_progress("현장에서 운영실로 이동")
 		return false
 	var should_exit := _screen_id in [
-		SCREEN_OPERATIONS_ROOM, SCREEN_FIRST_START, SCREEN_SAVE_RECOVERY,
+		SCREEN_OPERATIONS_ROOM, SCREEN_TITLE, SCREEN_SAVE_RECOVERY,
 	]
 	if should_exit and _session != null:
 		_save_progress("앱 이탈", false)
@@ -308,17 +320,21 @@ func _route_from_load_result(load_result: SaveLoadResult) -> void:
 	match load_result.status:
 		SaveLoadResult.Status.NOT_FOUND:
 			_session = null
-			_show_first_start()
+			_pending_session = null
+			_pending_resume_saved_at_unix = 0
+			_show_title(false)
 		SaveLoadResult.Status.LOADED:
 			_restore_primary(load_result)
 		SaveLoadResult.Status.RECOVERED_BACKUP, SaveLoadResult.Status.CORRUPT, SaveLoadResult.Status.NEWER_SCHEMA, SaveLoadResult.Status.MIGRATION_FAILED:
 			_recovery_result = load_result
 			_session = null
+			_pending_session = null
 			_show_save_recovery()
 		_:
 			push_error("Unknown SaveLoadResult status: %s" % load_result.status)
 			_recovery_result = load_result
 			_session = null
+			_pending_session = null
 			_show_save_recovery()
 
 
@@ -349,14 +365,12 @@ func _restore_primary(load_result: SaveLoadResult) -> void:
 
 	if not _persist_schema_2_migration(candidate, load_result):
 		return
-	_session = candidate
+	_session = null
+	_pending_session = candidate
+	_pending_resume_saved_at_unix = load_result.saved_at_unix
 	_last_gameplay_tab = load_result.last_gameplay_tab
 	_last_saved_at_unix = load_result.saved_at_unix
-	_show_operations_room()
-	if _combat_v2_test_mode:
-		_save_status = "Combat V2 테스트 저장 복구됨 · 오프라인 진행 미지원"
-	else:
-		_apply_offline_progress(load_result.saved_at_unix)
+	_show_title(true)
 
 
 func _restore_candidate(
@@ -405,6 +419,8 @@ func _show_migration_failure(
 	failure.errors.append("Schema 1 migration save failed with error %d." % save_error)
 	_recovery_result = failure
 	_session = null
+	_pending_session = null
+	_pending_resume_saved_at_unix = 0
 	_save_has_error = true
 	_save_status = "저장 전환 실패 (오류 %d)" % save_error
 	_show_save_recovery()
@@ -418,14 +434,36 @@ func _show_boot() -> void:
 	_set_screen(SCREEN_BOOT, view)
 
 
-func _show_first_start(error_message: String = "") -> void:
+func _show_title(has_saved_shift: bool, error_message: String = "") -> void:
 	_close_overlay()
-	var view := FIRST_SHIFT_SCENE.instantiate() as AppShellFirstShiftView
-	assert(view != null, "First-start scene must instantiate as AppShellFirstShiftView.")
-	view.first_shift_requested.connect(_on_first_shift_requested)
+	_title_has_saved_shift = has_saved_shift
+	var view := TITLE_SCENE.instantiate() as AppShellTitleView
+	assert(view != null, "Title scene must instantiate as AppShellTitleView.")
+	view.configure(has_saved_shift, error_message)
+	view.start_requested.connect(_on_title_start_requested)
+	view.continue_requested.connect(_on_title_continue_requested)
+	view.prologue_replay_requested.connect(_on_title_prologue_replay_requested)
 	view.settings_requested.connect(_show_settings)
-	_set_screen(SCREEN_FIRST_START, view)
-	view.set_error(error_message)
+	view.audio_unlock_requested.connect(_on_title_audio_unlock_requested)
+	_set_screen(SCREEN_TITLE, view)
+	_audio_director.play_title_music()
+
+
+func _show_first_start(error_message: String = "") -> void:
+	_show_title(false, error_message)
+
+
+func _show_prologue(step: int = 0, replay: bool = false) -> void:
+	_close_overlay()
+	_prologue_step = clampi(step, 0, AppShellPrologueView.STEP_COUNT - 1)
+	_prologue_is_replay = replay
+	var view := PROLOGUE_SCENE.instantiate() as AppShellPrologueView
+	assert(view != null, "Prologue scene must instantiate as AppShellPrologueView.")
+	view.configure(_prologue_step, replay, _settings.reduced_motion)
+	view.advance_requested.connect(_on_prologue_advance_requested)
+	view.skip_requested.connect(_on_prologue_skip_requested)
+	_set_screen(SCREEN_PROLOGUE, view)
+	_audio_director.play_title_music()
 
 
 func _show_operations_room() -> void:
@@ -526,6 +564,8 @@ func _show_save_recovery_for_runtime_error(message: String) -> void:
 	_recovery_result.status = SaveLoadResult.Status.CORRUPT
 	_recovery_result.errors.append(message)
 	_session = null
+	_pending_session = null
+	_pending_resume_saved_at_unix = 0
 	_show_save_recovery()
 
 
@@ -651,9 +691,70 @@ func _show_offline_report() -> void:
 	_show_overlay(OVERLAY_OFFLINE_REPORT, view)
 
 
+func _on_title_audio_unlock_requested() -> void:
+	_audio_director.retry_current_music_after_user_gesture()
+
+
+func _on_title_start_requested() -> void:
+	_on_title_audio_unlock_requested()
+	_audio_director.play_cue(&"shift_authorized")
+	if _combat_v2_test_mode:
+		_on_first_shift_requested()
+		return
+	_show_prologue(0, false)
+
+
+func _on_title_continue_requested() -> void:
+	_on_title_audio_unlock_requested()
+	if _pending_session == null:
+		push_error("Continue was requested without a validated pending session.")
+		_show_title(true, "근무 기록을 활성화하지 못했습니다. 다시 실행해 주세요.")
+		return
+	_audio_director.play_cue(&"shift_authorized")
+	_session = _pending_session
+	_pending_session = null
+	var offline_baseline := _pending_resume_saved_at_unix
+	_pending_resume_saved_at_unix = 0
+	_show_operations_room()
+	if _combat_v2_test_mode:
+		_save_status = "Combat V2 테스트 저장 복구됨 · 오프라인 진행 미지원"
+		_refresh_save_status_views()
+	else:
+		_apply_offline_progress(offline_baseline)
+	_audio_snapshot = {}
+	_sync_audio()
+
+
+func _on_title_prologue_replay_requested() -> void:
+	if _pending_session == null:
+		push_error("Prologue replay requires a validated pending session.")
+		return
+	_show_prologue(0, true)
+
+
+func _on_prologue_advance_requested() -> void:
+	if _prologue_step >= AppShellPrologueView.STEP_COUNT - 1:
+		_finish_prologue()
+		return
+	_show_prologue(_prologue_step + 1, _prologue_is_replay)
+
+
+func _on_prologue_skip_requested() -> void:
+	_finish_prologue()
+
+
+func _finish_prologue() -> void:
+	if _prologue_is_replay:
+		_show_title(true)
+		return
+	_on_first_shift_requested()
+
+
 func _on_first_shift_requested() -> void:
 	var candidate: Variant = _make_session()
 	_session = candidate
+	_pending_session = null
+	_pending_resume_saved_at_unix = 0
 	_last_gameplay_tab = 0
 	_last_saved_at_unix = 0
 	var save_error := _save_progress("첫 근무 최초 저장", false)
@@ -661,6 +762,8 @@ func _on_first_shift_requested() -> void:
 		_session = null
 		_show_first_start("최초 저장에 실패했습니다. 저장 공간을 확인한 뒤 다시 시도하세요.")
 		return
+	_audio_snapshot = {}
+	_sync_audio()
 	if _combat_v2_test_mode:
 		_show_operations_room()
 	else:
@@ -721,6 +824,8 @@ func _on_backup_restore_requested() -> void:
 	if not _persist_schema_2_migration(candidate, _recovery_result):
 		return
 	_session = candidate
+	_pending_session = null
+	_pending_resume_saved_at_unix = 0
 	_last_gameplay_tab = _recovery_result.last_gameplay_tab
 	_last_saved_at_unix = _recovery_result.saved_at_unix
 	_show_operations_room()
@@ -738,8 +843,10 @@ func _on_new_shift_requested() -> void:
 		_set_recovery_view_error("근무 기록 삭제 실패 (오류 %d)" % clear_error)
 		return
 	_session = null
+	_pending_session = null
 	_recovery_result = null
 	_last_saved_at_unix = 0
+	_pending_resume_saved_at_unix = 0
 	_background_started_at_unix = 0
 	_audio_snapshot = {}
 	_save_has_error = false
@@ -881,8 +988,10 @@ func _on_reset_records_requested() -> void:
 		_refresh_settings_view()
 		return
 	_session = null
+	_pending_session = null
 	_pending_offline_report = {}
 	_last_saved_at_unix = 0
+	_pending_resume_saved_at_unix = 0
 	_background_started_at_unix = 0
 	_audio_snapshot = {}
 	_save_has_error = false

@@ -26,9 +26,8 @@ func _capture_all() -> void:
 		push_error("Cannot create AppRoot capture directory: error %d" % directory_error)
 		quit(1)
 		return
-
 	var error_count := 0
-	error_count += await _capture_first_start_and_settings(output_directory)
+	error_count += await _capture_title_and_settings(output_directory)
 	error_count += await _capture_operations_and_offline(output_directory)
 	error_count += await _capture_gameplay_and_onboarding(output_directory)
 	error_count += await _capture_recovery_states(output_directory)
@@ -37,11 +36,11 @@ func _capture_all() -> void:
 	quit(0 if error_count == 0 else 1)
 
 
-func _capture_first_start_and_settings(output_directory: String) -> int:
+func _capture_title_and_settings(output_directory: String) -> int:
 	var base_dir := CAPTURE_BASE.path_join("first")
 	_clean_case(base_dir)
 	var app := await _mount_app(SaveRepository.new(base_dir), FakeClock.new(2_000_100_000))
-	var errors := await _save_capture(output_directory.path_join("01_first_start.png"))
+	var errors := await _save_capture(output_directory.path_join("01_title.png"))
 	_emit_button(app, "SettingsButton")
 	await _wait_frames(4)
 	errors += await _save_capture(output_directory.path_join("02_settings.png"))
@@ -58,6 +57,8 @@ func _capture_operations_and_offline(output_directory: String) -> int:
 	var now := 2_000_110_000
 	operations_repo.save(operations_session.export_state(), now, 1)
 	var operations_app := await _mount_app(operations_repo, FakeClock.new(now))
+	_emit_button(operations_app, "PrimaryActionButton")
+	await _wait_frames(6)
 	var errors := await _save_capture(output_directory.path_join("03_operations_room.png"))
 	await _unmount(operations_app)
 
@@ -68,6 +69,8 @@ func _capture_operations_and_offline(output_directory: String) -> int:
 	offline_session.tick(120.0)
 	offline_repo.save(offline_session.export_state(), now - 7200, 0)
 	var offline_app := await _mount_app(offline_repo, FakeClock.new(now))
+	_emit_button(offline_app, "PrimaryActionButton")
+	await _wait_frames(6)
 	errors += await _save_capture(output_directory.path_join("04_offline_report.png"))
 	await _unmount(offline_app)
 	return errors
@@ -79,10 +82,13 @@ func _capture_gameplay_and_onboarding(output_directory: String) -> int:
 	var app := await _mount_app(SaveRepository.new(base_dir), FakeClock.new(2_000_120_000))
 	_emit_button(app, "PrimaryActionButton")
 	await _wait_frames(8)
-	var errors := await _save_capture(output_directory.path_join("05_gameplay_onboarding.png"))
+	var errors := await _save_capture(output_directory.path_join("05_prologue.png"))
 	_emit_button(app, "SkipButton")
 	await _wait_frames(8)
-	errors += await _save_capture(output_directory.path_join("06_gameplay_sprites.png"))
+	errors += await _save_capture(output_directory.path_join("06_gameplay_onboarding.png"))
+	_emit_button(app, "SkipButton")
+	await _wait_frames(8)
+	errors += await _save_capture(output_directory.path_join("06a_gameplay_sprites.png"))
 	app._process(0.12)
 	var gameplay_view := app.find_child("MainView", true, false) as MainView
 	assert(gameplay_view != null, "Combat capture requires the active MainView.")
@@ -90,7 +96,7 @@ func _capture_gameplay_and_onboarding(output_directory: String) -> int:
 	var battle_lane := app.find_child("BattleLaneView", true, false) as BattleLaneView
 	assert(battle_lane != null, "Combat capture requires BattleLaneView.")
 	battle_lane._process(0.08)
-	errors += await _save_capture(output_directory.path_join("06a_combat_projectile.png"))
+	errors += await _save_capture(output_directory.path_join("06b_combat_projectile.png"))
 	await _unmount(app)
 	return errors
 
