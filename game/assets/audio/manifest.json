@@ -58,28 +58,6 @@
 		},
 		{
 			"author": "Kenney",
-			"duration_seconds": 1.451315,
-			"file": "game/assets/audio/sfx/enemy_break.ogg",
-			"license": "CC0-1.0",
-			"loop": false,
-			"sha256": "8f702781627c95cf9f91724dab3bcdb46bb87cc0ccf2a350748798dba6bc82aa",
-			"source_type": "external",
-			"source_url": "https://kenney.nl/assets/digital-audio",
-			"title": "Digital Audio / spaceTrash1.ogg"
-		},
-		{
-			"author": "Kenney",
-			"duration_seconds": 0.313469,
-			"file": "game/assets/audio/sfx/combat_hit.ogg",
-			"license": "CC0-1.0",
-			"loop": false,
-			"sha256": "0eaadbbc5c259cc89a1dfbb0c99b61ca07e08710d035cc9bfc805b68cb0bdc9e",
-			"source_type": "external",
-			"source_url": "https://kenney.nl/assets/digital-audio",
-			"title": "Digital Audio / phaserDown2.ogg"
-		},
-		{
-			"author": "Kenney",
 			"duration_seconds": 0.827052,
 			"file": "game/assets/audio/sfx/stage_clear.ogg",
 			"license": "CC0-1.0",
@@ -88,17 +66,6 @@
 			"source_type": "external",
 			"source_url": "https://kenney.nl/assets/digital-audio",
 			"title": "Digital Audio / threeTone1.ogg"
-		},
-		{
-			"author": "Kenney",
-			"duration_seconds": 1.201633,
-			"file": "game/assets/audio/sfx/operator_upgrade.ogg",
-			"license": "CC0-1.0",
-			"loop": false,
-			"sha256": "8c361b624b560c0bc30ea3063b71212bc30caebf425c9df2481c13b25561485c",
-			"source_type": "external",
-			"source_url": "https://kenney.nl/assets/digital-audio",
-			"title": "Digital Audio / powerUp1.ogg"
 		},
 		{
 			"author": "Kenney",
@@ -121,17 +88,6 @@
 			"source_type": "external",
 			"source_url": "https://kenney.nl/assets/digital-audio",
 			"title": "Digital Audio / highDown.ogg"
-		},
-		{
-			"author": "Kenney",
-			"duration_seconds": 1.018775,
-			"file": "game/assets/audio/sfx/boss_warning.ogg",
-			"license": "CC0-1.0",
-			"loop": false,
-			"sha256": "b4b3bc7420e71bfbec49a6ea13b8c12d76a5751cbdf063d8a8ac017c0b1e1d87",
-			"source_type": "external",
-			"source_url": "https://kenney.nl/assets/digital-audio",
-			"title": "Digital Audio / lowThreeTone.ogg"
 		},
 		{
 			"author": "Kenney",
@@ -167,10 +123,69 @@
 			"title": "Digital Audio / powerUp12.ogg"
 		},
 		{
+			"duration_seconds": 0.144989,
+			"file": "game/assets/audio/sfx/combat_hit.wav",
+			"generator": "res://tools/generate_original_sfx.py",
+			"generator_version": "1.0.0",
+			"license": "Project-original",
+			"loop": false,
+			"provenance": "Deterministic oscillator and seeded-noise synthesis; no source audio or external samples.",
+			"sample_rate_hz": 22050,
+			"seed": 41057,
+			"sha256": "839fc0819ea340e5e8d804d76bb9949498ad9bb214ff68655ef619d13dee4d93",
+			"source_type": "generated",
+			"toolchain": "NumPy + Pedalboard"
+		},
+		{
+			"duration_seconds": 0.56,
+			"file": "game/assets/audio/sfx/enemy_break.wav",
+			"generator": "res://tools/generate_original_sfx.py",
+			"generator_version": "1.0.0",
+			"license": "Project-original",
+			"loop": false,
+			"provenance": "Deterministic oscillator and seeded-noise synthesis; no source audio or external samples.",
+			"sample_rate_hz": 22050,
+			"seed": 41063,
+			"sha256": "63d956f5f21aaf1fa5228b2483f5244cd224b59c725b05f9d37f4bb556dc1a7c",
+			"source_type": "generated",
+			"toolchain": "NumPy + Pedalboard"
+		},
+		{
+			"duration_seconds": 0.76,
+			"file": "game/assets/audio/sfx/operator_upgrade.wav",
+			"generator": "res://tools/generate_original_sfx.py",
+			"generator_version": "1.0.0",
+			"license": "Project-original",
+			"loop": false,
+			"provenance": "Deterministic oscillator and seeded-noise synthesis; no source audio or external samples.",
+			"sample_rate_hz": 22050,
+			"seed": 41071,
+			"sha256": "93b52e4ab555aac5e76551792ed83e30d50e836b63d07b898588657f0b0490c9",
+			"source_type": "generated",
+			"toolchain": "NumPy + Pedalboard"
+		},
+		{
+			"duration_seconds": 0.96,
+			"file": "game/assets/audio/sfx/boss_warning.wav",
+			"generator": "res://tools/generate_original_sfx.py",
+			"generator_version": "1.0.0",
+			"license": "Project-original",
+			"loop": false,
+			"provenance": "Deterministic oscillator and seeded-noise synthesis; no source audio or external samples.",
+			"sample_rate_hz": 22050,
+			"seed": 41077,
+			"sha256": "dac0943e4cc33fb99c6500a3866ca048dd00378ce662cc81e0cc2f06fded3e05",
+			"source_type": "generated",
+			"toolchain": "NumPy + Pedalboard"
+		},
+		{
 			"duration_seconds": 25.263175,
 			"file": "game/assets/audio/bgm/maintenance_loop.wav",
+			"generator": "res://tools/generate_audio.gd",
+			"generator_version": "2.1.0",
 			"license": "Project-original",
 			"loop": true,
+			"provenance": "Deterministic procedural synthesis; no source audio or external samples.",
 			"sample_rate_hz": 22050,
 			"seed": 77213,
 			"sha256": "d558dec8816c5d6d22df7f6693064d9fd9394b17d63d7a2a960b832cf88033e0",
@@ -181,8 +196,8 @@
 	"generated_sample_format": "PCM signed 16-bit little-endian",
 	"generated_sample_rate_hz": 22050,
 	"generator": "res://tools/generate_audio.gd",
-	"generator_version": "2.0.0",
+	"generator_version": "2.1.0",
 	"license": "Per-file; see each entry and game/assets/audio/ATTRIBUTION.md.",
-	"provenance": "Mixed final delivery: CC0 combat music and SFX plus project-original maintenance music.",
+	"provenance": "Mixed final delivery: external CC0 music and utility SFX, plus project-original maintenance music and four deterministic SFX synthesized with NumPy and Pedalboard by res://tools/generate_original_sfx.py without source audio or external samples.",
 	"schema_version": 2
 }

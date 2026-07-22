@@ -2,14 +2,15 @@
 
 ## 방향
 
-《픽셀 야간근무》의 전투 음악과 효과음은 CC0로 공개된 완성형 8비트·디지털 오디오를 사용하고, 유지보수 음악만 저장소의 Godot 생성기로 합성합니다. 외부 원본 링크, 저작자, 라이선스, 파일 해시는 `game/assets/audio/ATTRIBUTION.md`와 manifest에 남깁니다.
+《픽셀 야간근무》의 전투 음악과 UI·운영 효과음은 CC0로 공개된 완성형 8비트·디지털 오디오를 사용합니다. 반복해서 들리는 타격음과 전투 피드백 4종은 저장소의 Python 생성기로, 유지보수 음악은 Godot 생성기로 직접 합성합니다. 외부 원본 링크, 저작자, 라이선스, 파일 해시는 `game/assets/audio/ATTRIBUTION.md`와 manifest에 남깁니다.
 
 ## 구성
 
 - `night_shift_loop.ogg`: 일반 자동 전투용 CC0 8비트 전투 루프
 - `watchdog_loop.ogg`: 보스 교전용 CC0 145 BPM 루프
 - `maintenance_loop.wav`: 자동 복구 파밍용 76 BPM 루프
-- `game/assets/audio/sfx/*.ogg`: Kenney Digital Audio에서 선별한 타격, 선택, 오류, 적 격파, 단계 완료, 강화, 패치, 보스, 업데이트 효과음
+- `combat_hit.wav`, `enemy_break.wav`, `operator_upgrade.wav`, `boss_warning.wav`: NumPy와 Pedalboard로 합성한 프로젝트 원본 전투 효과음
+- 나머지 `game/assets/audio/sfx/*.ogg`: Kenney Digital Audio에서 선별한 선택, 오류, 단계 완료, 패치, 유지보수, 업데이트 효과음
 
 음악은 `Music` 버스, 효과음은 `SFX` 버스로 분리합니다. 두 버스 모두 합산 시 여유가 남도록 기본 음량을 낮췄습니다. 헤더의 `♪`와 `FX` 버튼은 각각 현재 실행 중인 음악과 효과음을 끕니다.
 
@@ -22,8 +23,11 @@
 ## 재생성 및 검증
 
 ```powershell
-godot --headless --path . --script res://tools/generate_audio.gd
-godot --headless --path . --script res://tools/validate_audio.gd
+python .\tools\generate_original_sfx.py
+.\tools\run_godot_headless.ps1 --script res://tools/generate_audio.gd
+.\tools\run_godot_headless.ps1 --script res://tools/validate_audio.gd
 ```
 
-생성 결과의 시드와 외부 파일의 출처를 포함한 길이, SHA-256, 라이선스는 `game/assets/audio/manifest.json`에 기록됩니다. 외부 팩 전체나 중간 후보는 Git에 넣지 않고 런타임에서 쓰는 최종 OGG/WAV만 보관하므로, 게임 실행 시 생성기나 Python이 필요하지 않습니다.
+첫 명령은 NumPy와 Pedalboard가 설치된 제작용 Python 환경에서 실행하며, 검토용 WAV와 분석 결과를 `.godot/audio-candidates/original-sfx-v1/`에 만듭니다. 채택한 4개 WAV를 `game/assets/audio/sfx/`에 반영한 뒤 Godot 생성기를 실행하면, WAV를 다시 합성하지 않고 실제 파일에서 길이와 SHA-256을 읽어 manifest를 갱신합니다.
+
+생성 결과의 시드와 외부 파일의 출처를 포함한 길이, SHA-256, 라이선스는 `game/assets/audio/manifest.json`에 기록됩니다. 외부 팩 전체나 중간 후보는 Git에 넣지 않고 런타임에서 쓰는 최종 OGG/WAV만 보관하므로, 게임 실행 시 NumPy, Pedalboard, Python 또는 생성기가 필요하지 않습니다.

@@ -3,8 +3,11 @@ extends SceneTree
 const SAMPLE_RATE := 22050
 const BGM_BARS := 8
 const OUTPUT_ROOT := "res://game/assets/audio"
-const GENERATOR_VERSION := "2.0.0"
+const GENERATOR_VERSION := "2.1.0"
 const TARGET_PEAK := 0.82
+const ORIGINAL_SFX_GENERATOR := "res://tools/generate_original_sfx.py"
+const ORIGINAL_SFX_GENERATOR_VERSION := "1.0.0"
+const ORIGINAL_SFX_TOOLCHAIN := "NumPy + Pedalboard"
 
 const MUSIC_SPECS := [
 	{
@@ -17,6 +20,25 @@ const MUSIC_SPECS := [
 		"bass": [41, -1, -1, -1, 41, -1, -1, -1, 38, -1, -1, -1, 38, -1, -1, -1],
 		"drum_density": 0,
 		"lead_duty": 0.5,
+	},
+]
+
+const PROJECT_ORIGINAL_SFX_SPECS := [
+	{
+		"file": "res://game/assets/audio/sfx/combat_hit.wav",
+		"seed": 41_057,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/enemy_break.wav",
+		"seed": 41_063,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/operator_upgrade.wav",
+		"seed": 41_071,
+	},
+	{
+		"file": "res://game/assets/audio/sfx/boss_warning.wav",
+		"seed": 41_077,
 	},
 ]
 
@@ -62,33 +84,9 @@ const EXTERNAL_AUDIO_SPECS := [
 		"loop": false,
 	},
 	{
-		"file": "res://game/assets/audio/sfx/enemy_break.ogg",
-		"author": "Kenney",
-		"title": "Digital Audio / spaceTrash1.ogg",
-		"license": "CC0-1.0",
-		"source_url": "https://kenney.nl/assets/digital-audio",
-		"loop": false,
-	},
-	{
-		"file": "res://game/assets/audio/sfx/combat_hit.ogg",
-		"author": "Kenney",
-		"title": "Digital Audio / phaserDown2.ogg",
-		"license": "CC0-1.0",
-		"source_url": "https://kenney.nl/assets/digital-audio",
-		"loop": false,
-	},
-	{
 		"file": "res://game/assets/audio/sfx/stage_clear.ogg",
 		"author": "Kenney",
 		"title": "Digital Audio / threeTone1.ogg",
-		"license": "CC0-1.0",
-		"source_url": "https://kenney.nl/assets/digital-audio",
-		"loop": false,
-	},
-	{
-		"file": "res://game/assets/audio/sfx/operator_upgrade.ogg",
-		"author": "Kenney",
-		"title": "Digital Audio / powerUp1.ogg",
 		"license": "CC0-1.0",
 		"source_url": "https://kenney.nl/assets/digital-audio",
 		"loop": false,
@@ -105,14 +103,6 @@ const EXTERNAL_AUDIO_SPECS := [
 		"file": "res://game/assets/audio/sfx/patch_remove.ogg",
 		"author": "Kenney",
 		"title": "Digital Audio / highDown.ogg",
-		"license": "CC0-1.0",
-		"source_url": "https://kenney.nl/assets/digital-audio",
-		"loop": false,
-	},
-	{
-		"file": "res://game/assets/audio/sfx/boss_warning.ogg",
-		"author": "Kenney",
-		"title": "Digital Audio / lowThreeTone.ogg",
 		"license": "CC0-1.0",
 		"source_url": "https://kenney.nl/assets/digital-audio",
 		"loop": false,
@@ -164,6 +154,12 @@ func _init() -> void:
 			quit(1)
 			return
 		entries.append(external_entry)
+	for spec: Dictionary in PROJECT_ORIGINAL_SFX_SPECS:
+		var original_sfx_entry := _project_original_sfx_manifest_entry(spec)
+		if original_sfx_entry.is_empty():
+			quit(1)
+			return
+		entries.append(original_sfx_entry)
 	for spec: Dictionary in MUSIC_SPECS:
 		var samples := _render_music(spec)
 		var resource_path := "%s/bgm/%s.wav" % [OUTPUT_ROOT, String(spec["id"])]
@@ -180,7 +176,7 @@ func _init() -> void:
 		"generated_sample_rate_hz": SAMPLE_RATE,
 		"generated_channels": 1,
 		"generated_sample_format": "PCM signed 16-bit little-endian",
-		"provenance": "Mixed final delivery: CC0 combat music and SFX plus project-original maintenance music.",
+		"provenance": "Mixed final delivery: external CC0 music and utility SFX, plus project-original maintenance music and four deterministic SFX synthesized with NumPy and Pedalboard by res://tools/generate_original_sfx.py without source audio or external samples.",
 		"license": "Per-file; see each entry and game/assets/audio/ATTRIBUTION.md.",
 		"files": entries,
 	}
@@ -334,6 +330,39 @@ func _manifest_entry(resource_path: String, frame_count: int, loops: bool, seed:
 		"source_type": "generated",
 		"license": "Project-original",
 		"sample_rate_hz": SAMPLE_RATE,
+		"generator": "res://tools/generate_audio.gd",
+		"generator_version": GENERATOR_VERSION,
+		"provenance": "Deterministic procedural synthesis; no source audio or external samples.",
+	}
+
+
+func _project_original_sfx_manifest_entry(spec: Dictionary) -> Dictionary:
+	var resource_path := String(spec["file"])
+	var absolute_path := ProjectSettings.globalize_path(resource_path)
+	if not FileAccess.file_exists(absolute_path):
+		push_error("Missing project-original SFX asset: %s" % resource_path)
+		return {}
+	var resource := load(resource_path)
+	if not (resource is AudioStreamWAV):
+		push_error("Project-original SFX did not load as AudioStreamWAV: %s" % resource_path)
+		return {}
+	var stream := resource as AudioStreamWAV
+	if stream.mix_rate != SAMPLE_RATE or stream.stereo:
+		push_error("Project-original SFX must be 22050 Hz mono PCM: %s" % resource_path)
+		return {}
+	return {
+		"file": resource_path.trim_prefix("res://"),
+		"sha256": FileAccess.get_sha256(absolute_path),
+		"seed": int(spec["seed"]),
+		"duration_seconds": snappedf(stream.get_length(), 0.000001),
+		"loop": false,
+		"source_type": "generated",
+		"license": "Project-original",
+		"sample_rate_hz": SAMPLE_RATE,
+		"generator": ORIGINAL_SFX_GENERATOR,
+		"generator_version": ORIGINAL_SFX_GENERATOR_VERSION,
+		"toolchain": ORIGINAL_SFX_TOOLCHAIN,
+		"provenance": "Deterministic oscillator and seeded-noise synthesis; no source audio or external samples.",
 	}
 
 
