@@ -19,7 +19,7 @@ const BODIES := [
 	"도시가 잠든 뒤에도 서비스는 멈추지 않습니다.",
 	"누적된 결함은 깨진 픽셀과 비정상 프로세스로 깨어납니다.",
 	"요원들은 지시를 기다리지 않고 현장을 지킵니다.",
-	"하지만 병목의 원인과 감수할 위험까지 결정하지는 못합니다.",
+	"하지만 병목의 원인과 감수할 위험은 결정하지 못합니다.",
 	"03:00, 야간 운영 권한이 당신에게 이관됩니다. 진단하고, 강화하고, 패치를 승인하십시오.",
 ]
 
@@ -161,9 +161,9 @@ func _build_city_visual() -> void:
 
 func _build_fault_visual() -> void:
 	_build_battle_stage()
-	_add_animated_sprite(ASSETS.make_enemy_frames(1, false, "combat"), Vector2(64, 176), 2.0)
-	_add_animated_sprite(ASSETS.make_enemy_frames(2, false, "combat"), Vector2(172, 176), 2.0)
-	_add_animated_sprite(ASSETS.make_enemy_frames(3, false, "combat"), Vector2(280, 176), 2.0)
+	_add_animated_sprite(ASSETS.make_enemy_frames(1, false, "combat"), Vector2(64, 160), 2.0)
+	_add_animated_sprite(ASSETS.make_enemy_frames(2, false, "combat"), Vector2(172, 160), 2.0)
+	_add_animated_sprite(ASSETS.make_enemy_frames(3, false, "combat"), Vector2(280, 160), 2.0)
 	_add_status_strip("[오류] 비정상 프로세스 증가", UI.COLOR_DANGER)
 
 
@@ -173,7 +173,7 @@ func _build_operator_visual() -> void:
 		&"debugger", &"build_engineer", &"sprite_artist", &"qa_imp",
 	]
 	var positions: Array[Vector2] = [
-		Vector2(42, 176), Vector2(126, 176), Vector2(218, 176), Vector2(302, 176),
+		Vector2(42, 160), Vector2(126, 160), Vector2(218, 160), Vector2(302, 160),
 	]
 	for index: int in range(operator_ids.size()):
 		_add_animated_sprite(
