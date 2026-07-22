@@ -29,3 +29,9 @@
 - A task is not complete until tests and a headless project launch pass.
 - Do not hide errors with silent fallback values or empty catches.
 - Preserve unrelated user work and report failed validation honestly.
+
+## Windows headless execution
+- Run automated Godot commands through `tools/run_godot_headless.ps1`; do not invoke the GUI executable or `godot.bat` directly for tests.
+- Never run two Godot test processes in parallel. The runner enforces a project-scoped mutex and process-specific log file.
+- Give the shell timeout enough margin for the selected suite. After any timeout, confirm that no matching Godot process remains before retrying.
+- The runner intentionally isolates `APPDATA`, `LOCALAPPDATA`, logs, and `user://` under `.godot/` so automated tests cannot contend with the editor or production save data. Native faults still return a failing exit code and log, but must not block automation with a Windows error dialog.
