@@ -29,6 +29,12 @@ const V2_POLICIES: Array[String] = [
 	"appeal_only",
 	"diagnosis_plus_appeal",
 ]
+const HYBRID_POLICIES: Array[String] = [
+	"debugger_focus",
+	"cheapest",
+	"balanced",
+	"diagnosis_follow",
+]
 const OPERATOR_IDS: Array[StringName] = [
 	&"debugger",
 	&"build_engineer",
@@ -49,12 +55,33 @@ func _init() -> void:
 
 func _run() -> void:
 	var results: Array[Dictionary] = []
-	for policy: String in CURRENT_POLICIES:
-		results.append(simulate_current_twenty_stage_policy(policy))
-	for policy: String in V2_POLICIES:
-		results.append(simulate_v2_twenty_stage_policy(policy))
+	var user_args := OS.get_cmdline_user_args()
+	var requested_policy := ""
+	for argument: String in user_args:
+		if argument.begins_with("--policy="):
+			requested_policy = argument.trim_prefix("--policy=")
+	var hybrid_only := user_args.has("--hybrid-only") or not requested_policy.is_empty()
+	if not requested_policy.is_empty() and not HYBRID_POLICIES.has(requested_policy):
+		print("FAIL: unknown HYBRID policy: %s" % requested_policy)
+		quit(1)
+		return
+	if not hybrid_only:
+		for policy: String in CURRENT_POLICIES:
+			var result := simulate_current_twenty_stage_policy(policy)
+			results.append(result)
+			_print_policy_summary(result)
+		for policy: String in V2_POLICIES:
+			var result := simulate_v2_twenty_stage_policy(policy)
+			results.append(result)
+			_print_policy_summary(result)
+	for policy: String in HYBRID_POLICIES:
+		if not requested_policy.is_empty() and policy != requested_policy:
+			continue
+		var result := simulate_hybrid_twenty_stage_policy(policy)
+		results.append(result)
+		_print_policy_summary(result)
 
-	print("Pixel Night Shift - 20-stage CURRENT / Combat V2 policy comparison")
+	print("Pixel Night Shift - 20-stage CURRENT / Combat V2 / HYBRID policy comparison")
 	print("================================================================")
 	_print_table(results)
 	_print_milestone_table(results)
@@ -70,12 +97,43 @@ func _run() -> void:
 			passed = false
 
 	if passed and _all_results_completed(results):
-		var anti_debugger_passed := _check_anti_debugger(results)
-		_report_product_risks(results)
-		passed = anti_debugger_passed
+		var hybrid_targets_passed := true
+		if requested_policy.is_empty():
+			hybrid_targets_passed = _check_hybrid_balance_targets(results)
+		if not hybrid_only:
+			var anti_debugger_passed := _check_anti_debugger(results)
+			_report_product_risks(results)
+			passed = anti_debugger_passed and hybrid_targets_passed
+		else:
+			passed = hybrid_targets_passed
 	elif passed:
 		_report_incomplete_risk(results)
 	quit(0 if passed else 1)
+
+
+static func _print_policy_summary(result: Dictionary) -> void:
+	if not bool(result.get("valid", false)):
+		print("DONE %s/%s INVALID: %s" % [
+			String(result.get("engine", "?")),
+			String(result.get("policy", "?")),
+			String(result.get("error", "unknown error")),
+		])
+		return
+	print(
+		"DONE %s/%s stage=%d complete=%s ST10=%.0fs end=%.0fs BF=%d QA=%d downs=%d/%.0fs"
+		% [
+			String(result["engine"]),
+			String(result["policy"]),
+			int(result["stage"]),
+			str(result["completed"]),
+			float(result["stage_10_arrival"]),
+			float(result["clear_time"]),
+			int(result["boss_failures"]),
+			int(result["qa_rescues"]),
+			int(result["operator_down_total"]),
+			float(result["operator_down_seconds_total"]),
+		]
+	)
 
 
 static func simulate_v2_policy(policy: String) -> Dictionary:
@@ -110,15 +168,30 @@ static func simulate_current_twenty_stage_policy(policy: String) -> Dictionary:
 	)
 
 
+static func simulate_hybrid_twenty_stage_policy(policy: String) -> Dictionary:
+	return _simulate_policy(
+		CurrentSessionScript.new(null, true),
+		policy,
+		false,
+		FULL_RUN_TARGET_STAGE,
+		REPORT_STEP,
+		true
+	)
+
+
 static func _simulate_policy(
 	session: Variant,
 	policy: String,
 	is_v2: bool,
 	target_stage: int,
-	step_seconds: float
+	step_seconds: float,
+	is_hybrid: bool = false
 ) -> Dictionary:
-	var engine := "V2" if is_v2 else "CURRENT"
-	if not (V2_POLICIES if is_v2 else CURRENT_POLICIES).has(policy):
+	var engine := "HYBRID" if is_hybrid else ("V2" if is_v2 else "CURRENT")
+	var supported_policies := (
+		V2_POLICIES if is_v2 else (HYBRID_POLICIES if is_hybrid else CURRENT_POLICIES)
+	)
+	if not supported_policies.has(policy):
 		return _invalid_result(engine, policy, "unknown policy")
 
 	var load_result: ContentLoadResult = ContentLoaderScript.load_default()
@@ -141,6 +214,7 @@ static func _simulate_policy(
 	var initial_bits := 0.0
 	var has_initial_bits := false
 	var previous_mode := ""
+	var previous_boss_failure_count := 0
 	var decision_count := 0
 	var first_decision_at := INF
 	var last_decision_at := 0.0
@@ -151,7 +225,7 @@ static func _simulate_policy(
 
 	while elapsed <= MAX_SECONDS + EPSILON:
 		last_snapshot = session.snapshot()
-		var validation_errors := _validate_snapshot(last_snapshot, is_v2)
+		var validation_errors := _validate_snapshot(last_snapshot, is_v2, is_hybrid)
 		if not validation_errors.is_empty():
 			return _invalid_result(
 				engine,
@@ -180,9 +254,25 @@ static func _simulate_policy(
 			stage_10_arrival = elapsed
 		if stage >= 11 and not is_finite(stage_10_clear):
 			stage_10_clear = elapsed
+		if is_hybrid:
+			var current_boss_failure_count := int(last_snapshot["boss_failure_count"])
+			if current_boss_failure_count < previous_boss_failure_count:
+				return _invalid_result(engine, policy, "boss failure count moved backwards")
+			var new_boss_failures := current_boss_failure_count - previous_boss_failure_count
+			if new_boss_failures > 0 and boss_failures_by_stage.has(str(stage)):
+				var stage_key := str(stage)
+				boss_failures_by_stage[stage_key] += new_boss_failures
+				var reason := String(last_snapshot["last_failure_reason"])
+				var reasons := boss_failure_reasons[stage_key] as Dictionary
+				reasons[reason] = int(reasons.get(reason, 0)) + new_boss_failures
+			previous_boss_failure_count = current_boss_failure_count
 		if mode == "maintenance" and previous_mode != "maintenance":
 			maintenance_entries += 1
-			if previous_mode == "boss" and boss_failures_by_stage.has(str(stage)):
+			if (
+				not is_hybrid
+				and previous_mode == "boss"
+				and boss_failures_by_stage.has(str(stage))
+			):
 				var stage_key := str(stage)
 				boss_failures_by_stage[stage_key] += 1
 				var reason := (
@@ -218,6 +308,7 @@ static func _simulate_policy(
 				last_snapshot,
 				catalog,
 				is_v2,
+				is_hybrid,
 				initial_bits,
 				command_spent_bits,
 				target_stage,
@@ -227,7 +318,7 @@ static func _simulate_policy(
 				maxf(longest_action_gap, elapsed - last_decision_at),
 				true
 			)
-			if not is_v2 and target_stage >= FULL_RUN_TARGET_STAGE:
+			if not is_v2 and not is_hybrid and target_stage >= FULL_RUN_TARGET_STAGE:
 				var second_run := _simulate_second_run_stage_10(session, policy, catalog)
 				if not bool(second_run["valid"]):
 					return _invalid_result(engine, policy, String(second_run["error"]))
@@ -249,7 +340,9 @@ static func _simulate_policy(
 					"decision failed at %.2fs: %s" % [elapsed, decision_error]
 				)
 			var post_decision_snapshot: Dictionary = session.snapshot()
-			var post_decision_errors := _validate_snapshot(post_decision_snapshot, is_v2)
+			var post_decision_errors := _validate_snapshot(
+				post_decision_snapshot, is_v2, is_hybrid
+			)
 			if not post_decision_errors.is_empty():
 				return _invalid_result(
 					engine,
@@ -299,6 +392,7 @@ static func _simulate_policy(
 		last_snapshot,
 		catalog,
 		is_v2,
+		is_hybrid,
 		initial_bits,
 		command_spent_bits,
 		target_stage,
@@ -580,6 +674,7 @@ static func _completed_result(
 	snapshot: Dictionary,
 	catalog: ContentCatalog,
 	is_v2: bool,
+	is_hybrid: bool,
 	initial_bits: float,
 	command_spent_bits: float,
 	target_stage: int,
@@ -607,6 +702,10 @@ static func _completed_result(
 		emergency_spent_bits = float(snapshot["emergency_spent_bits"])
 		gross_bits = float(snapshot["gross_bits"])
 		net_bits = float(snapshot["net_bits"])
+	elif is_hybrid:
+		boss_failures = int(snapshot["boss_failure_count"])
+		total_failures = boss_failures
+		qa_rescues = int((snapshot["qa_rescue"] as Dictionary)["count"])
 	var result := {
 		"valid": true,
 		"error": "",
@@ -640,6 +739,8 @@ static func _completed_result(
 		"operator_uptime": {},
 		"operator_down_count": {},
 		"operator_down_seconds": {},
+		"operator_down_total": 0,
+		"operator_down_seconds_total": 0.0,
 		"appeals_shown": 0,
 		"appeals_accepted": 0,
 		"appeals_ignored": 0,
@@ -661,15 +762,24 @@ static func _completed_result(
 				"non-interactive policy spent emergency redeploy resources "
 				+ "(count=%d, bits=%.2f)" % [paid_redeploys, emergency_spent_bits]
 			)
-		var counters := _v2_operator_counters(snapshot)
+		var counters := _operator_counters(snapshot)
 		result["operator_uptime"] = counters["operator_uptime"]
 		result["operator_down_count"] = counters["operator_down_count"]
 		result["operator_down_seconds"] = counters["operator_down_seconds"]
+		result["operator_down_total"] = counters["operator_down_total"]
+		result["operator_down_seconds_total"] = counters["operator_down_seconds_total"]
 		var appeal_stats := snapshot["appeal_stats"] as Dictionary
 		result["appeals_shown"] = int(appeal_stats["shown"])
 		result["appeals_accepted"] = int(appeal_stats["accepted"])
 		result["appeals_ignored"] = int(appeal_stats["ignored"])
 		result["appeal_rule_count"] = int(snapshot["appeal_rule_count"])
+	elif is_hybrid:
+		var counters := _operator_counters(snapshot)
+		result["operator_uptime"] = counters["operator_uptime"]
+		result["operator_down_count"] = counters["operator_down_count"]
+		result["operator_down_seconds"] = counters["operator_down_seconds"]
+		result["operator_down_total"] = counters["operator_down_total"]
+		result["operator_down_seconds_total"] = counters["operator_down_seconds_total"]
 	return result
 
 
@@ -708,10 +818,12 @@ static func _reconstruct_economics(snapshot: Dictionary, catalog: ContentCatalog
 	}
 
 
-static func _v2_operator_counters(snapshot: Dictionary) -> Dictionary:
+static func _operator_counters(snapshot: Dictionary) -> Dictionary:
 	var uptime: Dictionary = {}
 	var downs: Dictionary = {}
 	var down_seconds: Dictionary = {}
+	var total_downs := 0
+	var total_down_seconds := 0.0
 	for operator_id: StringName in OPERATOR_IDS:
 		var row := _operator_row(snapshot, operator_id)
 		var active_time := float(row["active_time"])
@@ -721,10 +833,14 @@ static func _v2_operator_counters(snapshot: Dictionary) -> Dictionary:
 		uptime[key] = 0.0 if observed_time <= EPSILON else active_time / observed_time
 		downs[key] = int(row["down_count"])
 		down_seconds[key] = down_time
+		total_downs += int(row["down_count"])
+		total_down_seconds += down_time
 	return {
 		"operator_uptime": uptime,
 		"operator_down_count": downs,
 		"operator_down_seconds": down_seconds,
+		"operator_down_total": total_downs,
+		"operator_down_seconds_total": total_down_seconds,
 	}
 
 
@@ -737,7 +853,11 @@ static func _operator_row(snapshot: Dictionary, operator_id: StringName) -> Dict
 	return {}
 
 
-static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStringArray:
+static func _validate_snapshot(
+	snapshot: Dictionary,
+	is_v2: bool,
+	is_hybrid: bool = false
+) -> PackedStringArray:
 	var errors := PackedStringArray()
 	_require_fields(
 		snapshot,
@@ -764,6 +884,18 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 				"combat_metrics",
 				"appeals",
 				"appeal_stats",
+			],
+			"snapshot",
+			errors
+		)
+	elif is_hybrid:
+		_require_fields(
+			snapshot,
+			[
+				"hybrid_combat_enabled",
+				"boss_failure_count",
+				"last_failure_reason",
+				"qa_rescue",
 			],
 			"snapshot",
 			errors
@@ -807,10 +939,31 @@ static func _validate_snapshot(snapshot: Dictionary, is_v2: bool) -> PackedStrin
 			errors.append("snapshot.last_failure_reason must be a string")
 		if typeof(snapshot["combat_metrics"]) != TYPE_DICTIONARY:
 			errors.append("snapshot.combat_metrics must be a dictionary")
+	elif is_hybrid:
+		if typeof(snapshot["hybrid_combat_enabled"]) != TYPE_BOOL:
+			errors.append("snapshot.hybrid_combat_enabled must be boolean")
+		elif not bool(snapshot["hybrid_combat_enabled"]):
+			errors.append("snapshot.hybrid_combat_enabled must be true")
+		if (
+			typeof(snapshot["boss_failure_count"]) != TYPE_INT
+			or int(snapshot["boss_failure_count"]) < 0
+		):
+			errors.append("snapshot.boss_failure_count must be a non-negative integer")
+		if typeof(snapshot["last_failure_reason"]) != TYPE_STRING:
+			errors.append("snapshot.last_failure_reason must be a string")
+		if typeof(snapshot["qa_rescue"]) != TYPE_DICTIONARY:
+			errors.append("snapshot.qa_rescue must be a dictionary")
+		else:
+			var qa_rescue := snapshot["qa_rescue"] as Dictionary
+			_require_fields(qa_rescue, ["count"], "snapshot.qa_rescue", errors)
+			if qa_rescue.has("count") and (
+				typeof(qa_rescue["count"]) != TYPE_INT or int(qa_rescue["count"]) < 0
+			):
+				errors.append("snapshot.qa_rescue.count must be a non-negative integer")
 	if not errors.is_empty():
 		return errors
 
-	_validate_operator_rows(snapshot["operators"] as Array, is_v2, errors)
+	_validate_operator_rows(snapshot["operators"] as Array, is_v2 or is_hybrid, errors)
 	_validate_patch_rows(snapshot["patches"] as Array, errors)
 	if is_v2:
 		_validate_combat_metrics(snapshot, errors)
@@ -880,7 +1033,7 @@ static func _validate_combat_metrics(
 
 static func _validate_operator_rows(
 	rows: Array,
-	is_v2: bool,
+	has_durability: bool,
 	errors: PackedStringArray
 ) -> void:
 	var seen: Dictionary = {}
@@ -892,7 +1045,7 @@ static func _validate_operator_rows(
 		var required: Array[String] = [
 			"id", "level", "unlocked", "dps", "upgrade_cost",
 		]
-		if is_v2:
+		if has_durability:
 			required.append_array(["active_time", "down_time", "down_count"])
 		_require_fields(row, required, "snapshot.operators[%d]" % index, errors)
 		if not _has_fields(row, required):
@@ -914,7 +1067,7 @@ static func _validate_operator_rows(
 		for key: String in ["dps", "upgrade_cost"]:
 			if not _is_finite_number(row[key]) or float(row[key]) < 0.0:
 				errors.append("snapshot.operators[%d].%s must be non-negative finite number" % [index, key])
-		if is_v2:
+		if has_durability:
 			for key: String in ["active_time", "down_time"]:
 				if not _is_finite_number(row[key]) or float(row[key]) < 0.0:
 					errors.append("snapshot.operators[%d].%s must be non-negative finite number" % [index, key])
@@ -1002,7 +1155,7 @@ static func _report_incomplete_risk(results: Array[Dictionary]) -> void:
 static func _print_table(results: Array[Dictionary]) -> void:
 	print(
 		"ENGINE  POLICY             ST10(s)    END(s)  NF  BF  TF  QA  PAID  "
-		+ "SPENT   GROSS  NET    VALUE  LEVELS          AP(S/A/I)  V2 UPTIME             V2 DOWNS"
+		+ "SPENT   GROSS  NET    VALUE  LEVELS          AP(S/A/I)  UPTIME                DOWNS           DOWN(s)"
 	)
 	for result: Dictionary in results:
 		if not bool(result["valid"]):
@@ -1014,16 +1167,21 @@ static func _print_table(results: Array[Dictionary]) -> void:
 			continue
 		var uptime_text := "-"
 		var downs_text := "-"
+		var down_seconds_text := "-"
 		var appeals_text := "-"
-		if String(result["engine"]) == "V2":
+		if String(result["engine"]) in ["V2", "HYBRID"]:
 			uptime_text = _uptime_text(result["operator_uptime"] as Dictionary)
 			downs_text = _downs_text(result["operator_down_count"] as Dictionary)
+			down_seconds_text = _down_seconds_text(
+				result["operator_down_seconds"] as Dictionary
+			)
+		if String(result["engine"]) == "V2":
 			appeals_text = "%d/%d/%d" % [
 				int(result["appeals_shown"]),
 				int(result["appeals_accepted"]),
 				int(result["appeals_ignored"]),
 			]
-		print("%-7s %-22s %7.2f  %8.2f  %2d  %2d  %2d  %2d  %4d  %6.0f  %5.0f  %5.0f  %5.0f  %-15s %-10s %-21s %s" % [
+		print("%-7s %-22s %7.2f  %8.2f  %2d  %2d  %2d  %2d  %4d  %6.0f  %5.0f  %5.0f  %5.0f  %-15s %-10s %-21s %-15s %s" % [
 			String(result["engine"]),
 			String(result["policy"]),
 			float(result["stage_10_arrival"]),
@@ -1041,6 +1199,7 @@ static func _print_table(results: Array[Dictionary]) -> void:
 			appeals_text,
 			uptime_text,
 			downs_text,
+			down_seconds_text,
 		])
 
 
@@ -1112,6 +1271,15 @@ static func _downs_text(downs: Dictionary) -> String:
 	]
 
 
+static func _down_seconds_text(seconds: Dictionary) -> String:
+	return "D%.0f B%.0f S%.0f Q%.0f" % [
+		float(seconds["debugger"]),
+		float(seconds["build_engineer"]),
+		float(seconds["sprite_artist"]),
+		float(seconds["qa_imp"]),
+	]
+
+
 static func _check_anti_debugger(results: Array[Dictionary]) -> bool:
 	var v2_results: Dictionary = {}
 	for result: Dictionary in results:
@@ -1157,6 +1325,64 @@ static func _check_anti_debugger(results: Array[Dictionary]) -> bool:
 		passed = false
 	if passed:
 		print("PASS: debugger_focus is not dominant and a non-focus policy meets the 10%/failure margin")
+	return passed
+
+
+static func _check_hybrid_balance_targets(results: Array[Dictionary]) -> bool:
+	var hybrid_results: Dictionary = {}
+	for result: Dictionary in results:
+		if String(result["engine"]) == "HYBRID" and bool(result["valid"]):
+			hybrid_results[String(result["policy"])] = result
+	if hybrid_results.size() != HYBRID_POLICIES.size():
+		print("FAIL: hybrid balance targets require every valid HYBRID policy result")
+		return false
+
+	var balanced := hybrid_results["balanced"] as Dictionary
+	var stage_10_failures := int((balanced["boss_failures_by_stage"] as Dictionary)["10"])
+	var stage_20_failures := int((balanced["boss_failures_by_stage"] as Dictionary)["20"])
+	var passed := true
+	var target_checks := {
+		"stage 10 arrival must be 6..8 minutes": (
+			float(balanced["stage_10_arrival"]) >= 360.0 - EPSILON
+			and float(balanced["stage_10_arrival"]) <= 480.0 + EPSILON
+		),
+		"stage 10 clear must be 8..12 minutes": (
+			float(balanced["stage_10_clear"]) >= 480.0 - EPSILON
+			and float(balanced["stage_10_clear"]) <= 720.0 + EPSILON
+		),
+		"stage 20 clear must be 25..35 minutes": (
+			float(balanced["stage_20_clear"]) >= 1500.0 - EPSILON
+			and float(balanced["stage_20_clear"]) <= 2100.0 + EPSILON
+		),
+		"stage 10 failures must be 1..3": stage_10_failures in range(1, 4),
+		"stage 20 failures must be 1..4": stage_20_failures in range(1, 5),
+		"first patch must be used in 2..4 minutes": (
+			float(balanced["first_patch_at"]) >= 120.0 - EPSILON
+			and float(balanced["first_patch_at"]) <= 240.0 + EPSILON
+		),
+	}
+	for message: String in target_checks:
+		if not bool(target_checks[message]):
+			print("FAIL: HYBRID balanced %s" % message)
+			passed = false
+
+	var focus := hybrid_results["debugger_focus"] as Dictionary
+	var non_focus_margin := false
+	for policy: String in HYBRID_POLICIES:
+		if policy == "debugger_focus":
+			continue
+		var candidate := hybrid_results[policy] as Dictionary
+		if (
+			float(candidate["clear_time"]) <= float(focus["clear_time"]) * 0.90 + EPSILON
+			or int(candidate["total_failures"]) <= int(focus["total_failures"]) - 1
+		):
+			non_focus_margin = true
+			break
+	if not non_focus_margin:
+		print("FAIL: no HYBRID non-focus policy meets the 10%/failure margin")
+		passed = false
+	if passed:
+		print("PASS: HYBRID balanced timing/failure targets and non-focus margin")
 	return passed
 
 

@@ -11,7 +11,7 @@
     "base_hp": 200.0,
     "attack_interval": 1.0,
     "threat_weight": 4.0,
-    "outgoing_multiplier": 0.90,
+    "outgoing_multiplier": 0.50,
     "incoming_multiplier": 0.70,
     "boss_multiplier": 1.0,
     "team_interval_multiplier": 1.0,
@@ -30,8 +30,8 @@
     "attack_interval": 1.5,
     "threat_weight": 2.0,
     "outgoing_multiplier": 1.0,
-    "incoming_multiplier": 1.0,
-    "boss_multiplier": 1.35,
+    "incoming_multiplier": 0.85,
+    "boss_multiplier": 2.60,
     "team_interval_multiplier": 1.0,
     "qa_rescue_enabled": false
   },
@@ -50,7 +50,7 @@
     "outgoing_multiplier": 1.0,
     "incoming_multiplier": 1.0,
     "boss_multiplier": 1.0,
-    "team_interval_multiplier": 0.90,
+    "team_interval_multiplier": 0.82,
     "qa_rescue_enabled": false
   },
   {
