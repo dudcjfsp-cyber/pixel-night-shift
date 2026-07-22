@@ -658,7 +658,52 @@ func _validate_snapshot(data: Dictionary) -> String:
 		for key: String in ["shown", "accepted", "ignored", "unresolved"]:
 			if not data["appeal_stats"].has(key):
 				return "Combat V2 appeal_stats.%s is missing." % key
+	else:
+		var production_error := _validate_production_snapshot(data, enemy)
+		if not production_error.is_empty():
+			return production_error
 
+	return ""
+
+
+func _validate_production_snapshot(data: Dictionary, enemy: Dictionary) -> String:
+	for key: String in [
+		"hybrid_combat_enabled",
+		"boss_failure_count",
+		"last_failure_reason",
+		"qa_rescue",
+		"recent_boss_events",
+		"appeals",
+		"appeal_limit",
+	]:
+		if not data.has(key):
+			return "production snapshot.%s is missing." % key
+	for key: String in ["next_action", "next_action_in"]:
+		if not enemy.has(key):
+			return "production enemy.%s is missing." % key
+	for item: Variant in data["operators"]:
+		for key: String in [
+			"role", "effective_dps", "hp", "max_hp", "down", "process_down",
+		]:
+			if not item.has(key):
+				return "production operator.%s is missing." % key
+	if not (data["qa_rescue"] is Dictionary):
+		return "production qa_rescue must be a Dictionary."
+	for key: String in ["available", "pending", "target_id", "remaining", "count"]:
+		if not data["qa_rescue"].has(key):
+			return "production qa_rescue.%s is missing." % key
+	if not (data["recent_boss_events"] is Array):
+		return "production recent_boss_events must be an Array."
+	if not (data["appeals"] is Array) or data["appeals"].size() > MAX_VISIBLE_APPEALS:
+		return "production appeals must contain at most two entries."
+	if int(data["appeal_limit"]) != MAX_VISIBLE_APPEALS:
+		return "production appeal_limit must equal two."
+	for appeal: Variant in data["appeals"]:
+		if not (appeal is Dictionary):
+			return "production appeal entry must be a Dictionary."
+		for key: String in ["operator_id", "message", "evidence", "diagnosis_kind"]:
+			if not appeal.has(key) or String(appeal[key]).is_empty():
+				return "production appeal.%s is missing or empty." % key
 	return ""
 
 
@@ -703,7 +748,13 @@ func _refresh_diagnosis() -> void:
 	var accent := _severity_color(severity)
 	_diagnosis_title_label.text = "%s %s" % [_severity_tag(severity), String(diagnosis["title"])]
 	_diagnosis_title_label.add_theme_color_override("font_color", accent)
-	_diagnosis_evidence_label.text = String(diagnosis["evidence"])
+	var full_evidence := String(diagnosis["evidence"])
+	_diagnosis_evidence_label.text = (
+		full_evidence
+		if bool(_snapshot["combat_v2_test_mode"])
+		else String(diagnosis.get("summary", full_evidence))
+	)
+	_diagnosis_evidence_label.tooltip_text = full_evidence
 	if bool(_snapshot["combat_v2_test_mode"]):
 		var evidence_data := diagnosis["evidence_data"] as Dictionary
 		_diagnosis_evidence_label.text += "\n현재/예상 다운 %d/%d · 실패 %d · wipe %s · 복구 %sb" % [
@@ -729,12 +780,19 @@ func _set_diagnosis_error(message: String) -> void:
 
 func _refresh_appeals() -> void:
 	var is_v2 := bool(_snapshot["combat_v2_test_mode"])
-	if not is_v2:
+	if not _snapshot.has("appeals") or not (_snapshot["appeals"] is Array):
 		_appeal_panel.visible = false
 		_selected_appeal_operator_id = ""
 		return
 	var appeals := _snapshot["appeals"] as Array
-	var acknowledgment := String(_snapshot["appeal_acknowledgment"])
+	var acknowledgment := String(_snapshot.get("appeal_acknowledgment", ""))
+	var selection_is_visible := _selected_appeal_operator_id.is_empty()
+	for raw_appeal: Variant in appeals:
+		if String((raw_appeal as Dictionary)["operator_id"]) == _selected_appeal_operator_id:
+			selection_is_visible = true
+			break
+	if not selection_is_visible:
+		_selected_appeal_operator_id = ""
 	_appeal_panel.visible = not appeals.is_empty() or not acknowledgment.is_empty()
 	_appeal_acknowledgment_label.text = acknowledgment
 	_appeal_acknowledgment_label.visible = not acknowledgment.is_empty()
@@ -744,17 +802,27 @@ func _refresh_appeals() -> void:
 		if not card.visible:
 			continue
 		var appeal := appeals[index] as Dictionary
-		card.icon = ASSETS.operator_texture(StringName(String(appeal["operator_id"])))
-		card.text = "%s · %s\n%s\n%s" % [
-			String(appeal["operator_name"]),
-			String(appeal["role"]),
-			String(appeal["observation"]),
-			String(appeal["request"]),
-		]
-		card.tooltip_text = "요원 카드 검토: %s" % String(appeal["operator_name"])
-		_set_button_selected(card, String(appeal["operator_id"]) == _selected_appeal_operator_id)
-
-
+		var operator_id := String(appeal["operator_id"])
+		var operator_data := _operator_data(operator_id)
+		var operator_name := String(appeal.get("operator_name", operator_data.get("name", operator_id)))
+		var role := String(appeal.get("role", operator_data.get("role", "")))
+		card.icon = ASSETS.operator_texture(StringName(operator_id))
+		if is_v2:
+			card.text = "%s · %s\n%s\n%s" % [
+				operator_name,
+				role,
+				String(appeal["observation"]),
+				String(appeal["request"]),
+			]
+		else:
+			card.text = "%s · %s\n%s\n[근거] %s" % [
+				operator_name,
+				role,
+				String(appeal["message"]),
+				String(appeal["evidence"]),
+			]
+		card.tooltip_text = "요원 카드 검토: %s" % operator_name
+		_set_button_selected(card, operator_id == _selected_appeal_operator_id)
 func _refresh_operators() -> void:
 	for item: Variant in _snapshot["operators"]:
 		var operator_data: Dictionary = item
@@ -769,21 +837,29 @@ func _refresh_operators() -> void:
 		var redeploy_button: Button = row_data["redeploy"]
 		var unlocked := bool(operator_data["unlocked"])
 		if unlocked:
-			if bool(_snapshot["combat_v2_test_mode"]):
+			var show_combat_hp := (
+				bool(_snapshot["combat_v2_test_mode"])
+				or (
+					bool(_snapshot.get("hybrid_combat_enabled", false))
+					and String(_snapshot["mode"]) == "boss"
+				)
+			)
+			if show_combat_hp:
 				var status := "가동"
 				if bool(operator_data["process_down"]):
 					status = "PROCESS DOWN"
-				info_label.text = "%s Lv.%d · %s\n%s · HP %s/%s · D %s" % [
+				info_label.text = "%s Lv.%d · %s\n%s · HP %s/%s · DPS %s" % [
 					String(operator_data["name"]), int(operator_data["level"]),
 					String(operator_data["role"]), status,
 					_format_number(float(operator_data["hp"])),
 					_format_number(float(operator_data["max_hp"])),
-					_format_number(float(operator_data["dps"])),
+					_format_number(float(operator_data.get("effective_dps", operator_data["dps"]))),
 				]
 			else:
-				info_label.text = "%s  Lv.%d\n초당 피해 %s" % [
+				info_label.text = "%s Lv.%d · %s\n초당 피해 %s" % [
 					String(operator_data["name"]),
 					int(operator_data["level"]),
+					String(operator_data["role"]),
 					_format_number(float(operator_data["dps"])),
 				]
 			upgrade_button.text = "비트 %s\n강화" % _format_number(float(operator_data["upgrade_cost"]))
@@ -1014,9 +1090,19 @@ func _refresh_version_page() -> void:
 
 
 func _refresh_tab_styles() -> void:
+	var has_appeals := (
+		_snapshot.has("appeals")
+		and _snapshot["appeals"] is Array
+		and not (_snapshot["appeals"] as Array).is_empty()
+	)
 	for index: int in range(_tab_buttons.size()):
 		var button := _tab_buttons[index]
 		_set_button_selected(button, index == _active_tab)
+		if index == TAB_OPERATORS and index != _active_tab and has_appeals:
+			button.add_theme_stylebox_override(
+				"normal", _make_style(Color("2d2b25"), COLOR_YELLOW, 2)
+			)
+			button.add_theme_color_override("font_color", COLOR_YELLOW)
 		if index == TAB_PATCHES and index != _active_tab and _diagnosis_severity in ["medium", "warning", "high", "critical"]:
 			button.add_theme_stylebox_override("normal", _make_style(Color("2d2b25"), COLOR_YELLOW, 2))
 			button.add_theme_color_override("font_color", COLOR_YELLOW)
@@ -1053,7 +1139,7 @@ func _on_diagnosis_action_pressed() -> void:
 
 
 func _on_appeal_pressed(index: int) -> void:
-	if not bool(_snapshot.get("combat_v2_test_mode", false)):
+	if not _snapshot.has("appeals") or not (_snapshot["appeals"] is Array):
 		return
 	var appeals := _snapshot["appeals"] as Array
 	if index < 0 or index >= appeals.size():

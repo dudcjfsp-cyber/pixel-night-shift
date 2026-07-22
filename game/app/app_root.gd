@@ -918,7 +918,7 @@ func _make_operations_data() -> OperationsRoomViewData:
 	return OperationsRoomViewData.new(
 		int(snapshot["run_count"]) + 1,
 		true,
-		"Combat V2 테스트 · 자동 전투" if _combat_v2_test_mode else "자동 운영 중",
+		_operations_status(snapshot),
 		int(snapshot["stage"]),
 		String(diagnosis.get("title", "진단 정보 없음")),
 		equipped_count,
@@ -932,6 +932,19 @@ func _make_operations_data() -> OperationsRoomViewData:
 			else "Combat V2 테스트 진입" if _combat_v2_test_mode else "현장 복귀"
 		)
 	)
+
+
+func _operations_status(snapshot: Dictionary) -> String:
+	if _combat_v2_test_mode:
+		return "Combat V2 테스트 · 자동 전투"
+	match String(snapshot.get("mode", "combat")):
+		"boss":
+			return "보스 자동 대응 중"
+		"maintenance":
+			return "유지보수 후 자동 재시도"
+		"complete":
+			return "버전 업데이트 준비"
+	return "자동 운영 중"
 
 
 func _next_goal(snapshot: Dictionary) -> String:

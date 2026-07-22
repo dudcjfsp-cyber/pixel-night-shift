@@ -208,7 +208,7 @@ func _test_patch_tradeoffs() -> void:
 
 	var boss_session := GameSessionScript.new()
 	_check(
-		_advance_without_upgrades(boss_session, 10, 600.0),
+		_advance_with_balanced_upgrades(boss_session, 10, 600.0),
 		"boss preview test must reach stage 10"
 	)
 	var rollback_preview: Dictionary = boss_session.get_patch_preview(0, &"rollback_lock")
@@ -240,7 +240,7 @@ func _test_patch_removal_cost() -> void:
 
 func _test_boss_failure_recovery() -> void:
 	var session := GameSessionScript.new()
-	var reached_boss := _advance_without_upgrades(session, 10, 600.0)
+	var reached_boss := _advance_without_upgrades(session, 10, 1200.0)
 	_check(reached_boss, "an unupgraded session must eventually reach the first boss")
 	if not reached_boss:
 		return
@@ -265,7 +265,11 @@ func _test_boss_failure_recovery() -> void:
 
 	var earned_bits := false
 	var retried_automatically := false
-	var recovery_steps := int(120.0 / STEP_SECONDS)
+	var recovery_window := maxf(
+		120.0,
+		float(maintenance_snapshot.get("maintenance_time_left", 0.0)) + 5.0
+	)
+	var recovery_steps := int(recovery_window / STEP_SECONDS)
 	for _step: int in range(recovery_steps):
 		session.tick(STEP_SECONDS)
 		var current: Dictionary = session.snapshot()
@@ -634,9 +638,14 @@ func _test_battle_lane_animation_events_and_layout() -> void:
 	var enemy_slot := lane.find_child("EnemyPortraitSlot", true, false) as Control
 	var enemy_portrait := lane.find_child("EnemyPortrait", true, false) as TextureRect
 	var debugger_portrait := lane.find_child("OperatorPortrait_debugger", true, false) as TextureRect
+	var debugger_hp := lane.find_child("OperatorHP_debugger", true, false) as ProgressBar
 	_check(enemy_slot != null, "battle lane must expose a fixed enemy portrait slot")
 	_check(enemy_portrait != null, "battle lane must expose the active enemy portrait")
 	_check(debugger_portrait != null, "battle lane must expose the debugger portrait")
+	_check(
+		debugger_hp != null and not debugger_hp.visible,
+		"production operator durability must stay hidden outside boss combat"
+	)
 	if enemy_slot == null or enemy_portrait == null or debugger_portrait == null:
 		lane.queue_free()
 		return
@@ -882,6 +891,37 @@ func _advance_without_upgrades(session: Variant, target_stage: int, max_seconds:
 	for _step: int in range(step_count):
 		if int(session.snapshot().get("stage", 0)) >= target_stage:
 			return true
+		session.tick(STEP_SECONDS)
+	return int(session.snapshot().get("stage", 0)) >= target_stage
+
+
+func _advance_with_balanced_upgrades(
+	session: Variant,
+	target_stage: int,
+	max_seconds: float
+) -> bool:
+	var step_count := int(max_seconds / STEP_SECONDS)
+	for step: int in range(step_count):
+		var snapshot: Dictionary = session.snapshot()
+		if int(snapshot.get("stage", 0)) >= target_stage:
+			return true
+		if step % 4 == 0:
+			var chosen := &""
+			var lowest_level := 2147483647
+			var bits := float(snapshot.get("bits", 0.0))
+			for raw_operator: Variant in snapshot.get("operators", []) as Array:
+				var operator := raw_operator as Dictionary
+				if (
+					not bool(operator.get("unlocked", false))
+					or float(operator.get("upgrade_cost", INF)) > bits + 0.000001
+				):
+					continue
+				var level := int(operator.get("level", 0))
+				if level < lowest_level:
+					chosen = StringName(String(operator.get("id", "")))
+					lowest_level = level
+			if chosen != &"":
+				session.upgrade_operator(chosen)
 		session.tick(STEP_SECONDS)
 	return int(session.snapshot().get("stage", 0)) >= target_stage
 

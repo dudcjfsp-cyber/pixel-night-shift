@@ -93,6 +93,7 @@ var _enemy_asset_id: StringName = &""
 var _enemy_hp_bar: ProgressBar
 var _enemy_hp_label: Label
 var _timer_label: Label
+var _boss_alert_label: Label
 var _combat_effect_layer: CombatEffectLayer
 var _hit_feedback_time_left: float = 0.0
 var _attack_cooldown: float = 0.0
@@ -171,6 +172,13 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 	_current_mode = mode
 	var hp := float(enemy["hp"])
 	var max_hp := maxf(1.0, float(enemy["max_hp"]))
+	var is_v2 := bool(snapshot["combat_v2_test_mode"])
+	var is_hybrid_boss := (
+		bool(snapshot.get("hybrid_combat_enabled", false))
+		and bool(enemy["is_boss"])
+		and mode == "boss"
+	)
+	var shows_operator_durability := is_v2 or is_hybrid_boss
 
 	_enemy_name_label.text = "%s  ·  %d/%d" % [String(enemy["name"]), enemy_index, enemy_total]
 	_mode_label.text = _mode_display_text(mode)
@@ -188,8 +196,10 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 		var operator_data: Dictionary = item
 		var operator_id := String(operator_data["id"])
 		var portrait: TextureRect = _operator_portraits[operator_id]
-		var is_v2 := bool(snapshot["combat_v2_test_mode"])
-		var process_down := is_v2 and bool(operator_data["process_down"])
+		var process_down := (
+			shows_operator_durability
+			and bool(operator_data["process_down"])
+		)
 		var base_modulate := (
 			Color("6f7785a0") if process_down
 			else Color.WHITE if bool(operator_data["unlocked"])
@@ -198,17 +208,32 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 		_operator_base_modulates[operator_id] = base_modulate
 		if float(_operator_upgrade_times.get(operator_id, 0.0)) <= 0.0:
 			portrait.modulate = base_modulate
-		if bool(operator_data["unlocked"]) and float(operator_data["dps"]) > 0.0:
+		if process_down and _operator_attack_times.has(operator_id):
+			_operator_attack_times.erase(operator_id)
+			portrait.scale = Vector2.ONE
+			portrait.rotation = 0.0
+		if (
+			bool(operator_data["unlocked"])
+			and float(operator_data["dps"]) > 0.0
+			and not process_down
+		):
 			_active_operator_ids.append(operator_id)
 		var hp_bar: ProgressBar = _operator_hp_bars[operator_id]
 		var status_label: Label = _operator_status_labels[operator_id]
-		hp_bar.visible = is_v2 and bool(operator_data["unlocked"])
+		hp_bar.visible = shows_operator_durability and bool(operator_data["unlocked"])
 		status_label.visible = hp_bar.visible
 		if hp_bar.visible:
 			var operator_max_hp := maxf(1.0, float(operator_data["max_hp"]))
 			hp_bar.value = clampf(float(operator_data["hp"]) / operator_max_hp * 100.0, 0.0, 100.0)
-			status_label.text = "DOWN" if process_down else "%d" % int(round(float(operator_data["hp"])))
+			status_label.add_theme_font_size_override("font_size", 5 if process_down else 7)
+			status_label.text = (
+				"PROCESS DOWN"
+				if process_down
+				else "%d" % int(round(float(operator_data["hp"])))
+			)
 			status_label.add_theme_color_override("font_color", COLOR_RED if process_down else COLOR_TEXT)
+
+	_update_boss_alert(snapshot, enemy, is_hybrid_boss and not is_v2)
 
 	_enemy_hp_bar.value = clampf(hp / max_hp * 100.0, 0.0, 100.0)
 	_enemy_hp_label.text = "HP %s / %s" % [_format_number(hp), _format_number(max_hp)]
@@ -339,6 +364,18 @@ func _build_interface() -> void:
 	_combat_effect_layer.impact.connect(_on_combat_effect_impact)
 	arena.add_child(_combat_effect_layer)
 
+	_boss_alert_label = _make_label("", 9)
+	_boss_alert_label.name = "BossAlertLabel"
+	_boss_alert_label.custom_minimum_size.y = 30.0
+	_boss_alert_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_boss_alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_boss_alert_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_boss_alert_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_boss_alert_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	_boss_alert_label.clip_text = false
+	_boss_alert_label.visible = false
+	column.add_child(_boss_alert_label)
+
 	_enemy_hp_bar = ProgressBar.new()
 	_enemy_hp_bar.custom_minimum_size.y = 17.0
 	_enemy_hp_bar.min_value = 0.0
@@ -362,6 +399,108 @@ func _build_interface() -> void:
 	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_timer_label.add_theme_color_override("font_color", COLOR_MUTED)
 	detail_row.add_child(_timer_label)
+
+
+func _update_boss_alert(
+	snapshot: Dictionary,
+	enemy: Dictionary,
+	visible_for_hybrid_boss: bool
+) -> void:
+	_boss_alert_label.visible = visible_for_hybrid_boss
+	if not visible_for_hybrid_boss:
+		_boss_alert_label.text = ""
+		return
+
+	var time_left := maxf(0.0, float(enemy["time_left"]))
+	var next_action_in := float(enemy["next_action_in"])
+	var next_action := String(enemy["next_action"])
+	var accent := COLOR_YELLOW
+	var status_text := ""
+	var qa_rescue := snapshot.get("qa_rescue", {}) as Dictionary
+	if bool(qa_rescue.get("pending", false)):
+		var target_name := _operator_display_name(
+			snapshot,
+			String(qa_rescue.get("target_id", ""))
+		)
+		status_text = (
+			"[QA 구조 예약] %s %.1f초"
+			% [target_name, maxf(0.0, float(qa_rescue.get("remaining", 0.0)))]
+		)
+		accent = COLOR_CYAN
+	else:
+		var recent_alert := _latest_meaningful_boss_event(snapshot)
+		if not recent_alert.is_empty():
+			status_text = String(recent_alert["text"])
+			accent = Color(recent_alert["color"])
+
+	var timing_parts := PackedStringArray(["제한 %.1f초" % time_left])
+	if next_action.is_empty() or not is_finite(next_action_in):
+		timing_parts.append("보스 시도 준비")
+	else:
+		timing_parts.append("다음 %s %.1f초" % [next_action, maxf(0.0, next_action_in)])
+	var lines := PackedStringArray(["  ·  ".join(timing_parts)])
+	if not status_text.is_empty():
+		lines.append(status_text)
+
+	if time_left <= 10.0:
+		accent = COLOR_RED
+	_boss_alert_label.text = "\n".join(lines)
+	_boss_alert_label.add_theme_color_override("font_color", accent)
+
+
+func _latest_meaningful_boss_event(snapshot: Dictionary) -> Dictionary:
+	var events := snapshot.get("recent_boss_events", []) as Array
+	for index: int in range(events.size() - 1, -1, -1):
+		var event := events[index] as Dictionary
+		var kind := String(event.get("kind", ""))
+		if kind == "boss_attempt_started":
+			return {"text": "보스 교전 시작", "color": COLOR_RED}
+		var event_alert := _boss_event_alert(snapshot, event, kind)
+		if not event_alert.is_empty():
+			return event_alert
+	return {}
+
+
+func _boss_event_alert(
+	snapshot: Dictionary,
+	event: Dictionary,
+	kind: String
+) -> Dictionary:
+	var operator_name := _operator_display_name(
+		snapshot,
+		String(event.get("operator_id", ""))
+	)
+	match kind:
+		"operator_down":
+			return {"text": "PROCESS DOWN · %s" % operator_name, "color": COLOR_RED}
+		"qa_rescue_scheduled":
+			return {"text": "QA 구조 예약 · %s" % operator_name, "color": COLOR_CYAN}
+		"qa_rescue_succeeded":
+			return {"text": "QA 구조 완료 · %s" % operator_name, "color": COLOR_GREEN}
+		"qa_rescue_cancelled":
+			return {"text": "QA 구조 취소 · %s" % operator_name, "color": COLOR_RED}
+		"boss_rollback":
+			return {
+				"text": "ROLLBACK · +%s HP" % _format_number(float(event.get("healed", 0.0))),
+				"color": COLOR_YELLOW,
+			}
+		"boss_debuff_applied":
+			return {"text": "성능 저하 패치 적용", "color": COLOR_RED}
+		"boss_attempt_failed":
+			return {"text": "보스 시도 실패", "color": COLOR_RED}
+		"boss_defeated":
+			return {"text": "보스 프로세스 종료", "color": COLOR_GREEN}
+	return {}
+
+
+func _operator_display_name(snapshot: Dictionary, operator_id: String) -> String:
+	if operator_id.is_empty():
+		return "대상 미정"
+	for item: Variant in snapshot["operators"]:
+		var operator_data := item as Dictionary
+		if String(operator_data["id"]) == operator_id:
+			return String(operator_data["name"])
+	return operator_id
 
 
 func _show_damage_feedback(previous_snapshot: Dictionary, snapshot: Dictionary) -> void:

@@ -22,6 +22,12 @@ const CUE_STREAMS := {
 	&"update_ready": preload("res://game/assets/audio/sfx/update_ready.ogg"),
 	&"version_update": preload("res://game/assets/audio/sfx/version_update.ogg"),
 }
+const HYBRID_BOSS_EVENT_CUES := {
+	&"qa_rescue_scheduled": &"ui_move",
+	&"qa_rescue_succeeded": &"ui_confirm",
+	&"qa_rescue_cancelled": &"ui_error",
+	&"operator_down": &"ui_error",
+}
 
 const SNAPSHOT_KEYS: PackedStringArray = [
 	"stage",
@@ -95,6 +101,10 @@ func sync_snapshot(previous: Dictionary, current: Dictionary) -> void:
 		and int(current["stage_enemy_index"]) != int(previous["stage_enemy_index"])
 	):
 		play_cue(&"enemy_break")
+
+	var boss_event_cue := _latest_hybrid_boss_event_cue(previous, current)
+	if not boss_event_cue.is_empty():
+		play_cue(boss_event_cue)
 
 func play_cue(cue: StringName) -> void:
 	if not _sfx_enabled or not _playback_available:
@@ -268,6 +278,44 @@ func _music_for_mode(mode: String) -> StringName:
 		_:
 			push_error("Unknown presentation mode '%s'." % mode)
 			return &""
+
+
+func _latest_hybrid_boss_event_cue(
+	previous: Dictionary,
+	current: Dictionary
+) -> StringName:
+	if not previous.has("recent_boss_events") or not current.has("recent_boss_events"):
+		return &""
+	var previous_value: Variant = previous["recent_boss_events"]
+	var current_value: Variant = current["recent_boss_events"]
+	if typeof(previous_value) != TYPE_ARRAY or typeof(current_value) != TYPE_ARRAY:
+		return &""
+
+	var previous_serial := 0
+	for raw_event: Variant in previous_value as Array:
+		if not (raw_event is Dictionary):
+			continue
+		var event := raw_event as Dictionary
+		if typeof(event.get("serial")) == TYPE_INT:
+			previous_serial = maxi(previous_serial, int(event["serial"]))
+
+	var latest_serial := previous_serial
+	var latest_cue: StringName = &""
+	for raw_event: Variant in current_value as Array:
+		if not (raw_event is Dictionary):
+			continue
+		var event := raw_event as Dictionary
+		if typeof(event.get("serial")) != TYPE_INT:
+			continue
+		var serial := int(event["serial"])
+		if serial <= latest_serial:
+			continue
+		var kind := StringName(String(event.get("kind", "")))
+		if not HYBRID_BOSS_EVENT_CUES.has(kind):
+			continue
+		latest_serial = serial
+		latest_cue = HYBRID_BOSS_EVENT_CUES[kind] as StringName
+	return latest_cue
 
 
 func _validate_snapshot(snapshot: Dictionary, label: String) -> bool:

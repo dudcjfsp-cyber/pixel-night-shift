@@ -70,6 +70,7 @@ func _run_all() -> void:
 	await _run_test("mode routing, one session/tick, and production save isolation", _test_mode_routing)
 	await _run_test("V2 test save schema roundtrip and atomic rejection", _test_v2_save_boundary)
 	await _run_test("pointer commands and combat-state UI", _test_commands_and_state_ui)
+	await _run_test("production hybrid boss HUD and bounded appeals", _test_production_hybrid_ui)
 	await _run_test("stage 10 result, operations return, restart, and default isolation", _test_result_and_default)
 	print("================================================")
 	print("RESULT: %d passed, %d failed, %d assertion failures" % [_passed, _failed, _assertion_failures])
@@ -243,6 +244,107 @@ func _test_commands_and_state_ui() -> void:
 		await _unmount(fixture_app)
 
 
+func _test_production_hybrid_ui() -> void:
+	var production_dir := _case_dir("production_hybrid_ui")
+	var v2_dir := _case_dir("production_hybrid_ui_unused_v2")
+	_clean_paths(production_dir, v2_dir)
+	var production := TrackingProductionRepository.new(production_dir)
+	var session := GameSession.new()
+	_check(
+		_drive_production_to_process_down(session),
+		"production fixture must reach a boss process-down state"
+	)
+	var fixture_snapshot := session.snapshot()
+	_check(String(fixture_snapshot["mode"]) == "boss", "production fixture must remain in boss combat")
+	_check(
+		production.save(session.export_state(), 3500, 0) == OK,
+		"production hybrid fixture must save through schema 2"
+	)
+
+	var app := await _mount(
+		production,
+		TrackingV2Repository.new(v2_dir),
+		false,
+		FakeClock.new(3500)
+	)
+	await _click_named(app, "PrimaryActionButton")
+	var snapshot := app.session_snapshot()
+	_check(
+		String(snapshot["mode"]) == "boss" and bool(snapshot["hybrid_combat_enabled"]),
+		"restored production gameplay must retain hybrid boss state"
+	)
+
+	var down_operator_id := ""
+	for raw_operator: Variant in snapshot["operators"] as Array:
+		var operator := raw_operator as Dictionary
+		if bool(operator["process_down"]):
+			down_operator_id = String(operator["id"])
+			break
+	_check(not down_operator_id.is_empty(), "boss HUD fixture must retain one process-down operator")
+	var down_status := app.find_child("OperatorStatus_%s" % down_operator_id, true, false) as Label
+	var down_hp := app.find_child("OperatorHP_%s" % down_operator_id, true, false) as ProgressBar
+	_check(
+		down_status != null and down_status.is_visible_in_tree()
+		and "PROCESS DOWN" in down_status.text,
+		"boss HUD must expose process-down as text, not color alone"
+	)
+	_check(
+		down_hp != null and down_hp.is_visible_in_tree(),
+		"boss HUD must expose operator durability only during hybrid boss combat"
+	)
+
+	var alert := app.find_child("BossAlertLabel", true, false) as Label
+	_check(
+		alert != null and alert.is_visible_in_tree() and "제한" in alert.text
+		and alert.size.y >= 30.0 and not alert.clip_text,
+		"boss HUD must reserve an unclipped line for the persistent time limit"
+	)
+	var qa_rescue := snapshot["qa_rescue"] as Dictionary
+	if bool(qa_rescue["pending"]):
+		_check(
+			"\n" in alert.text and "QA" in alert.text,
+			"pending automatic QA rescue must use its own boss HUD line"
+		)
+
+	var appeals := snapshot["appeals"] as Array
+	_check(
+		not appeals.is_empty() and appeals.size() <= 2,
+		"production boss diagnosis must expose one or two factual appeals"
+	)
+	var visible_appeals: Array[Button] = []
+	for index: int in range(2):
+		var card := app.find_child("OperatorAppealCard%d" % index, true, false) as Button
+		if card != null and card.is_visible_in_tree():
+			visible_appeals.append(card)
+	_check(
+		visible_appeals.size() == appeals.size(),
+		"operator tab must render exactly the bounded production appeal set"
+	)
+	for card: Button in visible_appeals:
+		_check(card.size.y >= 44.0, "each production appeal must keep a 44px pointer target")
+
+	var lane := app.find_child("BattleLaneView", true, false) as Control
+	var appeal_panel := app.find_child("OperatorAppealPanel", true, false) as Control
+	_check(
+		lane != null and appeal_panel != null
+		and not lane.get_global_rect().intersects(appeal_panel.get_global_rect()),
+		"appeals must stay in the operator scroll area without covering the battle lane"
+	)
+	if not visible_appeals.is_empty():
+		var gameplay := _screen_child(app) as MainView
+		_check(gameplay != null and gameplay.set_active_tab(1), "production gameplay must expose patch navigation")
+		_check(gameplay.get_active_tab() == 1, "appeal navigation test must start on the patch tab")
+		var before_selection := app.session_snapshot()
+		visible_appeals[0].pressed.emit()
+		await process_frame
+		_check(gameplay.get_active_tab() == 0, "appeal review must return focus to the operator tab")
+		_check(
+			app.session_snapshot() == before_selection,
+			"appeal review must not issue a manual combat or upgrade command"
+		)
+	await _unmount(app)
+
+
 func _test_result_and_default() -> void:
 	var result_dir := _case_dir("result_v2")
 	_clean_paths(_case_dir("result_production"), result_dir)
@@ -279,8 +381,13 @@ func _test_result_and_default() -> void:
 	_check(not default_app.is_combat_v2_test_mode(), "default launch must keep V2 disabled")
 	_check(production.load_calls == 1 and unused_v2.load_calls == 0, "default launch must use only production save")
 	await _click_named(default_app, "PrimaryActionButton")
-	_check(not bool(default_app.session_snapshot()["combat_v2_test_mode"]), "default First Shift must create production GameSession")
-	_check(not default_app.session_snapshot().has("appeals"), "default production snapshot must not expose V2 appeal state")
+	var production_snapshot := default_app.session_snapshot()
+	_check(not bool(production_snapshot["combat_v2_test_mode"]), "default First Shift must create production GameSession")
+	_check(bool(production_snapshot["hybrid_combat_enabled"]), "default production session must enable hybrid boss combat")
+	_check(
+		production_snapshot.has("appeals") and int(production_snapshot["appeal_limit"]) == 2,
+		"default production snapshot must expose the bounded hybrid appeal contract"
+	)
 	var content := ContentLoader.load_default()
 	_check(
 		content.is_valid() and ProgressionRules.is_boss_stage(20)
@@ -292,7 +399,7 @@ func _test_result_and_default() -> void:
 
 func _fixture_session(kind: StringName) -> CombatV2IntegrationSession:
 	var prototype := CombatV2PrototypeSession.new()
-	_drive_session(prototype, 600.0, 6)
+	_drive_session(prototype, 1800.0, 6)
 	var state := prototype.debug_state_copy()
 	var loaded := CombatV2Loader.load_default()
 	assert(loaded.is_valid(), "fixture requires valid Combat V2 content")
@@ -365,6 +472,19 @@ func _drive_to_completion(session: CombatV2IntegrationSession) -> bool:
 			next_decision += 1.0
 		session.tick(STEP)
 	return session.is_complete()
+
+
+func _drive_production_to_process_down(session: GameSession) -> bool:
+	for _step: int in range(int(1300.0 / STEP)):
+		var snapshot := session.snapshot()
+		if String(snapshot["mode"]) == "boss":
+			for raw_operator: Variant in snapshot["operators"] as Array:
+				if bool((raw_operator as Dictionary)["process_down"]):
+					return true
+		if int(snapshot["stage"]) > 10:
+			return false
+		session.tick(STEP)
+	return false
 
 
 func _apply_balanced_decision(session: Variant, snapshot: Dictionary) -> void:
