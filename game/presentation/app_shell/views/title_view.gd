@@ -9,6 +9,7 @@ signal audio_unlock_requested
 
 const UI: GDScript = preload("res://game/presentation/app_shell/app_shell_ui.gd")
 const ASSETS: GDScript = preload("res://game/presentation/presentation_assets.gd")
+const TITLE_FONT: Font = preload("res://game/assets/fonts/Galmuri11-Bold.ttf")
 
 var _has_saved_shift := false
 var _error_message := ""
@@ -76,27 +77,100 @@ func _build_interface() -> void:
 
 
 func _build_header(parent: VBoxContainer) -> void:
-	var header := HBoxContainer.new()
-	header.custom_minimum_size.y = UI.TOUCH_MIN
-	header.add_theme_constant_override("separation", UI.GAP_MEDIUM)
+	var header := Control.new()
+	header.name = "TitleHeader"
+	header.custom_minimum_size.y = 148.0
 	parent.add_child(header)
-
-	var brand_column := VBoxContainer.new()
-	brand_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	brand_column.add_theme_constant_override("separation", 0)
-	header.add_child(brand_column)
-
-	var brand: Label = UI.make_label("PIXEL NIGHT SHIFT", 16, UI.COLOR_INFO)
-	brand.name = "BrandLabel"
-	brand_column.add_child(brand)
-	brand_column.add_child(UI.make_label("픽셀 야간근무", 11, UI.COLOR_MUTED))
 
 	var settings_button: Button = UI.make_button("설정", &"quiet", UI.TOUCH_MIN)
 	settings_button.name = "SettingsButton"
 	settings_button.unique_name_in_owner = true
-	settings_button.custom_minimum_size.x = 64.0
+	settings_button.anchor_left = 1.0
+	settings_button.anchor_right = 1.0
+	settings_button.offset_left = -48.0
+	settings_button.offset_bottom = 48.0
+	settings_button.custom_minimum_size.x = 48.0
+	settings_button.add_theme_font_size_override("font_size", 10)
+	settings_button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 	settings_button.pressed.connect(_on_settings_pressed)
 	header.add_child(settings_button)
+
+	var brand_stage := Control.new()
+	brand_stage.name = "BrandStage"
+	brand_stage.anchor_right = 1.0
+	brand_stage.offset_left = 20.0
+	brand_stage.offset_right = -20.0
+	brand_stage.offset_top = 40.0
+	brand_stage.offset_bottom = 145.0
+	brand_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(brand_stage)
+
+	var pixel_word := _make_arc_word(
+		"픽셀",
+		Vector2(4.0, 29.0),
+		Vector2(96.0, 54.0),
+		-13.0
+	)
+	pixel_word.name = "TitleWordPixel"
+	brand_stage.add_child(pixel_word)
+
+	var night_word := _make_arc_word(
+		"야간",
+		Vector2(104.0, 5.0),
+		Vector2(96.0, 54.0),
+		0.0
+	)
+	night_word.name = "TitleWordNight"
+	brand_stage.add_child(night_word)
+
+	var shift_word := _make_arc_word(
+		"근무",
+		Vector2(204.0, 29.0),
+		Vector2(96.0, 54.0),
+		13.0
+	)
+	shift_word.name = "TitleWordShift"
+	brand_stage.add_child(shift_word)
+
+	var subtitle_row := HBoxContainer.new()
+	subtitle_row.anchor_right = 1.0
+	subtitle_row.offset_top = 63.0
+	subtitle_row.offset_bottom = 94.0
+	subtitle_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	brand_stage.add_child(subtitle_row)
+
+	var subtitle: Label = UI.make_label("서버가 살아있다", 12, UI.COLOR_TEXT)
+	subtitle.name = "BrandSubtitle"
+	subtitle.unique_name_in_owner = true
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	subtitle.add_theme_color_override("font_outline_color", UI.COLOR_DEEP)
+	subtitle.add_theme_constant_override("outline_size", 1)
+	subtitle_row.add_child(subtitle)
+
+
+func _make_arc_word(
+	text_value: String,
+	position_value: Vector2,
+	size_value: Vector2,
+	rotation_degrees_value: float
+) -> Label:
+	var label: Label = UI.make_label(text_value, 36, Color("ffcf5c"))
+	label.position = position_value
+	label.size = size_value
+	label.pivot_offset = size_value * 0.5
+	label.rotation_degrees = rotation_degrees_value
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_override("font", TITLE_FONT)
+	label.add_theme_color_override("font_outline_color", UI.COLOR_DEEP)
+	label.add_theme_color_override("font_shadow_color", Color("28656d"))
+	label.add_theme_constant_override("outline_size", 2)
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	return label
 
 
 func _build_action_panel(parent: VBoxContainer) -> void:

@@ -165,7 +165,7 @@ func _test_boot_and_first_shift() -> void:
 			PackedStringArray([
 				"PIXEL NIGHT SHIFT",
 				"픽셀 야간근무",
-				"서버는 아직 살아 있다",
+				"서버가 살아있다",
 				"전투는 요원들이 맡습니다.",
 				"병목을 진단하고 장점과 부작용이 있는 패치를 선택하세요.",
 				"첫 근무 시작",
@@ -197,6 +197,17 @@ func _test_title_and_prologue() -> void:
 		await _unmount(title)
 		return
 
+	_check_copy(
+		title,
+		"title",
+		PackedStringArray([
+			"픽셀",
+			"야간",
+			"근무",
+			"서버가 살아있다",
+		])
+	)
+	_check_not_copy(title, "title", PackedStringArray(["PIXEL NIGHT SHIFT"]))
 	var title_primary := _find_button(title, "PrimaryActionButton", "title primary")
 	var account_link := _find_button(title, "AccountLinkButton", "title account link")
 	var prologue_replay := _find_button(

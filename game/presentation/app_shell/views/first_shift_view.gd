@@ -57,7 +57,7 @@ func _build_interface() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_column.add_child(title)
 
-	var subtitle: Label = UI.make_label("서버는 아직 살아 있다", 13, UI.COLOR_INFO)
+	var subtitle: Label = UI.make_label("서버가 살아있다", 13, UI.COLOR_INFO)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_column.add_child(subtitle)
 
