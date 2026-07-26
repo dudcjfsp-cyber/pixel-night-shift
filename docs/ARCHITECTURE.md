@@ -1,6 +1,6 @@
-# 앱 셸 및 본편 전투 구현 계약
+# 앱 셸 및 본편 혼합 전투 구현 계약
 
-> 현재 구현 기준선은 완료된 앱 셸과 20스테이지 회색 상자입니다. 다음 구현에서 바뀌는 전투 규칙과 완료 기준은 [본편 혼합 전투 완성도 명세](COMBAT_HYBRID_SPEC.md)가 우선합니다.
+> 현재 구현 기준선은 완료된 앱 셸, schema 2 로컬 저장과 20스테이지 혼합 전투 수직 슬라이스입니다. 전투 규칙과 완료 기준은 [본편 혼합 전투 완성도 명세](COMBAT_HYBRID_SPEC.md)가 우선합니다.
 
 ## 의존 방향
 
@@ -9,6 +9,7 @@ AppRoot -> screens / overlays
         -> GameSession -> domain rules/content
         -> SaveRepository -> user:// files
         -> AudioDirector / PresentationAssets
+        -> transient field-report cache
 
 GameplayView -> GameSession commands and snapshots
 Domain -> no presentation, file, clock, lifecycle, or audio dependency
@@ -43,7 +44,10 @@ Top-level screens are `BOOT`, `TITLE`, `PROLOGUE`, `OPERATIONS_ROOM`, `GAMEPLAY`
 - `MainView` is retained as the gameplay view during this milestone and receives its session and audio director before entering the tree.
 - A live run keeps ticking while the operations room or settings is visible.
 - Background pause stops real-time ticks. `AppRoot` later applies a capped elapsed duration without exposing the system clock to the domain.
-- The Android Back request closes the active overlay, returns gameplay to the operations room, and exits only from a root screen.
+- Android/iOS pause·resume과 Web/desktop focus-out·focus-in은 같은 `AppRoot` 진입점을 사용합니다. `_backgrounded` 상태가 겹치는 알림의 중복 저장과 중복 오프라인 적용을 막습니다.
+- `AppRoot`는 현재 앱 실행 중 최신 실패 보고서의 key·행·읽음 상태를 소유합니다. `MainView`는 이를 복제해 알림과 읽기 전용 모달만 표시하며 도메인이나 저장 DTO를 변경하지 않습니다.
+- 현장 보고서 모달과 자원 설명 말풍선은 `MainView` 내부 표면입니다. 앱 셸의 단일 `OverlayHost` 슬롯을 소비하지 않습니다.
+- The Android Back request closes the active app-shell overlay, returns gameplay to the operations room, and exits only from a root screen. The gameplay-local field-report modal currently uses its own close button and backdrop input.
 
 The cold-boot title and first-shift entry contract lives in [OPENING_EXPERIENCE_SPEC.md](OPENING_EXPERIENCE_SPEC.md). The remaining screen and lifecycle contract lives in [APP_SHELL_SPEC.md](APP_SHELL_SPEC.md).
 
@@ -68,26 +72,39 @@ restore_state(data) -> PackedStringArray
 `snapshot()` is a presentation DTO. Domain modules must not depend on its shape.
 `export_state()` is a durable save DTO and must not reuse the presentation snapshot. `restore_state()` validates a complete candidate before replacing the active state and returns all validation errors without partially mutating the session.
 
-혼합 전투 승격 시 schema 1 세션을 위한 순수 변환 경계를 추가합니다. 정확한 반환 DTO는 구현 전에 테스트로 고정하되 다음 책임은 바꾸지 않습니다.
+schema 1 세션을 위한 순수 변환 경계가 구현돼 있습니다. 다음 책임은 유지합니다.
 
 - 변환은 활성 세션을 수정하지 않고 schema 2 후보 DTO와 전체 오류를 반환합니다.
 - 새 후보 `GameSession`이 변환 결과를 `restore_state()`로 검증합니다.
 - `AppRoot`는 검증된 후보를 schema 2 봉투로 저장한 뒤에만 활성 세션으로 교체합니다.
 - 전투 중 긴급 재배포 같은 새 프레젠테이션 명령은 공개 표면에 추가하지 않습니다.
 
-`GameSession.new()` accepts no required argument. The greybox DTO uses these
-stable keys so presentation and tests do not reach into domain state:
+`GameSession.new()` accepts no required argument. The production snapshot uses
+these stable groups so presentation and tests do not reach into domain state:
 
 ```text
 stage, stage_enemy_index, stage_enemy_total
 bits, patch_notes, run_count, mode
-enemy { name, hp, max_hp, is_boss, time_left }
-operators [{ id, name, level, unlocked, dps, upgrade_cost }]
+enemy {
+  name, hp, max_hp, is_boss, time_left,
+  next_action, next_action_in
+}
+operators [{
+  id, name, role, ability, level, unlocked,
+  dps, effective_dps, hp, max_hp, down, process_down,
+  attack_remaining, damage_dealt, damage_taken,
+  down_count, active_time, down_time, upgrade_cost
+}]
 patch_slots [patch_id]
 patches [{ id, name, description, benefit, drawback, unlocked, equipped }]
 unlocked_patch_slots, diagnosis
+appeals, appeal_limit
 prestige_available, legacy_cache_level, legacy_cache_cost
-maintenance_time_left, status_message, last_error
+maintenance_time_left
+hybrid_combat_enabled, boss_failure_count, last_failure_reason
+qa_rescue, recent_boss_events
+combat_v2_test_mode, combat_v2_complete
+offline_progress_supported, status_message, last_error
 ```
 
 Diagnosis dictionaries use `kind`, `title`, `evidence`, and `severity`.
@@ -98,7 +115,7 @@ Patch previews use `can_equip`, `cost`, `summary`, `before_ttk`, `after_ttk`,
 
 The save envelope owner is `SaveRepository`, not `GameSession`.
 
-혼합 전투 승격 후 목표 봉투는 다음과 같습니다. 현재 구현과 완료된 앱 셸 기준선은 schema 1입니다.
+현재 본편 저장 봉투는 schema 2입니다.
 
 ```json
 {
@@ -109,18 +126,20 @@ The save envelope owner is `SaveRepository`, not `GameSession`.
 }
 ```
 
-현재 구현은 schema 1을 사용하며 혼합 전투 승격과 함께 schema 2로 올립니다. `SaveRepository.load()`는 missing, valid, legacy-schema, backup-recovered, corrupt, newer-schema를 구분합니다. 저장소는 schema 1·2 봉투와 세션 딕셔너리를 전달할 뿐 세션 내부 필드를 변환하지 않습니다. schema 1 세션 변환·검증은 비활성 후보 `GameSession`, 실행 순서는 `AppRoot`가 맡습니다.
+`SaveRepository.load()`는 missing, valid, legacy-schema, backup-recovered, corrupt, newer-schema를 구분합니다. 저장소는 schema 1·2 봉투와 세션 딕셔너리를 전달할 뿐 세션 내부 필드를 변환하지 않습니다. schema 1 세션 변환·검증은 비활성 후보 `GameSession`, 실행 순서는 `AppRoot`가 맡습니다.
 
 쓰기는 임시 파일, 검증, 백업 회전과 주 파일 교체 순서로 수행합니다. 마이그레이션은 검증된 schema 2 후보 저장이 성공하기 전까지 활성 세션과 기존 파일을 바꾸지 않습니다. 잘못된 내용은 조용히 새 게임으로 바뀌지 않습니다.
 
 Offline results are applied to the session and saved before their read-only report is shown. A report is presentation data, not a claimable reward.
+
+현장 실패 보고서도 저장 보상이나 도메인 명령이 아닙니다. `AppRoot`가 현재 스냅숏의 실패 행을 복제해 앱 실행 중 캐시하고 `MainView.field_report_read` 신호로 읽음 상태만 갱신합니다. 이 캐시는 운영실 왕복과 gameplay view 재생성을 견디지만 save envelope에는 넣지 않습니다.
 
 Stable content IDs are:
 
 - Operators: `debugger`, `build_engineer`, `sprite_artist`, `qa_imp`
 - Patches: `frame_skip`, `unsafe_build`, `reward_bypass`, `rollback_lock`, `safe_mode`
 
-## 현재 구현 기준선과 혼합 전투 승격
+## 현재 구현 기준선
 
 - A normal stage contains three enemies and has no failure timer.
 - Stages 10 and 20 contain the Watchdog Process and use a 25-second timer.
@@ -129,8 +148,8 @@ Stable content IDs are:
 - Operators unlock progressively on the first run and all remain available after the first version update.
 - Clearing stage 20 enables a voluntary version update. It resets run progress and grants one patch note.
 
-혼합 전투 승격은 위 20스테이지 흐름을 보존하면서 보스전에서만 요원 HP·DOWN·QA 자동 구조와 역할 효과를 활성화합니다. 일반전은 요원 피해나 전원 DOWN을 만들지 않습니다. 상세 수치, 실패 조건, 진단과 UI 정보 예산은 [COMBAT_HYBRID_SPEC.md](COMBAT_HYBRID_SPEC.md)를 따릅니다.
+현재 본편 혼합 전투는 위 20스테이지 흐름을 보존하면서 보스전에서만 요원 HP·DOWN·QA 자동 구조와 역할 효과를 활성화합니다. 일반전은 요원 피해나 전원 DOWN을 만들지 않습니다. 상세 수치, 실패 조건, 진단과 UI 정보 예산은 [COMBAT_HYBRID_SPEC.md](COMBAT_HYBRID_SPEC.md)를 따릅니다.
 
 ## Test boundary
 
-Required automated checks cover monotonic health/cost growth, deterministic simulation, patch tradeoffs, boss-failure recovery, boss-only operator durability, QA rescue, schema migration, prestige reset/preservation, content validation, and headless loading of the main scene.
+Required automated checks cover monotonic health/cost growth, deterministic simulation, patch tradeoffs, boss-failure recovery, boss-only operator durability, QA rescue, schema migration, prestige reset/preservation, content validation, and headless loading of the main scene. UI integration checks additionally cover field-report unread/read/reopen/update behavior, resource help hover·touch boundaries, integer HP without clipping, and lifecycle focus deduplication.
