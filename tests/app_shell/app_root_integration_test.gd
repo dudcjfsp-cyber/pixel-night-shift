@@ -228,7 +228,7 @@ func _test_same_session_navigation() -> void:
 	_emit_button(app, "PrimaryActionButton")
 	await _wait_frames(1)
 	_check("운영 매뉴얼 3 / 3" in _visible_text(app), "diagnosis action must advance to judgment")
-	_check(app.last_gameplay_tab() == 1, "diagnosis onboarding action must focus and save the patch tab")
+	_check(app.last_gameplay_tab() == 0, "diagnosis onboarding action must focus and save the operator tab")
 	_emit_button(app, "PrimaryActionButton")
 	await _wait_frames(1)
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "third onboarding action must close the manual")
@@ -630,13 +630,22 @@ func _test_settings_back_and_safe_area() -> void:
 	_check(app.handle_back_request(), "Back from operations must request system exit")
 	var before_pause := app.session_snapshot()
 	clock.value += 180
-	app.handle_application_paused()
+	app.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT)
+	_check(
+		repository.load().saved_at_unix == clock.value,
+		"window focus loss must save before the web app is backgrounded"
+	)
+	app.notification(Node.NOTIFICATION_APPLICATION_PAUSED)
 	clock.value += 180
-	app.handle_application_resumed()
+	app.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)
 	var after_resume := app.session_snapshot()
-	_check(after_resume != before_pause, "resume must apply elapsed background progress")
-	app.handle_application_resumed()
-	_check(app.session_snapshot() == after_resume, "duplicate resume notification must not apply progress twice")
+	_check(after_resume != before_pause, "window focus resume must apply elapsed background progress")
+	app.notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	app.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)
+	_check(
+		app.session_snapshot() == after_resume,
+		"overlapping application and window resume notifications must not apply progress twice"
+	)
 
 	app.apply_safe_area(Rect2i(20, 40, 320, 580), Vector2i(360, 640))
 	var safe_area := app.find_child("SafeArea", true, false) as MarginContainer

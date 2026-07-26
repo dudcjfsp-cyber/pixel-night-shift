@@ -195,8 +195,14 @@ func _test_commands_and_state_ui() -> void:
 	var before_level := _operator_level(app.session_snapshot(), "debugger")
 	await _click_named(app, "UpgradeOperator_debugger")
 	_check(_operator_level(app.session_snapshot(), "debugger") == before_level + 1, "pointer upgrade must reach V2 simulator")
+	var diagnosis_action := app.find_child("DiagnosisActionButton", true, false) as Button
+	_check(
+		diagnosis_action != null and diagnosis_action.text.begins_with("요원"),
+		"non-patch diagnosis must name its operator action"
+	)
 	await _click_named(app, "DiagnosisActionButton")
-	_check(app.last_gameplay_tab() == 1, "diagnosis action must focus patches without a base-DPS action heuristic")
+	_check(app.last_gameplay_tab() == 0, "non-patch diagnosis action must focus operators")
+	await _click_named(app, "GameplayTabButton1")
 	var remove_patch := app.find_child("RemovePatchButton", true, false) as Button
 	_check(
 		remove_patch != null and not remove_patch.visible,
@@ -223,6 +229,13 @@ func _test_commands_and_state_ui() -> void:
 		"occupied slots must present direct patch replacement as the primary action"
 	)
 	_check("현재/예상 다운" in _visible_text(app), "V2 diagnosis must render structured simulator evidence")
+	var debugger_ability := app.find_child("OperatorAbility_debugger", true, false) as Label
+	_check(
+		debugger_ability != null
+			and debugger_ability.text.begins_with("보스 ·")
+			and debugger_ability.get_theme_font_size("font_size") == 9,
+		"operator boss ability must use the compact readable mobile label"
+	)
 	var appeal_card := app.find_child("OperatorAppealCard0", true, false) as Button
 	_check(appeal_card != null and appeal_card.visible and appeal_card.size.y >= 44.0, "appeal pointer target must be visible and at least 44px")
 	if appeal_card != null and appeal_card.visible:

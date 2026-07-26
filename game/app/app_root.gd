@@ -278,6 +278,10 @@ func _notification(what: int) -> void:
 			handle_application_paused()
 		NOTIFICATION_APPLICATION_RESUMED:
 			handle_application_resumed()
+		NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			handle_application_paused()
+		NOTIFICATION_WM_WINDOW_FOCUS_IN:
+			handle_application_resumed()
 		NOTIFICATION_WM_GO_BACK_REQUEST:
 			if handle_back_request():
 				get_tree().quit()
@@ -923,9 +927,9 @@ func _on_onboarding_advance_requested() -> void:
 
 func _on_onboarding_diagnosis_requested() -> void:
 	if _gameplay_view != null:
-		_gameplay_view.set_active_tab(1)
-		_last_gameplay_tab = 1
-		_save_progress("온보딩 진단 보기")
+		_gameplay_view.set_active_tab(0)
+		_last_gameplay_tab = 0
+		_save_progress("온보딩 요원 강화 보기")
 	_show_onboarding(_onboarding_step + 1)
 
 

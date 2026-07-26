@@ -782,6 +782,9 @@ func _refresh_diagnosis() -> void:
 		]
 	_diagnosis_icon.modulate = accent
 	_diagnosis_panel.add_theme_stylebox_override("panel", _make_style(Color("192a37"), accent, 2))
+	var action := _diagnosis_action_for(String(diagnosis["kind"]))
+	_diagnosis_action_button.text = String(action["label"])
+	_diagnosis_action_button.disabled = false
 
 
 func _set_diagnosis_error(message: String) -> void:
@@ -791,6 +794,8 @@ func _set_diagnosis_error(message: String) -> void:
 	_diagnosis_evidence_label.text = message
 	_diagnosis_icon.modulate = COLOR_RED
 	_diagnosis_panel.add_theme_stylebox_override("panel", _make_style(Color("321c25"), COLOR_RED, 2))
+	_diagnosis_action_button.text = "확인\n불가"
+	_diagnosis_action_button.disabled = true
 	_show_feedback("진단 화면 오류: %s" % message, true)
 
 
@@ -884,7 +889,7 @@ func _refresh_operators() -> void:
 			info_label.text = "%s\n진행하면 자동 합류" % String(operator_data["name"])
 			upgrade_button.text = "잠김"
 		var ability_description := String(operator_data["ability"])
-		ability_label.text = "보스 특성 · %s" % ability_description
+		ability_label.text = "보스 · %s" % ability_description
 		ability_label.tooltip_text = ability_description
 		upgrade_button.disabled = not unlocked
 		redeploy_button.visible = (
@@ -948,7 +953,7 @@ func _create_operator_row(operator_data: Dictionary) -> void:
 	info_column.add_theme_constant_override("separation", 0)
 	row.add_child(info_column)
 	info_column.add_child(info)
-	var ability := _make_label("", 8)
+	var ability := _make_label("", 9)
 	ability.name = "OperatorAbility_%s" % operator_id
 	ability.autowrap_mode = TextServer.AUTOWRAP_OFF
 	ability.clip_text = true
@@ -1146,6 +1151,11 @@ func _refresh_tab_styles() -> void:
 		and _snapshot["appeals"] is Array
 		and not (_snapshot["appeals"] as Array).is_empty()
 	)
+	var diagnosis_target_tab := -1
+	if _snapshot.has("diagnosis") and _snapshot["diagnosis"] is Dictionary:
+		var diagnosis := _snapshot["diagnosis"] as Dictionary
+		if diagnosis.has("kind"):
+			diagnosis_target_tab = int(_diagnosis_action_for(String(diagnosis["kind"]))["tab"])
 	for index: int in range(_tab_buttons.size()):
 		var button := _tab_buttons[index]
 		_set_button_selected(button, index == _active_tab)
@@ -1154,7 +1164,11 @@ func _refresh_tab_styles() -> void:
 				"normal", _make_style(Color("2d2b25"), COLOR_YELLOW, 2)
 			)
 			button.add_theme_color_override("font_color", COLOR_YELLOW)
-		if index == TAB_PATCHES and index != _active_tab and _diagnosis_severity in ["medium", "warning", "high", "critical"]:
+		if (
+			index == diagnosis_target_tab
+			and index != _active_tab
+			and _diagnosis_severity in ["medium", "warning", "high", "critical"]
+		):
 			button.add_theme_stylebox_override("normal", _make_style(Color("2d2b25"), COLOR_YELLOW, 2))
 			button.add_theme_color_override("font_color", COLOR_YELLOW)
 
@@ -1185,8 +1199,60 @@ func _on_tab_pressed(tab_index: int) -> void:
 
 func _on_diagnosis_action_pressed() -> void:
 	_audio_director.play_cue(&"ui_move")
-	_show_tab(TAB_PATCHES)
-	_show_feedback("진단 근거와 패치의 장단점을 비교하세요.", false)
+	var diagnosis := _snapshot["diagnosis"] as Dictionary
+	var action := _diagnosis_action_for(String(diagnosis["kind"]))
+	_show_tab(int(action["tab"]))
+	_show_feedback(String(action["feedback"]), false)
+
+
+func _diagnosis_action_for(kind: String) -> Dictionary:
+	if kind in ["version_ready", "complete"]:
+		return {
+			"tab": TAB_VERSION,
+			"label": "버전\n확인",
+			"feedback": "버전 업데이트 조건과 다음 근무 보상을 확인하세요.",
+		}
+	if kind in ["rule_response", "rollback_pressure", "boss_rollback", "patch_tradeoff"]:
+		if int(_snapshot["unlocked_patch_slots"]) > 0:
+			return {
+				"tab": TAB_PATCHES,
+				"label": "패치\n비교",
+				"feedback": "진단 근거와 패치의 장단점을 비교하세요.",
+			}
+	if kind in [
+		"throughput",
+		"reward_leak",
+		"timeout_risk",
+		"recent_failure_timeout",
+		"firepower",
+	]:
+		return {
+			"tab": TAB_OPERATORS,
+			"label": "요원\n강화",
+			"feedback": "진단에 맞는 역할의 요원을 강화하세요.",
+		}
+	if kind in [
+		"wipe_risk",
+		"process_down_risk",
+		"qa_rescue_cancelled",
+		"qa_rescue_pending",
+		"qa_rescue_used",
+		"recent_failure_all_down",
+		"recent_failure",
+		"maintenance",
+		"recovery_delay",
+		"incoming_damage",
+	]:
+		return {
+			"tab": TAB_OPERATORS,
+			"label": "요원\n점검",
+			"feedback": "요원의 역할과 가동 상태를 확인하세요.",
+		}
+	return {
+		"tab": TAB_OPERATORS,
+		"label": "요원\n보기",
+		"feedback": "요원별 역할과 강화 상태를 확인하세요.",
+	}
 
 
 func _on_appeal_pressed(index: int) -> void:
