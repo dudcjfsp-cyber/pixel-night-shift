@@ -12,6 +12,24 @@ const OPERATOR_TEXTURES: Dictionary = {
 	&"qa_imp": preload("res://game/assets/generated/operators/qa_imp.png"),
 }
 
+const ACTIVE_SPRITE_TEXTURES: Dictionary = {
+	&"broken_pixel": preload(
+		"res://game/assets/generated/sprites/broken_pixel/sprite-sheet-alpha.png"
+	),
+	&"build_engineer": preload(
+		"res://game/assets/generated/sprites/build_engineer/sprite-sheet-alpha.png"
+	),
+	&"debugger": preload(
+		"res://game/assets/generated/sprites/debugger/sprite-sheet-alpha.png"
+	),
+	&"qa_imp": preload(
+		"res://game/assets/generated/sprites/qa_imp/sprite-sheet-alpha.png"
+	),
+	&"sprite_artist": preload(
+		"res://game/assets/generated/sprites/sprite_artist/sprite-sheet-alpha.png"
+	),
+}
+
 const PATCH_TEXTURES: Dictionary = {
 	&"frame_skip": preload("res://game/assets/generated/patches/frame_skip.png"),
 	&"unsafe_build": preload("res://game/assets/generated/patches/unsafe_build.png"),
@@ -324,8 +342,11 @@ static func _validate_run(
 			cell_height,
 			errors
 		)
-	var atlas_resource: Resource = ResourceLoader.load(atlas_path)
-	if not atlas_resource is Texture2D:
+	if not ACTIVE_SPRITE_TEXTURES.has(asset_id):
+		errors.append("%s has no packaged active atlas." % context)
+		return
+	var atlas_resource: Resource = ACTIVE_SPRITE_TEXTURES[asset_id]
+	if not atlas_resource is Texture2D or atlas_resource.resource_path != atlas_path:
 		errors.append("%s atlas is not a Texture2D: %s" % [context, atlas_path])
 		return
 	var atlas := atlas_resource as Texture2D
