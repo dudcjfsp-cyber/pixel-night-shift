@@ -2,6 +2,9 @@ class_name AppRoot
 extends Control
 
 const UI: GDScript = preload("res://game/presentation/app_shell/app_shell_ui.gd")
+const KOREAN_FALLBACK_FONT: Font = preload(
+	"res://game/assets/fonts/Galmuri11-Bold.ttf"
+)
 const POLICY: GDScript = preload("res://game/app/app_policy.gd")
 const MAIN_VIEW_SCRIPT: GDScript = preload("res://game/presentation/main_view.gd")
 const MAIN_VIEW_SCENE: PackedScene = preload("res://game/presentation/main.tscn")
@@ -218,6 +221,7 @@ func apply_safe_area(safe_rect: Rect2i, window_size: Vector2i) -> void:
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_install_ui_theme()
 	if not _services_configured:
 		_save_repository = SaveRepository.new()
 		_settings_repository = SettingsRepository.new()
@@ -235,6 +239,15 @@ func _ready() -> void:
 	get_window().size_changed.connect(_update_safe_area)
 	_update_safe_area()
 	call_deferred("_start_boot")
+
+
+func _install_ui_theme() -> void:
+	var default_ui_font := FontVariation.new()
+	var fallback_fonts: Array[Font] = [KOREAN_FALLBACK_FONT]
+	default_ui_font.fallbacks = fallback_fonts
+	var app_theme := Theme.new()
+	app_theme.default_font = default_ui_font
+	theme = app_theme
 
 
 func _process(delta_seconds: float) -> void:

@@ -94,6 +94,22 @@ func _test_main_and_first_shift() -> void:
 	_check(app.current_screen_id() == AppRoot.SCREEN_TITLE, "missing save must route to title")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_NONE, "title must not invent an overlay")
 	_check(app.session_instance_id() == 0, "title must not activate a session")
+	var status_label := app.find_child("StatusLabel", true, false) as Label
+	_check(status_label != null, "title must expose its localized status text")
+	if status_label != null:
+		var ui_font := status_label.get_theme_font("font")
+		var ui_font_variation := ui_font as FontVariation
+		_check(
+			ui_font_variation != null
+			and ui_font_variation.fallbacks.size() == 1
+			and ui_font_variation.fallbacks[0].resource_path
+				== "res://game/assets/fonts/Galmuri11-Bold.ttf",
+			"default UI font must bundle the Korean fallback"
+		)
+		_check(
+			ui_font != null and ui_font.has_char("한".unicode_at(0)),
+			"default UI font must include Korean glyphs"
+		)
 	_check_touch_targets(app, "title")
 	_check(_host_child_count(app, "ScreenHost") == 1, "AppRoot must own one top-level screen")
 	_check(_host_child_count(app, "OverlayHost") == 0, "AppRoot overlay host must start empty")
