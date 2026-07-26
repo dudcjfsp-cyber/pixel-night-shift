@@ -512,7 +512,6 @@ static func _validate_imported_resource_hash(
 		return _validate_hash(path, expected_hash, context, errors)
 	if (
 		not OS.has_feature("editor")
-		and ResourceLoader.exists(path)
 		and expected_hash.length() == 64
 		and expected_hash.is_valid_hex_number(false)
 	):
