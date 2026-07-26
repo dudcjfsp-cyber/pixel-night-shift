@@ -1180,7 +1180,10 @@ func _on_upgrade_pressed(operator_id: String) -> void:
 	_finish_command(succeeded, "%s LEVEL UP" % operator_name, &"operator_upgrade")
 	if not succeeded:
 		return
-	var dps_delta := maxf(0.0, _operator_dps(operator_id) - previous_dps)
+	var dps_delta := float(maxi(
+		0,
+		int(floorf(_operator_dps(operator_id))) - int(floorf(previous_dps))
+	))
 	_play_operator_upgrade_visual(operator_id, dps_delta)
 	_show_feedback(
 		"%s LEVEL UP · DPS +%s" % [operator_name, _format_number(dps_delta)],
@@ -1325,16 +1328,8 @@ func _severity_color(severity: String) -> Color:
 
 
 func _format_number(value: float) -> String:
-	var absolute := absf(value)
-	if absolute >= 1_000_000_000.0:
-		return "%.2fB" % (value / 1_000_000_000.0)
-	if absolute >= 1_000_000.0:
-		return "%.2fM" % (value / 1_000_000.0)
-	if absolute >= 1_000.0:
-		return "%.1fK" % (value / 1_000.0)
-	if is_equal_approx(value, roundf(value)):
-		return str(int(roundf(value)))
-	return "%.1f" % value
+	assert(is_finite(value), "Displayed gameplay numbers must be finite.")
+	return str(int(floorf(value)))
 
 
 func _format_seconds(value: float) -> String:

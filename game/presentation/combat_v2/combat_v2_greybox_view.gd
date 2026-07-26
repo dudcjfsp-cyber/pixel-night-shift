@@ -361,9 +361,12 @@ func _refresh() -> void:
 				if bool(item.get("process_down", false))
 				else "공격 %.1fs" % float(item.get("attack_remaining", 0.0))
 			)
-			label.text = "%s · %s · LV %d · HP %.0f/%.0f · %s" % [
+			label.text = "%s · %s · LV %d · HP %d/%d · %s" % [
 				String(item.get("name", "")), String(item.get("role", "")),
-				int(item.get("level", 0)), hp, max_hp, state_text,
+				int(item.get("level", 0)),
+				int(floorf(hp)),
+				int(floorf(max_hp)),
+				state_text,
 			]
 			if bool(item.get("process_down", false)):
 				var source := String(item.get("recovery_source", ""))
@@ -385,9 +388,9 @@ func _refresh() -> void:
 			]
 			redeploy.disabled = not bool(item.get("redeploy_eligible", false))
 		else:
-			label.text = "%s · LV %d · DPS %.1f · 피격 없음" % [
+			label.text = "%s · LV %d · DPS %d · 피격 없음" % [
 				String(item.get("name", "")), int(item.get("level", 0)),
-				float(item.get("dps", 0.0)),
+				int(floorf(float(item.get("dps", 0.0)))),
 			]
 			bar.max_value = 1.0
 			bar.value = 1.0

@@ -638,7 +638,7 @@ func _test_battle_lane_animation_events_and_layout() -> void:
 	var enemy_slot := lane.find_child("EnemyPortraitSlot", true, false) as Control
 	var enemy_portrait := lane.find_child("EnemyPortrait", true, false) as TextureRect
 	var debugger_portrait := lane.find_child("OperatorPortrait_debugger", true, false) as TextureRect
-	var debugger_hp := lane.find_child("OperatorHP_debugger", true, false) as ProgressBar
+	var debugger_hp := lane.find_child("OperatorHP_debugger", true, false) as ColorRect
 	_check(enemy_slot != null, "battle lane must expose a fixed enemy portrait slot")
 	_check(enemy_portrait != null, "battle lane must expose the active enemy portrait")
 	_check(debugger_portrait != null, "battle lane must expose the debugger portrait")
@@ -646,9 +646,52 @@ func _test_battle_lane_animation_events_and_layout() -> void:
 		debugger_hp != null and not debugger_hp.visible,
 		"production operator durability must stay hidden outside boss combat"
 	)
-	if enemy_slot == null or enemy_portrait == null or debugger_portrait == null:
+	if (
+		enemy_slot == null
+		or enemy_portrait == null
+		or debugger_portrait == null
+		or debugger_hp == null
+	):
 		lane.queue_free()
 		return
+
+	var integer_hp_snapshot := snapshot.duplicate(true)
+	var integer_hp_enemy := integer_hp_snapshot["enemy"] as Dictionary
+	integer_hp_enemy["hp"] = 190.99
+	integer_hp_enemy["max_hp"] = 330.99
+	integer_hp_snapshot["enemy"] = integer_hp_enemy
+	lane.update_from_snapshot(integer_hp_snapshot, {})
+	var enemy_hp_label := lane.find_child("EnemyHPLabel", true, false) as Label
+	_check(
+		enemy_hp_label != null and enemy_hp_label.text == "HP 190 / 330",
+		"enemy HP must discard decimals instead of rounding them"
+	)
+
+	var durability_snapshot := snapshot.duplicate(true)
+	durability_snapshot["combat_v2_test_mode"] = true
+	var durability_operators := durability_snapshot["operators"] as Array
+	var debugger_data := durability_operators[0] as Dictionary
+	debugger_data["hp"] = 111.99
+	debugger_data["max_hp"] = 160.0
+	debugger_data["process_down"] = false
+	durability_operators[0] = debugger_data
+	durability_snapshot["operators"] = durability_operators
+	lane.update_from_snapshot(durability_snapshot, {})
+	var debugger_hp_fill := debugger_hp.get_node("Fill") as ColorRect
+	var debugger_status := lane.find_child("OperatorStatus_debugger", true, false) as Label
+	_check(
+		debugger_hp.size == Vector2(28.0, 4.0)
+			and debugger_hp_fill != null
+			and debugger_hp_fill.size.y == 2.0,
+		"boss operator HP must use a thin fixed-size track"
+	)
+	_check(
+		debugger_status != null
+			and debugger_status.text == "111"
+			and debugger_status.get_theme_color("font_color") == Color("edf4ff"),
+		"boss operator HP numbers must be integer text with high contrast"
+	)
+	lane.update_from_snapshot(snapshot, {})
 
 	_check(enemy_slot.size == Vector2(48.0, 48.0), "enemy portrait slot must remain 48x48")
 	_check(enemy_portrait.size == Vector2(32.0, 32.0), "broken_pixel must display at 32x32")
@@ -752,14 +795,14 @@ func _test_upgrade_damage_feedback() -> void:
 		return
 
 	var before_base: Dictionary = session.snapshot()
-	session.tick(0.1)
+	session.tick(0.2)
 	var after_base: Dictionary = session.snapshot()
 	var base_damage := _enemy_hp(before_base) - _enemy_hp(after_base)
 	_check(base_damage > 0.0, "unupgraded operators must deal observable combat damage")
 
 	_check(session.upgrade_operator(&"debugger"), "funded debugger upgrade must succeed")
 	var before_upgrade: Dictionary = session.snapshot()
-	session.tick(0.1)
+	session.tick(0.2)
 	var after_upgrade: Dictionary = session.snapshot()
 	var upgraded_damage := _enemy_hp(before_upgrade) - _enemy_hp(after_upgrade)
 	_check(
@@ -782,14 +825,24 @@ func _test_upgrade_damage_feedback() -> void:
 
 	lane.update_from_snapshot(before_upgrade, after_base)
 	lane.update_from_snapshot(after_upgrade, before_upgrade)
-	lane._process(0.10)
+	lane._process(0.40)
+	_check(
+		_active_projectile_count(lane) == 0,
+		"two active operators must not attack faster than the 1.2-second per-operator cadence"
+	)
+	lane._process(0.02)
 	lane._process(0.19)
 	var upgraded_number := _latest_damage_number(lane)
 	_check(upgraded_number != null, "upgraded damage must reach the damage-number layer")
 	if upgraded_number != null:
+		var carried_damage := (
+			upgraded_damage
+			+ base_damage
+			- floorf(base_damage)
+		)
 		_check(
-			upgraded_number.text == _expected_damage_text(upgraded_damage),
-			"upgraded damage number must use the new actual GameSession HP delta"
+			upgraded_number.text == _expected_damage_text(carried_damage),
+			"integer damage feedback must carry the previous fractional remainder"
 		)
 	lane.queue_free()
 
@@ -809,10 +862,16 @@ func _latest_damage_number(lane: Node) -> Label:
 	return latest
 
 
+func _active_projectile_count(lane: Node) -> int:
+	var active_count := 0
+	for node: Node in lane.find_children("CombatProjectile*", "Control", true, false):
+		if not node.is_queued_for_deletion():
+			active_count += 1
+	return active_count
+
+
 func _expected_damage_text(damage: float) -> String:
-	if is_equal_approx(damage, roundf(damage)):
-		return "-%d" % int(roundf(damage))
-	return "-%.1f" % damage
+	return "-%d" % int(floorf(damage))
 
 
 func _test_presentation_assets() -> void:

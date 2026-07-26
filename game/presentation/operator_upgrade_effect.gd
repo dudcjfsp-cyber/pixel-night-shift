@@ -112,10 +112,5 @@ func _finish() -> void:
 
 
 func _format_number(value: float) -> String:
-	if value >= 1_000_000.0:
-		return "%.2fM" % (value / 1_000_000.0)
-	if value >= 1_000.0:
-		return "%.1fK" % (value / 1_000.0)
-	if is_equal_approx(value, roundf(value)):
-		return str(int(roundf(value)))
-	return "%.1f" % value
+	assert(is_finite(value), "Displayed upgrade values must be finite.")
+	return str(int(floorf(value)))

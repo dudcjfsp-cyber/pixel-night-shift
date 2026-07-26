@@ -118,7 +118,10 @@ static func _add_event_candidate(
 			if rows.has(&"qa_imp"):
 				candidates.append(Candidate.new(
 					&"qa_imp", "자동 구조가 작동했습니다. 구조 이후 팀 생존 상태를 확인해 주세요.",
-					"%s 구조 성공 · 복구 HP %.1f" % [String(event.get("operator_id", "")), float(event.get("hp", 0.0))],
+					"%s 구조 성공 · 복구 HP %d" % [
+						String(event.get("operator_id", "")),
+						int(floorf(float(event.get("hp", 0.0)))),
+					],
 					diagnosis_kind, 100, serial
 				))
 		&"operator_down":
@@ -139,7 +142,10 @@ static func _add_event_candidate(
 			if healed > 0.0 and rows.has(&"build_engineer"):
 				candidates.append(Candidate.new(
 					&"build_engineer", "ROLLBACK으로 보스 체력이 회복됐습니다. 보스 화력과 패치를 점검해 주세요.",
-					"ROLLBACK 복구 HP %.1f · %.1f초" % [healed, seconds], diagnosis_kind, 75, serial
+					"ROLLBACK 복구 HP %d · %.1f초" % [
+						int(floorf(healed)), seconds,
+					],
+					diagnosis_kind, 75, serial
 				))
 		&"boss_debuff_applied":
 			if rows.has(&"sprite_artist"):

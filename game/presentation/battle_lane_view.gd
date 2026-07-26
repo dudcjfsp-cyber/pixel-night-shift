@@ -18,7 +18,9 @@ const COLOR_YELLOW := Color("f4c95d")
 const COLOR_CYAN := Color("52d6c8")
 const OPERATOR_UPGRADE_DURATION := 0.55
 const OPERATOR_ATTACK_DURATION := 0.16
-const ATTACK_CADENCE_SECONDS := 0.28
+const OPERATOR_VISUAL_ATTACK_INTERVAL_SECONDS := 1.20
+const OPERATOR_HP_TRACK_SIZE := Vector2(28.0, 4.0)
+const OPERATOR_HP_FILL_WIDTH := 26.0
 const OPERATOR_ATTACK_COLORS := {
 	"debugger": Color("52d6c8"),
 	"build_engineer": Color("f4c95d"),
@@ -218,18 +220,26 @@ func update_from_snapshot(snapshot: Dictionary, previous_snapshot: Dictionary) -
 			and not process_down
 		):
 			_active_operator_ids.append(operator_id)
-		var hp_bar: ProgressBar = _operator_hp_bars[operator_id]
+		var hp_visual := _operator_hp_bars[operator_id] as Dictionary
+		var hp_track := hp_visual["track"] as ColorRect
+		var hp_fill := hp_visual["fill"] as ColorRect
 		var status_label: Label = _operator_status_labels[operator_id]
-		hp_bar.visible = shows_operator_durability and bool(operator_data["unlocked"])
-		status_label.visible = hp_bar.visible
-		if hp_bar.visible:
+		hp_track.visible = shows_operator_durability and bool(operator_data["unlocked"])
+		status_label.visible = hp_track.visible
+		if hp_track.visible:
 			var operator_max_hp := maxf(1.0, float(operator_data["max_hp"]))
-			hp_bar.value = clampf(float(operator_data["hp"]) / operator_max_hp * 100.0, 0.0, 100.0)
+			var hp_ratio := clampf(
+				float(operator_data["hp"]) / operator_max_hp,
+				0.0,
+				1.0
+			)
+			hp_fill.size.x = floorf(OPERATOR_HP_FILL_WIDTH * hp_ratio)
+			hp_fill.color = _operator_hp_color(hp_ratio)
 			status_label.add_theme_font_size_override("font_size", 5 if process_down else 7)
 			status_label.text = (
 				"PROCESS DOWN"
 				if process_down
-				else "%d" % int(round(float(operator_data["hp"])))
+				else _format_number(float(operator_data["hp"]))
 			)
 			status_label.add_theme_color_override("font_color", COLOR_RED if process_down else COLOR_TEXT)
 
@@ -315,24 +325,33 @@ func _build_interface() -> void:
 		portrait.tooltip_text = String(operator_id)
 		operator_slot.add_child(portrait)
 		_operator_portraits[String(operator_id)] = portrait
-		var hp_bar := ProgressBar.new()
-		hp_bar.name = "OperatorHP_%s" % operator_id
-		hp_bar.position = Vector2(0.0, 33.0)
-		hp_bar.size = Vector2(32.0, 5.0)
-		hp_bar.min_value = 0.0
-		hp_bar.max_value = 100.0
-		hp_bar.show_percentage = false
-		hp_bar.visible = false
-		hp_bar.add_theme_stylebox_override("background", _make_style(Color("0c111a"), COLOR_BORDER, 0))
-		hp_bar.add_theme_stylebox_override("fill", _make_style(COLOR_GREEN, COLOR_GREEN, 0))
-		operator_slot.add_child(hp_bar)
-		_operator_hp_bars[String(operator_id)] = hp_bar
+		var hp_track := ColorRect.new()
+		hp_track.name = "OperatorHP_%s" % operator_id
+		hp_track.position = Vector2(2.0, 33.0)
+		hp_track.size = OPERATOR_HP_TRACK_SIZE
+		hp_track.color = Color("0b1119")
+		hp_track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hp_track.visible = false
+		operator_slot.add_child(hp_track)
+		var hp_fill := ColorRect.new()
+		hp_fill.name = "Fill"
+		hp_fill.position = Vector2(1.0, 1.0)
+		hp_fill.size = Vector2(OPERATOR_HP_FILL_WIDTH, 2.0)
+		hp_fill.color = COLOR_CYAN
+		hp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hp_track.add_child(hp_fill)
+		_operator_hp_bars[String(operator_id)] = {
+			"track": hp_track,
+			"fill": hp_fill,
+		}
 		var status_label := _make_label("", 7)
 		status_label.name = "OperatorStatus_%s" % operator_id
-		status_label.position = Vector2(-2.0, 38.0)
+		status_label.position = Vector2(-2.0, 39.0)
 		status_label.size = Vector2(36.0, 10.0)
 		status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		status_label.visible = false
+		status_label.add_theme_color_override("font_outline_color", COLOR_PANEL)
+		status_label.add_theme_constant_override("outline_size", 1)
 		operator_slot.add_child(status_label)
 		_operator_status_labels[String(operator_id)] = status_label
 		var frames: SpriteFrames = ASSETS.make_operator_frames(operator_id)
@@ -390,6 +409,7 @@ func _build_interface() -> void:
 	detail_row.custom_minimum_size.y = 17.0
 	column.add_child(detail_row)
 	_enemy_hp_label = _make_label("HP -- / --", 9)
+	_enemy_hp_label.name = "EnemyHPLabel"
 	_enemy_hp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail_row.add_child(_enemy_hp_label)
 	_timer_label = _make_label("자동 처리 중", 9)
@@ -533,7 +553,7 @@ func _is_same_target(previous_snapshot: Dictionary, snapshot: Dictionary) -> boo
 
 func _try_play_pending_attack() -> void:
 	if (
-		_pending_damage <= 0.000001
+		_pending_damage < 1.0
 		or _attack_cooldown > 0.0
 		or _current_mode not in ["combat", "boss"]
 		or _active_operator_ids.is_empty()
@@ -550,7 +570,7 @@ func _try_play_pending_attack() -> void:
 		_enemy_portrait_slot.get_global_rect().get_center()
 		- _combat_effect_layer.get_global_rect().position
 	)
-	var damage := _pending_damage
+	var damage := floorf(_pending_damage)
 	var accent: Color = OPERATOR_ATTACK_COLORS[operator_id]
 	if not _combat_effect_layer.play_attack(
 		source_position,
@@ -561,8 +581,11 @@ func _try_play_pending_attack() -> void:
 		_reduced_flashes
 	):
 		return
-	_pending_damage = 0.0
-	_attack_cooldown = ATTACK_CADENCE_SECONDS
+	_pending_damage = maxf(0.0, _pending_damage - damage)
+	_attack_cooldown = (
+		OPERATOR_VISUAL_ATTACK_INTERVAL_SECONDS
+		/ float(_active_operator_ids.size())
+	)
 	if not _reduced_motion:
 		_operator_attack_times[operator_id] = OPERATOR_ATTACK_DURATION
 
@@ -717,14 +740,16 @@ func _mode_color(mode: String) -> Color:
 
 
 func _format_number(value: float) -> String:
-	var absolute := absf(value)
-	if absolute >= 1_000_000.0:
-		return "%.2fM" % (value / 1_000_000.0)
-	if absolute >= 1_000.0:
-		return "%.1fK" % (value / 1_000.0)
-	if is_equal_approx(value, roundf(value)):
-		return str(int(roundf(value)))
-	return "%.1f" % value
+	assert(is_finite(value), "Displayed combat numbers must be finite.")
+	return str(int(floorf(value)))
+
+
+func _operator_hp_color(hp_ratio: float) -> Color:
+	if hp_ratio <= 0.25:
+		return COLOR_RED
+	if hp_ratio <= 0.50:
+		return COLOR_YELLOW
+	return COLOR_CYAN
 
 
 func _make_texture_rect(size_pixels: int) -> TextureRect:
