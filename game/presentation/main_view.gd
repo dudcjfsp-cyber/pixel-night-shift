@@ -89,9 +89,11 @@ var _diagnosis_panel: PanelContainer
 var _diagnosis_icon: TextureRect
 var _diagnosis_action_button: Button
 var _diagnosis_severity: String = "info"
+var _report_modal_overlay: Control
 var _appeal_panel: PanelContainer
 var _appeal_cards: Array[Button] = []
 var _appeal_acknowledgment_label: Label
+var _report_close_button: Button
 var _appeal_panel_expanded := false
 var _report_unread := false
 var _report_key := ""
@@ -174,6 +176,10 @@ func set_field_report_state(state: Dictionary) -> bool:
 		push_error("Field report rows require a non-empty report key.")
 		return false
 	var key_changed := next_key != _report_key
+	var state_closed_open_report := (
+		_appeal_panel_expanded
+		and (key_changed or rows.is_empty())
+	)
 	_report_key = next_key
 	_report_rows = rows.duplicate(true)
 	_report_is_v2 = bool(state["is_v2"])
@@ -183,6 +189,8 @@ func set_field_report_state(state: Dictionary) -> bool:
 	if is_node_ready() and _appeal_panel != null:
 		_refresh_appeals()
 		_refresh_tab_styles()
+		if state_closed_open_report and _report_button != null:
+			_report_button.grab_focus()
 	return true
 
 
@@ -317,6 +325,7 @@ func _build_interface() -> void:
 	_build_tabs()
 	_build_feedback_bar()
 	_build_resource_help_bubble()
+	_build_field_report_modal()
 
 
 func _build_header() -> void:
@@ -456,31 +465,98 @@ func _build_diagnosis_panel() -> void:
 	row.add_child(_diagnosis_action_button)
 
 
-func _build_appeal_panel(parent: VBoxContainer) -> void:
+func _build_field_report_modal() -> void:
+	_report_modal_overlay = Control.new()
+	_report_modal_overlay.name = "FieldReportModalOverlay"
+	_report_modal_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_report_modal_overlay.z_index = 100
+	_report_modal_overlay.visible = false
+	add_child(_report_modal_overlay)
+	_report_modal_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var backdrop := ColorRect.new()
+	backdrop.name = "FieldReportBackdrop"
+	backdrop.color = Color(0.02, 0.04, 0.08, 0.78)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	backdrop.gui_input.connect(_on_report_backdrop_gui_input)
+	_report_modal_overlay.add_child(backdrop)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var safe_margin := MarginContainer.new()
+	safe_margin.name = "FieldReportSafeMargin"
+	safe_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_add_margins(safe_margin, 16, 16, 48, 48)
+	_report_modal_overlay.add_child(safe_margin)
+	safe_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var center := CenterContainer.new()
+	center.name = "FieldReportCenter"
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	safe_margin.add_child(center)
+
 	_appeal_panel = _make_panel(Color("172437"), COLOR_YELLOW)
 	_appeal_panel.name = "OperatorAppealPanel"
+	_appeal_panel.custom_minimum_size.y = 360.0
+	_appeal_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_appeal_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_appeal_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_appeal_panel.visible = false
-	parent.add_child(_appeal_panel)
+	center.add_child(_appeal_panel)
 	var margin := MarginContainer.new()
-	_add_margins(margin, 6, 6, 4, 4)
+	_add_margins(margin, 10, 10, 10, 10)
 	_appeal_panel.add_child(margin)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 3)
+	column.add_theme_constant_override("separation", 6)
 	margin.add_child(column)
-	var title := _make_label("실패 보고서 · 사실 확인 후 판단", 10)
+
+	var header := HBoxContainer.new()
+	header.name = "FieldReportHeader"
+	header.custom_minimum_size.y = 48.0
+	header.add_theme_constant_override("separation", 6)
+	column.add_child(header)
+	var report_icon := _make_texture_rect(20)
+	report_icon.name = "FieldReportIcon"
+	report_icon.texture = ASSETS.ui_texture(&"diagnosis")
+	header.add_child(report_icon)
+	var title := _make_label("실패 보고서", 13)
+	title.name = "FieldReportTitle"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_color_override("font_color", COLOR_YELLOW)
-	column.add_child(title)
+	header.add_child(title)
+	_report_close_button = _make_button("닫기", 9)
+	_report_close_button.name = "FieldReportCloseButton"
+	_report_close_button.custom_minimum_size = Vector2(56.0, 48.0)
+	_report_close_button.pressed.connect(_on_report_close_pressed)
+	header.add_child(_report_close_button)
+
+	var guide := _make_label("최근 실패에서 수집된 사실입니다. 판단과 조치는 직접 선택하세요.", 9)
+	guide.name = "FieldReportGuide"
+	guide.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	guide.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	guide.add_theme_color_override("font_color", COLOR_MUTED)
+	column.add_child(guide)
+
+	var report_scroll := ScrollContainer.new()
+	report_scroll.name = "FieldReportScroll"
+	report_scroll.custom_minimum_size.y = 238.0
+	report_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	report_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	report_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(report_scroll)
 	var cards := VBoxContainer.new()
 	cards.name = "OperatorAppealCards"
+	cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cards.add_theme_constant_override("separation", 4)
-	column.add_child(cards)
+	report_scroll.add_child(cards)
 	for index: int in range(MAX_VISIBLE_APPEALS):
 		var card := _make_button("", 8)
 		card.name = "OperatorAppealCard%d" % index
-		card.custom_minimum_size.y = 64.0
+		card.custom_minimum_size.y = 92.0
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		card.expand_icon = true
+		card.expand_icon = false
 		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 		card.focus_mode = Control.FOCUS_NONE
@@ -536,7 +612,6 @@ func _build_operator_page(page_host: Control) -> void:
 	_operator_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_operator_list.add_theme_constant_override("separation", 4)
 	_operator_scroll.add_child(_operator_list)
-	_build_appeal_panel(_operator_list)
 
 
 func _build_patch_page(page_host: Control) -> void:
@@ -950,10 +1025,12 @@ func _refresh_appeals() -> void:
 	var appeals := _report_rows
 	if appeals.is_empty():
 		_appeal_panel_expanded = false
-	_appeal_panel.visible = (
+	var report_visible := (
 		_appeal_panel_expanded
 		and not appeals.is_empty()
 	)
+	_report_modal_overlay.visible = report_visible
+	_appeal_panel.visible = report_visible
 	_appeal_acknowledgment_label.text = ""
 	_appeal_acknowledgment_label.visible = false
 	for index: int in range(_appeal_cards.size()):
@@ -1390,24 +1467,43 @@ func _on_report_pressed() -> void:
 		)
 		return
 	_audio_director.play_cue(&"ui_move")
-	var should_expand := not _appeal_panel_expanded or _active_tab != TAB_OPERATORS
+	if _appeal_panel_expanded:
+		_close_field_report()
+		return
+	_hide_resource_help()
 	var was_unread := _report_unread
 	_report_unread = false
-	_appeal_panel_expanded = should_expand
+	_appeal_panel_expanded = true
 	_report_pulse_elapsed = 0.0
 	if was_unread:
 		field_report_read.emit(_report_key)
-	_show_tab(TAB_OPERATORS)
 	_refresh_appeals()
-	if should_expand:
-		_operator_scroll.set_deferred("scroll_vertical", 0)
-	_show_resource_help(
-		_report_button,
-		"현장 보고서\n열었습니다. 아이콘을 다시 누르면 접힙니다."
-		if should_expand
-		else "현장 보고서\n접었습니다. 아이콘을 누르면 다시 볼 수 있습니다.",
-		true
-	)
+	_report_close_button.grab_focus()
+
+
+func _on_report_close_pressed() -> void:
+	_audio_director.play_cue(&"ui_move")
+	_close_field_report()
+
+
+func _close_field_report() -> void:
+	_appeal_panel_expanded = false
+	_refresh_appeals()
+	if _report_button != null:
+		_report_button.grab_focus()
+
+
+func _on_report_backdrop_gui_input(event: InputEvent) -> void:
+	var activated := false
+	if event is InputEventMouseButton:
+		var mouse_event := event as InputEventMouseButton
+		activated = mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed
+	elif event is InputEventScreenTouch:
+		activated = (event as InputEventScreenTouch).pressed
+	if not activated:
+		return
+	accept_event()
+	_on_report_close_pressed()
 
 
 func _on_resource_chip_gui_input(event: InputEvent, chip: Control) -> void:

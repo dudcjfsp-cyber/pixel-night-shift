@@ -21,7 +21,7 @@ func _run_all() -> void:
 	await _run_test("upgrade acknowledgment and ignored no-penalty", _test_acceptance_and_no_penalty)
 	await _run_test("save reload prevents duplicate appeal counts", _test_save_reload_dedupe)
 	await _run_test(
-		"360-wide field report opens, reads, and reopens without covering combat",
+		"360-wide field report modal opens without changing the active page",
 		_test_pointer_ui
 	)
 	print("=========================================")
@@ -323,11 +323,12 @@ func _test_pointer_ui() -> void:
 	root.add_child(view)
 	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	await _wait_frames(8)
+	var modal := view.find_child("FieldReportModalOverlay", true, false) as Control
 	var panel := view.find_child("OperatorAppealPanel", true, false) as Control
 	var card := view.find_child("OperatorAppealCard0", true, false) as Button
 	var report_button := view.find_child("FieldReportButton", true, false) as Button
-	var battle := view.find_child("BattleLaneView", true, false) as Control
-	var diagnosis := view.find_child("DiagnosisActionButton", true, false) as Control
+	var close_button := view.find_child("FieldReportCloseButton", true, false) as Button
+	var operator_scroll := view.find_child("OperatorPageScroll", true, false) as Control
 	_check(
 		report_button != null
 			and report_button.visible
@@ -340,17 +341,52 @@ func _test_pointer_ui() -> void:
 		"unread report icon must identify the new report"
 	)
 	_check(view.size.x == 360.0, "pointer fixture must use the 360-wide authority layout")
+	_check(modal != null and not modal.visible, "unread field report modal must start collapsed")
+	_check(view.set_active_tab(MainView.TAB_PATCHES), "fixture must switch to the patch page")
 	if report_button != null:
 		report_button.pressed.emit()
 		await _wait_frames(2)
-	_check(panel != null and panel.visible, "report icon must open the cached failure report")
+	_check(
+		modal != null
+			and modal.visible
+			and panel != null
+			and panel.visible,
+		"report icon must open the cached failure report as a modal"
+	)
+	_check(
+		view.get_active_tab() == MainView.TAB_PATCHES,
+		"opening the report modal must preserve the active gameplay page"
+	)
+	_check(
+		modal != null
+			and modal.get_parent() == view
+			and operator_scroll != null
+			and panel != null
+			and not operator_scroll.is_ancestor_of(panel),
+		"field report modal must stay outside the operator-page layout"
+	)
+	_check(
+		modal != null
+			and panel != null
+			and view.get_global_rect().encloses(modal.get_global_rect())
+			and view.get_global_rect().encloses(panel.get_global_rect()),
+		"field report overlay and dialog must fit inside the 360x640 viewport"
+	)
 	_check(
 		card != null
 			and card.visible
 			and card.size.y >= 44.0
+			and not card.expand_icon
 			and card.focus_mode == Control.FOCUS_NONE
 			and card.mouse_filter == Control.MOUSE_FILTER_IGNORE,
-		"field report rows must be readable, non-interactive cards"
+		"field report rows must keep native-size portraits in readable non-interactive cards"
+	)
+	_check(
+		close_button != null
+			and close_button.visible
+			and close_button.custom_minimum_size.x >= 48.0
+			and close_button.custom_minimum_size.y >= 48.0,
+		"field report modal must expose a mobile-safe close button"
 	)
 	_check(
 		read_keys == [report_key],
@@ -362,19 +398,25 @@ func _test_pointer_ui() -> void:
 			and is_equal_approx(report_button.self_modulate.a, 1.0),
 		"reading the report must stop its unread pulse"
 	)
-	if panel != null and battle != null:
-		_check(not panel.get_global_rect().intersects(battle.get_global_rect()), "appeals must not cover combat")
-	if panel != null and diagnosis != null:
-		_check(not panel.get_global_rect().intersects(diagnosis.get_global_rect()), "appeals must not cover diagnosis controls")
-	if report_button != null:
-		report_button.pressed.emit()
+	if close_button != null:
+		close_button.pressed.emit()
 		await _wait_frames(2)
-	_check(panel != null and not panel.visible, "report icon must collapse an open report")
+	_check(
+		modal != null
+			and not modal.visible
+			and panel != null
+			and not panel.visible,
+		"close button must collapse an open report modal"
+	)
 	if report_button != null:
 		report_button.pressed.emit()
 		await _wait_frames(2)
 	_check(
-		panel != null and panel.visible and read_keys == [report_key],
+		modal != null
+			and modal.visible
+			and panel != null
+			and panel.visible
+			and read_keys == [report_key],
 		"read report must reopen without becoming unread again"
 	)
 	view.queue_free()

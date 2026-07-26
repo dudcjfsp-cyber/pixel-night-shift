@@ -346,6 +346,7 @@ func _test_commands_and_state_ui() -> void:
 					and not bool(report_after_retry["unread"]),
 				"automatic retry must preserve the read report"
 			)
+			await _click_named(fixture_app, "FieldReportCloseButton")
 			await _click_named(fixture_app, "OperationsRoomButton")
 			await _click_named(fixture_app, "PrimaryActionButton")
 			var report_after_navigation := fixture_app.field_report_state()
