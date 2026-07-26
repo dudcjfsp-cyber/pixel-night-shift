@@ -249,6 +249,7 @@ func snapshot() -> Dictionary:
 			"id": String(definition.id),
 			"name": definition.display_name,
 			"role": definition.role_name,
+			"ability": definition.ability_description,
 			"level": level,
 			"unlocked": _state.is_operator_unlocked(definition.id),
 			"dps": ProgressionRules.operator_dps(definition, level),

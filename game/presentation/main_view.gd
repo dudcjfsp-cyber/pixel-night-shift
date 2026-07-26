@@ -642,7 +642,7 @@ func _validate_snapshot(data: Dictionary) -> String:
 				return "Combat V2 emergency_redeploy.%s is missing." % key
 		for item: Variant in data["operators"]:
 			for key: String in [
-				"role", "hp", "max_hp", "process_down", "recovery_source",
+				"role", "ability", "hp", "max_hp", "process_down", "recovery_source",
 				"recovery_remaining", "redeploy_eligible",
 			]:
 				if not item.has(key):
@@ -699,7 +699,7 @@ func _validate_production_snapshot(data: Dictionary, enemy: Dictionary) -> Strin
 			return "production enemy.%s is missing." % key
 	for item: Variant in data["operators"]:
 		for key: String in [
-			"role", "effective_dps", "hp", "max_hp", "down", "process_down",
+			"role", "ability", "effective_dps", "hp", "max_hp", "down", "process_down",
 		]:
 			if not item.has(key):
 				return "production operator.%s is missing." % key
@@ -849,6 +849,7 @@ func _refresh_operators() -> void:
 		var row_data: Dictionary = _operator_rows[operator_id]
 		var panel: PanelContainer = row_data["panel"]
 		var info_label: Label = row_data["info"]
+		var ability_label: Label = row_data["ability"]
 		var upgrade_button: Button = row_data["button"]
 		var redeploy_button: Button = row_data["redeploy"]
 		var unlocked := bool(operator_data["unlocked"])
@@ -882,6 +883,9 @@ func _refresh_operators() -> void:
 		else:
 			info_label.text = "%s\n진행하면 자동 합류" % String(operator_data["name"])
 			upgrade_button.text = "잠김"
+		var ability_description := String(operator_data["ability"])
+		ability_label.text = "보스 특성 · %s" % ability_description
+		ability_label.tooltip_text = ability_description
 		upgrade_button.disabled = not unlocked
 		redeploy_button.visible = (
 			bool(_snapshot["combat_v2_test_mode"])
@@ -935,10 +939,22 @@ func _create_operator_row(operator_data: Dictionary) -> void:
 	info.autowrap_mode = TextServer.AUTOWRAP_OFF
 	info.clip_text = true
 	info.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	info.custom_minimum_size.x = 110.0
 	info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(info)
+	var info_column := VBoxContainer.new()
+	info_column.custom_minimum_size.x = 110.0
+	info_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_column.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info_column.add_theme_constant_override("separation", 0)
+	row.add_child(info_column)
+	info_column.add_child(info)
+	var ability := _make_label("", 8)
+	ability.name = "OperatorAbility_%s" % operator_id
+	ability.autowrap_mode = TextServer.AUTOWRAP_OFF
+	ability.clip_text = true
+	ability.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	ability.add_theme_color_override("font_color", COLOR_CYAN)
+	info_column.add_child(ability)
 	var button := _make_button("강화", 10)
 	button.name = "UpgradeOperator_%s" % operator_id
 	button.custom_minimum_size = Vector2(72.0, 48.0)
@@ -958,6 +974,7 @@ func _create_operator_row(operator_data: Dictionary) -> void:
 	_operator_rows[operator_id] = {
 		"panel": panel,
 		"info": info,
+		"ability": ability,
 		"button": button,
 		"redeploy": redeploy,
 		"portrait": portrait,

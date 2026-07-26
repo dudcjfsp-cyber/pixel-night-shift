@@ -15,6 +15,7 @@ const OPERATOR_KEYS: PackedStringArray = [
 	"id",
 	"name",
 	"role_name",
+	"ability_description",
 	"base_dps",
 	"base_cost",
 	"cost_growth",
@@ -141,6 +142,9 @@ static func _parse_operators(raw_items: Array, result: ContentLoadResult) -> Arr
 		var id := _required_string(data, "id", context, result)
 		var display_name := _required_string(data, "name", context, result)
 		var role_name := _required_string(data, "role_name", context, result)
+		var ability_description := _required_string(
+			data, "ability_description", context, result
+		)
 		var base_dps := _required_positive_float(data, "base_dps", context, result)
 		var base_cost := _required_positive_float(data, "base_cost", context, result)
 		var cost_growth := _required_positive_float(data, "cost_growth", context, result)
@@ -184,6 +188,7 @@ static func _parse_operators(raw_items: Array, result: ContentLoadResult) -> Arr
 			StringName(id),
 			display_name,
 			role_name,
+			ability_description,
 			base_dps,
 			base_cost,
 			cost_growth,

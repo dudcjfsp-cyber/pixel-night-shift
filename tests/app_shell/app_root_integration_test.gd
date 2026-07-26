@@ -131,6 +131,11 @@ func _test_main_and_first_shift() -> void:
 	_check(app.current_screen_id() == AppRoot.SCREEN_GAMEPLAY, "first save success must enter gameplay")
 	_check(app.current_overlay_id() == AppRoot.OVERLAY_ONBOARDING, "first gameplay must open onboarding")
 	_check(app.find_child("OperationsRoomButton", true, false) is Button, "configured gameplay UI must finish building")
+	var debugger_ability := app.find_child("OperatorAbility_debugger", true, false) as Label
+	_check(
+		debugger_ability != null and "공격 우선 대상" in debugger_ability.text,
+		"operator cards must expose their boss ability"
+	)
 	_check_touch_targets(app, "onboarding")
 	var saved := repository.load()
 	_check(saved.status == SaveLoadResult.Status.LOADED, "first shift must save before gameplay")

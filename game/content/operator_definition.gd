@@ -4,6 +4,7 @@ extends RefCounted
 var id: StringName
 var display_name: String
 var role_name: String
+var ability_description: String
 var base_dps: float
 var base_cost: float
 var cost_growth: float
@@ -23,6 +24,7 @@ func _init(
 	operator_id: StringName,
 	operator_name: String,
 	operator_role_name: String,
+	operator_ability_description: String,
 	operator_base_dps: float,
 	operator_base_cost: float,
 	operator_cost_growth: float,
@@ -40,6 +42,7 @@ func _init(
 	id = operator_id
 	display_name = operator_name
 	role_name = operator_role_name
+	ability_description = operator_ability_description
 	base_dps = operator_base_dps
 	base_cost = operator_base_cost
 	cost_growth = operator_cost_growth

@@ -350,6 +350,11 @@ func _test_content_validation() -> void:
 	if valid_result.is_valid():
 		_check(valid_result.catalog.operators.size() == 4, "default content must contain four operators")
 		_check(valid_result.catalog.patches.size() == 5, "default content must contain five patches")
+		for definition: OperatorDefinition in valid_result.catalog.operators:
+			_check(
+				not definition.ability_description.is_empty(),
+				"default operator '%s' must explain its ability" % definition.id
+			)
 		for operator_id: StringName in OPERATOR_IDS:
 			_check(
 				valid_result.catalog.has_operator(operator_id),
@@ -381,7 +386,13 @@ func _test_content_validation() -> void:
 
 	var session := GameSessionScript.new()
 	var snapshot: Dictionary = session.snapshot()
-	_check((snapshot.get("operators", []) as Array).size() == 4, "session snapshot must expose four operators")
+	var operator_rows := snapshot.get("operators", []) as Array
+	_check(operator_rows.size() == 4, "session snapshot must expose four operators")
+	for operator_data: Dictionary in operator_rows:
+		_check(
+			not String(operator_data.get("ability", "")).is_empty(),
+			"session operator '%s' must expose its ability" % operator_data.get("id", "")
+		)
 	_check((snapshot.get("patches", []) as Array).size() == 5, "session snapshot must expose five patches")
 	_check(String(snapshot.get("last_error", "")).is_empty(), "valid default content must not set last_error")
 

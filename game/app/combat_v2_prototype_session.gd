@@ -153,6 +153,7 @@ func snapshot() -> Dictionary:
 			"id": String(definition.id),
 			"name": definition.display_name,
 			"role": _catalog.get_operator(definition.id).role_name,
+			"ability": definition.ability_description,
 			"level": level,
 			"unlocked": unlocked,
 			"dps": CombatV2Simulator.operator_effective_dps(
