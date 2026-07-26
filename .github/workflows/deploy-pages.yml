@@ -42,12 +42,25 @@ jobs:
 
       - name: Export Web build
         shell: bash
+        env:
+          WEB_BUILD_BASENAME: pixel-night-shift-${{ github.sha }}
         run: |
           mkdir -p build/web
           "./Godot_v${GODOT_VERSION}-stable_linux.x86_64" \
             --headless \
             --path . \
             --export-release Web \
+            "build/web/${WEB_BUILD_BASENAME}.html"
+          mv "build/web/${WEB_BUILD_BASENAME}.html" build/web/index.html
+
+          for extension in js wasm pck; do
+            test -f "build/web/${WEB_BUILD_BASENAME}.${extension}"
+          done
+          grep -Eq \
+            "src=[\"']${WEB_BUILD_BASENAME}\.js[\"']" \
+            build/web/index.html
+          grep -Eq \
+            "\"executable\"[[:space:]]*:[[:space:]]*\"${WEB_BUILD_BASENAME}\"" \
             build/web/index.html
 
       - name: Configure GitHub Pages
