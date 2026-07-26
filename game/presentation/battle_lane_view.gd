@@ -406,14 +406,17 @@ func _build_interface() -> void:
 	column.add_child(_enemy_hp_bar)
 
 	var detail_row := HBoxContainer.new()
-	detail_row.custom_minimum_size.y = 17.0
+	detail_row.custom_minimum_size.y = 22.0
 	column.add_child(detail_row)
 	_enemy_hp_label = _make_label("HP -- / --", 9)
 	_enemy_hp_label.name = "EnemyHPLabel"
+	_enemy_hp_label.custom_minimum_size.y = 22.0
+	_enemy_hp_label.clip_text = false
 	_enemy_hp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail_row.add_child(_enemy_hp_label)
 	_timer_label = _make_label("자동 처리 중", 9)
 	_timer_label.custom_minimum_size.x = 142.0
+	_timer_label.custom_minimum_size.y = 22.0
 	_timer_label.clip_text = true
 	_timer_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

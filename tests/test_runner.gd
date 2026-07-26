@@ -677,6 +677,12 @@ func _test_battle_lane_animation_events_and_layout() -> void:
 		enemy_hp_label != null and enemy_hp_label.text == "HP 190 / 330",
 		"enemy HP must discard decimals instead of rounding them"
 	)
+	_check(
+		enemy_hp_label != null
+			and enemy_hp_label.custom_minimum_size.y >= 22.0
+			and not enemy_hp_label.clip_text,
+		"enemy HP text must keep enough vertical room to avoid clipping"
+	)
 
 	var durability_snapshot := snapshot.duplicate(true)
 	durability_snapshot["combat_v2_test_mode"] = true
