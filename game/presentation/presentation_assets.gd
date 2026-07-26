@@ -270,7 +270,12 @@ static func _validate_run(
 		errors.append("%s has unsafe game_input '%s'." % [context, game_input])
 		return
 	var atlas_path := manifest_path.get_base_dir().path_join(game_input)
-	if not _validate_hash(atlas_path, String(entry.get("atlas_sha256", "")), context, errors):
+	if not _validate_imported_resource_hash(
+		atlas_path,
+		String(entry.get("atlas_sha256", "")),
+		context,
+		errors
+	):
 		return
 	var cell_value: Variant = manifest.get("cell", {})
 	var animation_value: Variant = manifest.get("animation", {})
@@ -474,6 +479,25 @@ static func _validate_hash(
 		errors.append("%s SHA-256 mismatch for %s." % [context, path])
 		return false
 	return true
+
+
+static func _validate_imported_resource_hash(
+	path: String,
+	expected_hash: String,
+	context: String,
+	errors: Array[String]
+) -> bool:
+	if FileAccess.file_exists(path):
+		return _validate_hash(path, expected_hash, context, errors)
+	if (
+		not OS.has_feature("editor")
+		and ResourceLoader.exists(path)
+		and expected_hash.length() == 64
+		and expected_hash.is_valid_hex_number(false)
+	):
+		return true
+	errors.append("%s is missing file: %s" % [context, path])
+	return false
 
 
 static func _positive_int(value: Variant, context: String, errors: Array[String]) -> int:
