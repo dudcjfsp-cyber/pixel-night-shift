@@ -6,6 +6,9 @@ const EPSILON := 0.000001
 const STABLE_OPERATOR_IDS: Array[StringName] = [
 	&"debugger", &"build_engineer", &"sprite_artist", &"qa_imp",
 ]
+const REPEATABLE_FAILURE_TRIGGERS: Array[StringName] = [
+	&"normal_failure", &"boss_failure",
+]
 
 
 class AppealResult:
@@ -70,7 +73,10 @@ static func evaluate(
 		if not _matches(definition, visible_evidence):
 			continue
 		var stage_dedupe := "%d:%s" % [stage, definition.dedupe_key]
-		if seen_stage_dedupes.has(stage_dedupe):
+		if (
+			not REPEATABLE_FAILURE_TRIGGERS.has(trigger)
+			and seen_stage_dedupes.has(stage_dedupe)
+		):
 			continue
 		if (
 			not ignore_cooldowns

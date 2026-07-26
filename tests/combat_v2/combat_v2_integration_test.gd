@@ -192,6 +192,54 @@ func _test_commands_and_state_ui() -> void:
 	_check(repository.save(command_session.export_state(), 3000, 0) == OK, "command fixture must save")
 	var app := await _mount(production, repository, true, FakeClock.new(3000))
 	await _continue_saved_to_gameplay(app)
+	var initial_report := app.field_report_state()
+	_check(
+		(initial_report["rows"] as Array).is_empty() and not bool(initial_report["unread"]),
+		"ordinary diagnosis opinions must not masquerade as a failure report"
+	)
+	var chip_names: PackedStringArray = [
+		"BitsResourceChip", "PatchNotesResourceChip", "StageResourceChip",
+	]
+	var expected_terms: PackedStringArray = ["비트", "실패 횟수", "스테이지"]
+	for index: int in chip_names.size():
+		var chip := app.find_child(chip_names[index], true, false) as Control
+		var help_text := (
+			String(chip.get_meta(&"resource_help", ""))
+			if chip != null
+			else ""
+		)
+		_check(
+			chip != null
+				and chip.custom_minimum_size.y >= 48.0
+				and expected_terms[index] in help_text,
+			"%s must expose a 48px touch target and the correct explanation" % chip_names[index]
+		)
+	var bits_chip := app.find_child("BitsResourceChip", true, false) as Control
+	if bits_chip != null:
+		var bottom_feedback := app.find_child("GameplayFeedbackLabel", true, false) as Label
+		var bottom_text_before := bottom_feedback.text if bottom_feedback != null else ""
+		var bits_help := String(bits_chip.get_meta(&"resource_help", ""))
+		var touch := InputEventScreenTouch.new()
+		touch.index = 0
+		touch.position = bits_chip.get_global_rect().get_center()
+		touch.pressed = true
+		bits_chip.gui_input.emit(touch)
+		await process_frame
+		var resource_help := app.find_child("ResourceHelpBubbleLabel", true, false) as Label
+		var resource_bubble := app.find_child("ResourceHelpBubble", true, false) as Control
+		_check(
+			resource_help != null
+				and resource_help.text == bits_help
+				and resource_bubble != null
+				and resource_bubble.visible
+				and resource_bubble.get_global_rect().position.y
+					>= bits_chip.get_global_rect().end.y,
+			"touching a status symbol must show its explanation beside the icon"
+		)
+		_check(
+			bottom_feedback != null and bottom_feedback.text == bottom_text_before,
+			"resource help must not replace the gameplay feedback bar"
+		)
 	var before_level := _operator_level(app.session_snapshot(), "debugger")
 	await _click_named(app, "UpgradeOperator_debugger")
 	_check(_operator_level(app.session_snapshot(), "debugger") == before_level + 1, "pointer upgrade must reach V2 simulator")
@@ -236,12 +284,6 @@ func _test_commands_and_state_ui() -> void:
 			and debugger_ability.get_theme_font_size("font_size") == 9,
 		"operator boss ability must use the compact readable mobile label"
 	)
-	var appeal_card := app.find_child("OperatorAppealCard0", true, false) as Button
-	_check(appeal_card != null and appeal_card.visible and appeal_card.size.y >= 44.0, "appeal pointer target must be visible and at least 44px")
-	if appeal_card != null and appeal_card.visible:
-		appeal_card.pressed.emit()
-		await process_frame
-		_check(app.last_gameplay_tab() == 0, "appeal review must focus the operator tab without auto-purchase")
 	await _unmount(app)
 
 	for fixture_name: StringName in [&"qa", &"emergency", &"maintenance"]:
@@ -271,11 +313,58 @@ func _test_commands_and_state_ui() -> void:
 			_check(String(_operator_row(after, "build_engineer")["recovery_source"]) == "emergency", "emergency target must show scheduled recovery")
 		if fixture_name == &"maintenance":
 			_check("재시도 3.5초" in text and "실패" in text, "failure reason and maintenance countdown must be visible")
+			var report_before := fixture_app.field_report_state()
+			var report_key := String(report_before["key"])
+			var report_rows := (report_before["rows"] as Array).duplicate(true)
+			var fixture_report_panel := fixture_app.find_child(
+				"OperatorAppealPanel", true, false
+			) as Control
+			_check(
+				not report_key.is_empty()
+					and not report_rows.is_empty()
+					and bool(report_before["unread"])
+					and fixture_report_panel != null
+					and not fixture_report_panel.visible,
+				"restored failure must create one collapsed unread report"
+			)
+			await _click_named(fixture_app, "FieldReportButton")
+			_check(
+				fixture_report_panel != null
+					and fixture_report_panel.visible
+					and not bool(fixture_app.field_report_state()["unread"]),
+				"opening a failure report must mark it read"
+			)
 			var failures := int(fixture_app.session_snapshot()["failure_count"])
 			fixture_app._process(3.6)
 			var retried := fixture_app.session_snapshot()
-			_check(String(retried["mode"]) != "maintenance", "maintenance must deterministically retry")
-			_check(int(retried["failure_count"]) == failures, "retry must preserve failure count")
+			var report_after_retry := fixture_app.field_report_state()
+			_check(
+				String(retried["mode"]) != "maintenance"
+					and int(retried["failure_count"]) == failures
+					and String(report_after_retry["key"]) == report_key
+					and (report_after_retry["rows"] as Array) == report_rows
+					and not bool(report_after_retry["unread"]),
+				"automatic retry must preserve the read report"
+			)
+			await _click_named(fixture_app, "OperationsRoomButton")
+			await _click_named(fixture_app, "PrimaryActionButton")
+			var report_after_navigation := fixture_app.field_report_state()
+			var recreated_panel := fixture_app.find_child(
+				"OperatorAppealPanel", true, false
+			) as Control
+			_check(
+				String(report_after_navigation["key"]) == report_key
+					and (report_after_navigation["rows"] as Array) == report_rows
+					and not bool(report_after_navigation["unread"])
+					and recreated_panel != null
+					and not recreated_panel.visible,
+				"Operations Room navigation must preserve read state in the recreated view"
+			)
+			await _click_named(fixture_app, "FieldReportButton")
+			_check(
+				recreated_panel != null and recreated_panel.visible,
+				"cached report must remain reopenable after gameplay navigation"
+			)
 		await _unmount(fixture_app)
 
 
@@ -346,37 +435,50 @@ func _test_production_hybrid_ui() -> void:
 		not appeals.is_empty() and appeals.size() <= 2,
 		"production boss diagnosis must expose one or two factual appeals"
 	)
-	var visible_appeals: Array[Button] = []
-	for index: int in range(2):
-		var card := app.find_child("OperatorAppealCard%d" % index, true, false) as Button
-		if card != null and card.is_visible_in_tree():
-			visible_appeals.append(card)
+	var initial_report_state := app.field_report_state()
 	_check(
-		visible_appeals.size() == appeals.size(),
-		"operator tab must render exactly the bounded production appeal set"
+		int(snapshot["boss_failure_count"]) == 0
+			and (initial_report_state["rows"] as Array).is_empty()
+			and not bool(initial_report_state["unread"]),
+		"process-down diagnosis before the first boss failure must not trigger a report alert"
 	)
-	for card: Button in visible_appeals:
-		_check(card.size.y >= 44.0, "each production appeal must keep a 44px pointer target")
-
-	var lane := app.find_child("BattleLaneView", true, false) as Control
+	var initial_failure_count := int(snapshot["boss_failure_count"])
+	for _step: int in range(int(90.0 / STEP)):
+		if int(app.session_snapshot()["boss_failure_count"]) > initial_failure_count:
+			break
+		app._process(STEP)
+	var failed_snapshot := app.session_snapshot()
+	_check(
+		int(failed_snapshot["boss_failure_count"]) == initial_failure_count + 1,
+		"production fixture must reach its next boss failure"
+	)
+	var failed_report_state := app.field_report_state()
+	_check(
+		not String(failed_report_state["key"]).is_empty()
+			and not (failed_report_state["rows"] as Array).is_empty()
+			and bool(failed_report_state["unread"]),
+		"production boss failure must publish one unread factual report"
+	)
+	var report_button := app.find_child("FieldReportButton", true, false) as Button
 	var appeal_panel := app.find_child("OperatorAppealPanel", true, false) as Control
 	_check(
-		lane != null and appeal_panel != null
-		and not lane.get_global_rect().intersects(appeal_panel.get_global_rect()),
-		"appeals must stay in the operator scroll area without covering the battle lane"
+		report_button != null
+			and appeal_panel != null
+			and not appeal_panel.visible,
+		"production report notification must stay visible while its panel starts collapsed"
 	)
-	if not visible_appeals.is_empty():
-		var gameplay := _screen_child(app) as MainView
-		_check(gameplay != null and gameplay.set_active_tab(1), "production gameplay must expose patch navigation")
-		_check(gameplay.get_active_tab() == 1, "appeal navigation test must start on the patch tab")
-		var before_selection := app.session_snapshot()
-		visible_appeals[0].pressed.emit()
-		await process_frame
-		_check(gameplay.get_active_tab() == 0, "appeal review must return focus to the operator tab")
-		_check(
-			app.session_snapshot() == before_selection,
-			"appeal review must not issue a manual combat or upgrade command"
-		)
+	var before_report_open := app.session_snapshot()
+	await _click_named(app, "FieldReportButton")
+	_check(
+		appeal_panel != null
+			and appeal_panel.visible
+			and not bool(app.field_report_state()["unread"]),
+		"production report icon must open and acknowledge the latest failure report"
+	)
+	_check(
+		app.session_snapshot() == before_report_open,
+		"reading a failure report must not issue a combat or progression command"
+	)
 	await _unmount(app)
 
 
@@ -481,7 +583,24 @@ func _fixture_session(kind: StringName) -> CombatV2IntegrationSession:
 		state.enemy_locked_target_id = &""
 	var restore_errors := prototype.restore_state(CombatV2StateDto.export_state(state))
 	assert(restore_errors.is_empty(), "fixture state must validate: %s" % "; ".join(restore_errors))
-	return CombatV2IntegrationSession.new(prototype)
+	var integration := CombatV2IntegrationSession.new(prototype)
+	if kind == &"maintenance":
+		var exported := integration.export_state()
+		var appeal_state := exported["appeals"] as Dictionary
+		appeal_state["current_rule_ids"] = [
+			"debugger_normal_failure", "sprite_normal_failure",
+		]
+		appeal_state["shown_count"] = 2
+		appeal_state["accepted_count"] = 0
+		appeal_state["dismissed_count"] = 0
+		appeal_state["current_trigger_priority"] = 90
+		var restored := CombatV2IntegrationSession.new()
+		assert(
+			restored.restore_state(exported).is_empty(),
+			"maintenance fixture requires restored failure reports"
+		)
+		return restored
+	return integration
 
 
 func _drive_session(session: Variant, max_seconds: float, target_stage: int) -> void:

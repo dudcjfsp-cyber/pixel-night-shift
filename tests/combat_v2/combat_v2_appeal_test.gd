@@ -20,7 +20,10 @@ func _run_all() -> void:
 	await _run_test("failure presents two factual role-biased opinions", _test_failure_opinions)
 	await _run_test("upgrade acknowledgment and ignored no-penalty", _test_acceptance_and_no_penalty)
 	await _run_test("save reload prevents duplicate appeal counts", _test_save_reload_dedupe)
-	await _run_test("360-wide pointer review panel does not cover combat", _test_pointer_ui)
+	await _run_test(
+		"360-wide field report opens, reads, and reopens without covering combat",
+		_test_pointer_ui
+	)
 	print("=========================================")
 	print("RESULT: %d passed, %d failed, %d assertion failures" % [
 		_passed, _failed, _assertion_failures,
@@ -128,11 +131,53 @@ func _test_rule_selection() -> void:
 		"1:sprite_normal_failure": true,
 		"1:qa_normal_failure": true,
 	}
+	var repeated_failure := OperatorAppealRules.evaluate(
+		catalog, &"normal_failure", evidence, 1, 10.0, dedupes, _ready_times(), 0.0, true
+	)
+	_check(
+		repeated_failure.size() == 2,
+		"same-stage normal failures must present a fresh report"
+	)
+	var boss_evidence := evidence.duplicate(true)
+	boss_evidence["boss_failure_count"] = 1
+	var repeated_boss_failure := OperatorAppealRules.evaluate(
+		catalog,
+		&"boss_failure",
+		boss_evidence,
+		1,
+		10.0,
+		{
+			"1:debugger_boss_failure": true,
+			"1:build_boss_failure": true,
+			"1:qa_boss_failure": true,
+		},
+		_ready_times(),
+		0.0,
+		true
+	)
+	_check(
+		repeated_boss_failure.size() == 2,
+		"same-stage boss failures must present a fresh report"
+	)
+	var down_evidence := evidence.duplicate(true)
+	down_evidence["current_downs"] = 1
+	down_evidence["event_operator_id"] = "debugger"
 	_check(
 		OperatorAppealRules.evaluate(
-			catalog, &"normal_failure", evidence, 1, 10.0, dedupes, _ready_times(), 0.0, true
+			catalog,
+			&"operator_down",
+			down_evidence,
+			1,
+			10.0,
+			{
+				"1:debugger_operator_down": true,
+				"1:sprite_operator_down": true,
+			},
+			_ready_times(),
+			0.0,
+			true
 		).is_empty(),
-		"same-stage dedupe must suppress every repeated failure opinion"
+		"same-stage dedupe must continue suppressing ordinary repeated opinions"
 	)
 	var incoming := evidence.duplicate(true)
 	incoming["diagnosis_kind"] = "incoming_damage"
@@ -256,33 +301,81 @@ func _test_pointer_ui() -> void:
 	var audio := AudioDirector.new()
 	root.add_child(audio)
 	var view := MainView.new()
-	var session := CombatV2IntegrationSession.new(_rich_prototype())
-	var target_operator := String(((session.snapshot()["appeals"] as Array)[0] as Dictionary)["operator_id"])
+	var session := _live_failure_session()
+	session.tick(0.01)
+	var snapshot := session.snapshot()
+	var report_key := "v2:%d:%d" % [
+		int(snapshot["run_count"]),
+		int(snapshot["failure_count"]),
+	]
 	_check(view.configure(session, audio), "view must configure")
+	_check(
+		view.set_field_report_state({
+			"key": report_key,
+			"rows": (snapshot["appeals"] as Array).duplicate(true),
+			"is_v2": true,
+			"unread": true,
+		}),
+		"view must accept a cached unread failure report"
+	)
+	var read_keys: Array[String] = []
+	view.field_report_read.connect(func(key: String) -> void: read_keys.append(key))
 	root.add_child(view)
 	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	await _wait_frames(8)
 	var panel := view.find_child("OperatorAppealPanel", true, false) as Control
 	var card := view.find_child("OperatorAppealCard0", true, false) as Button
+	var report_button := view.find_child("FieldReportButton", true, false) as Button
 	var battle := view.find_child("BattleLaneView", true, false) as Control
 	var diagnosis := view.find_child("DiagnosisActionButton", true, false) as Control
-	_check(panel != null and panel.visible, "V2 gameplay must show the field-opinion panel")
-	_check(card != null and card.visible and card.size.y >= 44.0, "appeal review target must be at least 44px")
+	_check(
+		report_button != null
+			and report_button.visible
+			and report_button.custom_minimum_size == Vector2(48.0, 48.0),
+		"field report alert must keep a visible 48px touch target"
+	)
+	_check(panel != null and not panel.visible, "unread field report must start collapsed")
+	_check(
+		report_button != null and "새 보고서" in report_button.tooltip_text,
+		"unread report icon must identify the new report"
+	)
 	_check(view.size.x == 360.0, "pointer fixture must use the 360-wide authority layout")
+	if report_button != null:
+		report_button.pressed.emit()
+		await _wait_frames(2)
+	_check(panel != null and panel.visible, "report icon must open the cached failure report")
+	_check(
+		card != null
+			and card.visible
+			and card.size.y >= 44.0
+			and card.focus_mode == Control.FOCUS_NONE
+			and card.mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"field report rows must be readable, non-interactive cards"
+	)
+	_check(
+		read_keys == [report_key],
+		"first report opening must acknowledge exactly the current report key"
+	)
+	_check(
+		report_button != null
+			and not "새 보고서" in report_button.tooltip_text
+			and is_equal_approx(report_button.self_modulate.a, 1.0),
+		"reading the report must stop its unread pulse"
+	)
 	if panel != null and battle != null:
 		_check(not panel.get_global_rect().intersects(battle.get_global_rect()), "appeals must not cover combat")
 	if panel != null and diagnosis != null:
 		_check(not panel.get_global_rect().intersects(diagnosis.get_global_rect()), "appeals must not cover diagnosis controls")
-	_check(view.set_active_tab(MainView.TAB_PATCHES), "fixture must enter patch review first")
-	if card != null:
-		card.pressed.emit()
+	if report_button != null:
+		report_button.pressed.emit()
 		await _wait_frames(2)
-	_check(view.get_active_tab() == MainView.TAB_OPERATORS, "appeal pointer must focus operator review without buying")
-	var focused_panel := view.find_child("OperatorCard_%s" % target_operator, true, false) as PanelContainer
-	var focused_style := focused_panel.get_theme_stylebox("panel") as StyleBoxFlat if focused_panel != null else null
+	_check(panel != null and not panel.visible, "report icon must collapse an open report")
+	if report_button != null:
+		report_button.pressed.emit()
+		await _wait_frames(2)
 	_check(
-		focused_style != null and focused_style.border_color == Color("f4c95d"),
-		"appeal pointer must visibly highlight the selected operator card"
+		panel != null and panel.visible and read_keys == [report_key],
+		"read report must reopen without becoming unread again"
 	)
 	view.queue_free()
 	audio.queue_free()
@@ -384,7 +477,7 @@ func _live_failure_session() -> CombatV2IntegrationSession:
 
 func _drive_to_stage(prototype: CombatV2PrototypeSession, target_stage: int) -> void:
 	var next_decision := 0.0
-	for step: int in range(int(900.0 / STEP)):
+	for step: int in range(int(1800.0 / STEP)):
 		var snapshot := prototype.snapshot()
 		if int(snapshot["stage"]) >= target_stage:
 			return

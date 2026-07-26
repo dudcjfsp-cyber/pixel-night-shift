@@ -32,9 +32,8 @@ func _capture_all() -> void:
 	errors += await _capture_fixture(output, &"qa", "02_combat_hp_down.png")
 	errors += await _capture_fixture(output, &"emergency", "03_emergency_selection.png")
 	errors += await _capture_fixture(output, &"maintenance", "04_maintenance_countdown.png")
-	errors += await _capture_fixture(output, &"appeal_diagnosis", "06_diagnosis_appeal.png")
-	errors += await _capture_fixture(output, &"appeal_failure", "07_failure_conflicting_appeals.png")
-	errors += await _capture_fixture(output, &"appeal_ack", "08_upgrade_acknowledgment.png")
+	errors += await _capture_fixture(output, &"appeal_diagnosis", "06_report_idle.png")
+	errors += await _capture_fixture(output, &"appeal_failure", "07_failure_report_unread.png")
 	errors += await _capture_result(output)
 	print("Combat V2 integration captures: %s" % output)
 	quit(0 if errors == 0 else 1)
@@ -75,22 +74,39 @@ func _capture_fixture(output: String, kind: StringName, filename: String) -> int
 		push_error("Failure appeal capture requires exactly two restored opinions.")
 		await _unmount(app)
 		return 1
-	if kind == &"appeal_ack" and String(snapshot["appeal_acknowledgment"]).is_empty():
-		push_error("Acknowledgment capture requires restored acknowledgment text.")
-		await _unmount(app)
-		return 1
-	if kind == &"appeal_ack":
-		var acknowledgment := app.find_child("OperatorAppealAcknowledgment", true, false) as Label
+	if kind == &"appeal_diagnosis":
+		var idle_panel := app.find_child("OperatorAppealPanel", true, false) as Control
 		if (
-			acknowledgment == null
-			or not acknowledgment.is_visible_in_tree()
-			or acknowledgment.text.is_empty()
-			or acknowledgment.size.y < 18.0
+			idle_panel == null
+			or idle_panel.visible
+			or not (app.field_report_state()["rows"] as Array).is_empty()
 		):
-			push_error("Acknowledgment capture requires a visible one-line label.")
+			push_error("Diagnosis-only capture must keep the failure report idle.")
 			await _unmount(app)
 			return 1
 	var errors := await _save_capture(output.path_join(filename))
+	if kind == &"appeal_failure":
+		var report_state := app.field_report_state()
+		var report_panel := app.find_child("OperatorAppealPanel", true, false) as Control
+		if (
+			(report_state["rows"] as Array).size() != 2
+			or not bool(report_state["unread"])
+			or report_panel == null
+			or report_panel.visible
+		):
+			push_error("Unread failure report capture requires a collapsed two-row alert.")
+			await _unmount(app)
+			return errors + 1
+		_emit_button(app, "FieldReportButton")
+		await _wait_frames(5)
+		if (
+			not report_panel.visible
+			or bool(app.field_report_state()["unread"])
+		):
+			push_error("Opened failure report capture requires a read visible panel.")
+			await _unmount(app)
+			return errors + 1
+		errors += await _save_capture(output.path_join("08_failure_report_open.png"))
 	await _unmount(app)
 	return errors
 
@@ -214,7 +230,7 @@ func _fixture_session(kind: StringName) -> CombatV2IntegrationSession:
 
 func _drive_to_stage(session: CombatV2PrototypeSession, target_stage: int) -> void:
 	var next_decision := 0.0
-	for step: int in range(int(900.0 / STEP)):
+	for step: int in range(int(1800.0 / STEP)):
 		var snapshot := session.snapshot()
 		if int(snapshot["stage"]) >= target_stage:
 			return

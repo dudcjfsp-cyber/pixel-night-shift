@@ -110,6 +110,10 @@ var _save_elapsed := 0.0
 var _audio_refresh_left := 0.0
 var _operations_refresh_left := 0.0
 var _audio_snapshot: Dictionary = {}
+var _field_report_key := ""
+var _field_report_read_key := ""
+var _field_report_rows: Array = []
+var _field_report_is_v2 := false
 
 
 func configure_services(
@@ -147,6 +151,18 @@ func current_overlay_id() -> StringName:
 
 func session_snapshot() -> Dictionary:
 	return {} if _session == null else _session.snapshot().duplicate(true)
+
+
+func field_report_state() -> Dictionary:
+	return {
+		"key": _field_report_key,
+		"rows": _field_report_rows.duplicate(true),
+		"is_v2": _field_report_is_v2,
+		"unread": (
+			not _field_report_rows.is_empty()
+			and _field_report_key != _field_report_read_key
+		),
+	}
 
 
 func session_instance_id() -> int:
@@ -339,6 +355,7 @@ func _route_from_load_result(load_result: SaveLoadResult) -> void:
 			_session = null
 			_pending_session = null
 			_pending_resume_saved_at_unix = 0
+			_reset_field_report_state()
 			_show_title(false)
 		SaveLoadResult.Status.LOADED:
 			_restore_primary(load_result)
@@ -502,6 +519,7 @@ func _show_gameplay() -> void:
 		_show_combat_v2_result()
 		return
 	_close_overlay()
+	_capture_field_report(_session.snapshot())
 	var view: MAIN_VIEW_SCRIPT = MAIN_VIEW_SCENE.instantiate() as MAIN_VIEW_SCRIPT
 	assert(view != null, "Gameplay scene must instantiate as MainView.")
 	view.apply_accessibility(
@@ -514,6 +532,10 @@ func _show_gameplay() -> void:
 		push_error("Gameplay view rejected its AppRoot configuration.")
 		_show_save_recovery_for_runtime_error("현장 화면을 구성하지 못했습니다.")
 		return
+	if not view.set_field_report_state(field_report_state()):
+		push_error("Gameplay view rejected its field report state.")
+		_show_save_recovery_for_runtime_error("현장 보고서를 구성하지 못했습니다.")
+		return
 	view.set_active_tab(_last_gameplay_tab)
 	view.operations_room_requested.connect(_on_gameplay_operations_requested)
 	view.settings_requested.connect(_show_settings)
@@ -521,6 +543,7 @@ func _show_gameplay() -> void:
 		view.version_update_requested.connect(_show_version_update_confirm)
 	view.session_changed.connect(_on_session_changed)
 	view.active_tab_changed.connect(_on_active_tab_changed)
+	view.field_report_read.connect(_on_field_report_read)
 	_gameplay_view = view
 	_set_screen(SCREEN_GAMEPLAY, view)
 
@@ -769,6 +792,7 @@ func _finish_prologue() -> void:
 
 func _on_first_shift_requested() -> void:
 	var candidate: Variant = _make_session()
+	_reset_field_report_state()
 	_session = candidate
 	_pending_session = null
 	_pending_resume_saved_at_unix = 0
@@ -807,6 +831,14 @@ func _on_active_tab_changed(tab_index: int) -> void:
 	_save_progress("현장 탭 변경")
 
 
+func _on_field_report_read(report_key: String) -> void:
+	if report_key.is_empty() or report_key != _field_report_key:
+		push_error("Gameplay reported an unknown field report key: %s" % report_key)
+		return
+	_field_report_read_key = report_key
+	_push_field_report_state_to_gameplay()
+
+
 func _on_combat_v2_restart_requested() -> void:
 	if not _combat_v2_test_mode:
 		return
@@ -817,6 +849,7 @@ func _on_combat_v2_restart_requested() -> void:
 		)
 		return
 	_session = _make_session()
+	_reset_field_report_state()
 	_last_gameplay_tab = 0
 	_last_saved_at_unix = 0
 	if _save_progress("Combat V2 테스트 새로 시작", false) != OK:
@@ -861,6 +894,7 @@ func _on_new_shift_requested() -> void:
 		return
 	_session = null
 	_pending_session = null
+	_reset_field_report_state()
 	_recovery_result = null
 	_last_saved_at_unix = 0
 	_pending_resume_saved_at_unix = 0
@@ -1006,6 +1040,7 @@ func _on_reset_records_requested() -> void:
 		return
 	_session = null
 	_pending_session = null
+	_reset_field_report_state()
 	_pending_offline_report = {}
 	_last_saved_at_unix = 0
 	_pending_resume_saved_at_unix = 0
@@ -1251,8 +1286,61 @@ func _sync_audio() -> void:
 	if _session == null or _audio_director == null:
 		return
 	var next_snapshot: Dictionary = _session.snapshot()
+	_capture_field_report(next_snapshot)
 	_audio_director.sync_snapshot(_audio_snapshot, next_snapshot)
 	_audio_snapshot = next_snapshot
+
+
+func _capture_field_report(snapshot: Dictionary) -> void:
+	var raw_appeals: Variant = snapshot.get("appeals", [])
+	if not (raw_appeals is Array) or (raw_appeals as Array).is_empty():
+		return
+	var is_v2 := bool(snapshot.get("combat_v2_test_mode", false))
+	var report_rows: Array = []
+	if is_v2:
+		for raw_appeal: Variant in raw_appeals as Array:
+			var appeal := raw_appeal as Dictionary
+			if String(appeal.get("trigger", "")) in ["normal_failure", "boss_failure"]:
+				report_rows.append(appeal.duplicate(true))
+	else:
+		if String(snapshot.get("mode", "")) != "maintenance":
+			return
+		report_rows = (raw_appeals as Array).duplicate(true)
+	if report_rows.is_empty():
+		return
+	var failure_count := int(
+		snapshot.get("failure_count", 0)
+		if is_v2
+		else snapshot.get("boss_failure_count", 0)
+	)
+	if failure_count <= 0:
+		return
+	var report_key := "%s:%d:%d" % [
+		"v2" if is_v2 else "production",
+		int(snapshot.get("run_count", 0)),
+		failure_count,
+	]
+	if report_key == _field_report_key:
+		return
+	_field_report_key = report_key
+	_field_report_rows = report_rows
+	_field_report_is_v2 = is_v2
+	_push_field_report_state_to_gameplay()
+
+
+func _push_field_report_state_to_gameplay() -> void:
+	if _gameplay_view == null:
+		return
+	if not _gameplay_view.set_field_report_state(field_report_state()):
+		push_error("Gameplay view rejected an updated field report state.")
+
+
+func _reset_field_report_state() -> void:
+	_field_report_key = ""
+	_field_report_read_key = ""
+	_field_report_rows.clear()
+	_field_report_is_v2 = false
+	_push_field_report_state_to_gameplay()
 
 
 func _load_settings() -> void:

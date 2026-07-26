@@ -6,6 +6,7 @@ signal settings_requested
 signal version_update_requested
 signal session_changed
 signal active_tab_changed(tab_index: int)
+signal field_report_read(report_key: String)
 
 const BATTLE_LANE_VIEW_SCRIPT: GDScript = preload("res://game/presentation/battle_lane_view.gd")
 const OPERATOR_UPGRADE_EFFECT_SCRIPT: GDScript = preload(
@@ -29,6 +30,9 @@ const TAB_PATCHES := 1
 const TAB_VERSION := 2
 const SNAPSHOT_REFRESH_INTERVAL := 0.12
 const MAX_VISIBLE_APPEALS := 2
+const RESOURCE_HELP_SECONDS := 2.8
+const RESOURCE_HELP_SIZE := Vector2(260.0, 64.0)
+const RESOURCE_HELP_META: StringName = &"resource_help"
 
 const REQUIRED_SNAPSHOT_KEYS: PackedStringArray = [
 	"stage",
@@ -68,12 +72,16 @@ var _selected_patch_slot: int = 0
 var _selected_patch_id: String = ""
 var _refresh_time_left: float = 0.0
 var _feedback_time_left: float = 0.0
+var _resource_help_time_left: float = 0.0
 
 var _main_column: VBoxContainer
 var _run_label: Label
 var _bits_label: Label
 var _notes_label: Label
 var _stage_label: Label
+var _notes_resource_chip: HBoxContainer
+var _notes_resource_caption: Label
+var _report_button: Button
 var _battle_lane: BattleLaneView
 var _diagnosis_title_label: Label
 var _diagnosis_evidence_label: Label
@@ -84,11 +92,22 @@ var _diagnosis_severity: String = "info"
 var _appeal_panel: PanelContainer
 var _appeal_cards: Array[Button] = []
 var _appeal_acknowledgment_label: Label
-var _selected_appeal_operator_id := ""
+var _appeal_panel_expanded := false
+var _report_unread := false
+var _report_key := ""
+var _report_rows: Array = []
+var _report_is_v2 := false
+var _report_pulse_elapsed := 0.0
 var _feedback_label: Label
+var _resource_help_overlay: Control
+var _resource_help_bubble: PanelContainer
+var _resource_help_bubble_label: Label
+var _resource_help_tail: Polygon2D
+var _resource_help_owner: Control
 
 var _tab_buttons: Array[Button] = []
 var _pages: Array[Control] = []
+var _operator_scroll: ScrollContainer
 var _operator_list: VBoxContainer
 var _operator_rows: Dictionary = {}
 var _slot_buttons: Array[Button] = []
@@ -134,6 +153,39 @@ func configure(session: Variant, audio_director: AudioDirector) -> bool:
 	return true
 
 
+func set_field_report_state(state: Dictionary) -> bool:
+	for key: String in ["key", "rows", "is_v2", "unread"]:
+		if not state.has(key):
+			push_error("Field report state is missing '%s'." % key)
+			return false
+	if not (state["rows"] is Array):
+		push_error("Field report rows must be an Array.")
+		return false
+	var rows := state["rows"] as Array
+	if rows.size() > MAX_VISIBLE_APPEALS:
+		push_error("Field report rows cannot exceed %d entries." % MAX_VISIBLE_APPEALS)
+		return false
+	for row: Variant in rows:
+		if not (row is Dictionary):
+			push_error("Each field report row must be a Dictionary.")
+			return false
+	var next_key := String(state["key"])
+	if next_key.is_empty() and not rows.is_empty():
+		push_error("Field report rows require a non-empty report key.")
+		return false
+	var key_changed := next_key != _report_key
+	_report_key = next_key
+	_report_rows = rows.duplicate(true)
+	_report_is_v2 = bool(state["is_v2"])
+	_report_unread = bool(state["unread"]) and not _report_rows.is_empty()
+	if key_changed or _report_rows.is_empty():
+		_appeal_panel_expanded = false
+	if is_node_ready() and _appeal_panel != null:
+		_refresh_appeals()
+		_refresh_tab_styles()
+	return true
+
+
 func get_active_tab() -> int:
 	return _active_tab
 
@@ -172,6 +224,7 @@ func apply_accessibility(
 	_reduced_motion = reduced_motion
 	if _battle_lane != null:
 		_battle_lane.configure_accessibility(_reduced_flashes, _reduced_motion)
+	_refresh_report_button()
 
 
 func _ready() -> void:
@@ -212,6 +265,13 @@ func _process(delta_seconds: float) -> void:
 
 	_refresh_time_left -= delta_seconds
 	_feedback_time_left = maxf(0.0, _feedback_time_left - delta_seconds)
+	_update_report_pulse(delta_seconds)
+	if _resource_help_time_left > 0.0:
+		_resource_help_time_left = maxf(0.0, _resource_help_time_left - delta_seconds)
+		if _resource_help_time_left <= 0.0:
+			_hide_resource_help()
+	if _resource_help_bubble != null and _resource_help_bubble.visible:
+		_position_resource_help()
 
 	if _refresh_time_left <= 0.0:
 		_refresh_time_left = SNAPSHOT_REFRESH_INTERVAL
@@ -256,6 +316,7 @@ func _build_interface() -> void:
 	_build_diagnosis_panel()
 	_build_tabs()
 	_build_feedback_bar()
+	_build_resource_help_bubble()
 
 
 func _build_header() -> void:
@@ -294,7 +355,8 @@ func _build_header() -> void:
 
 func _build_resource_bar() -> void:
 	var panel := _make_panel(COLOR_PANEL, COLOR_BORDER)
-	panel.custom_minimum_size.y = 34.0
+	panel.name = "ResourceStatusBar"
+	panel.custom_minimum_size.y = 54.0
 	_main_column.add_child(panel)
 
 	var margin := MarginContainer.new()
@@ -309,9 +371,44 @@ func _build_resource_bar() -> void:
 	_notes_label = _make_resource_label("0", COLOR_CYAN)
 	_stage_label = _make_resource_label("01", COLOR_TEXT)
 	_stage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(_make_resource_chip(&"bit", "비트", _bits_label))
-	row.add_child(_make_resource_chip(&"patch_note", "노트", _notes_label))
-	row.add_child(_make_resource_chip(&"stage", "ST", _stage_label))
+	row.add_child(_make_resource_chip(
+		&"bit",
+		"비트",
+		_bits_label,
+		&"BitsResourceChip",
+		"비트\n이번 근무의 자원입니다. 요원 강화와 패치 배치에 쓰며 버전 업데이트 시 초기화됩니다."
+	))
+	_notes_resource_chip = _make_resource_chip(
+		&"patch_note",
+		"노트",
+		_notes_label,
+		&"PatchNotesResourceChip",
+		"패치노트\n20단계 완료 후 버전 업데이트로 획득합니다. 근무를 넘어 유지되며 레거시 빌드 캐시에 사용합니다."
+	)
+	row.add_child(_notes_resource_chip)
+	_notes_resource_caption = _notes_resource_chip.get_node("Caption") as Label
+	row.add_child(_make_resource_chip(
+		&"stage",
+		"ST",
+		_stage_label,
+		&"StageResourceChip",
+		"스테이지\n현재 복구 구간입니다. 10·20단계에 보스가 등장하며 20단계 후 버전 업데이트가 열립니다."
+	))
+
+	_report_button = Button.new()
+	_report_button.name = "FieldReportButton"
+	_report_button.icon = ASSETS.ui_texture(&"diagnosis")
+	_report_button.expand_icon = true
+	_report_button.add_theme_constant_override("icon_max_width", 18)
+	_report_button.custom_minimum_size = Vector2(48.0, 48.0)
+	_report_button.focus_mode = Control.FOCUS_ALL
+	_report_button.tooltip_text = "현장 보고서 · 아직 도착한 보고서가 없습니다."
+	_report_button.add_theme_stylebox_override("normal", _button_normal_style)
+	_report_button.add_theme_stylebox_override("hover", _button_hover_style)
+	_report_button.add_theme_stylebox_override("pressed", _button_selected_style)
+	_report_button.add_theme_stylebox_override("focus", _button_hover_style)
+	_report_button.pressed.connect(_on_report_pressed)
+	row.add_child(_report_button)
 
 
 func _build_battle_panel() -> void:
@@ -370,7 +467,7 @@ func _build_appeal_panel(parent: VBoxContainer) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 3)
 	margin.add_child(column)
-	var title := _make_label("현장 의견 · 사실 확인 후 판단", 10)
+	var title := _make_label("실패 보고서 · 사실 확인 후 판단", 10)
 	title.add_theme_color_override("font_color", COLOR_YELLOW)
 	column.add_child(title)
 	var cards := VBoxContainer.new()
@@ -386,7 +483,9 @@ func _build_appeal_panel(parent: VBoxContainer) -> void:
 		card.expand_icon = true
 		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
-		card.pressed.connect(_on_appeal_pressed.bind(index))
+		card.focus_mode = Control.FOCUS_NONE
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.mouse_default_cursor_shape = Control.CURSOR_ARROW
 		cards.add_child(card)
 		_appeal_cards.append(card)
 	_appeal_acknowledgment_label = _make_label("", 9)
@@ -426,16 +525,17 @@ func _build_tabs() -> void:
 
 
 func _build_operator_page(page_host: Control) -> void:
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	page_host.add_child(scroll)
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_pages.append(scroll)
+	_operator_scroll = ScrollContainer.new()
+	_operator_scroll.name = "OperatorPageScroll"
+	_operator_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page_host.add_child(_operator_scroll)
+	_operator_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pages.append(_operator_scroll)
 
 	_operator_list = VBoxContainer.new()
 	_operator_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_operator_list.add_theme_constant_override("separation", 4)
-	scroll.add_child(_operator_list)
+	_operator_scroll.add_child(_operator_list)
 	_build_appeal_panel(_operator_list)
 
 
@@ -561,10 +661,43 @@ func _build_version_page(page_host: Control) -> void:
 
 func _build_feedback_bar() -> void:
 	_feedback_label = _make_label("자동 운영 준비 중...", 10)
+	_feedback_label.name = "GameplayFeedbackLabel"
 	_feedback_label.custom_minimum_size.y = 24.0
 	_feedback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_feedback_label.add_theme_color_override("font_color", COLOR_MUTED)
 	_main_column.add_child(_feedback_label)
+
+
+func _build_resource_help_bubble() -> void:
+	_resource_help_overlay = Control.new()
+	_resource_help_overlay.name = "ResourceHelpOverlay"
+	_resource_help_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_resource_help_overlay)
+	_resource_help_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	_resource_help_tail = Polygon2D.new()
+	_resource_help_tail.name = "ResourceHelpTail"
+	_resource_help_tail.color = Color("111b2a")
+	_resource_help_tail.visible = false
+	_resource_help_overlay.add_child(_resource_help_tail)
+
+	_resource_help_bubble = _make_panel(Color("111b2a"), COLOR_CYAN)
+	_resource_help_bubble.name = "ResourceHelpBubble"
+	_resource_help_bubble.custom_minimum_size = RESOURCE_HELP_SIZE
+	_resource_help_bubble.size = RESOURCE_HELP_SIZE
+	_resource_help_bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_resource_help_bubble.visible = false
+	_resource_help_overlay.add_child(_resource_help_bubble)
+
+	var margin := MarginContainer.new()
+	_add_margins(margin, 8, 8, 6, 6)
+	_resource_help_bubble.add_child(margin)
+	_resource_help_bubble_label = _make_label("", 9)
+	_resource_help_bubble_label.name = "ResourceHelpBubbleLabel"
+	_resource_help_bubble_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_resource_help_bubble_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	_resource_help_bubble_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(_resource_help_bubble_label)
 
 
 func _refresh_from_session() -> void:
@@ -725,17 +858,30 @@ func _validate_production_snapshot(data: Dictionary, enemy: Dictionary) -> Strin
 
 func _refresh_header() -> void:
 	var run_number := int(_snapshot["run_count"]) + 1
+	var is_v2 := bool(_snapshot["combat_v2_test_mode"])
 	_run_label.text = (
 		"COMBAT V2 TEST · 자동 전투"
-		if bool(_snapshot["combat_v2_test_mode"])
+		if is_v2
 		else "야간근무 %d회차 · 자동 운영" % run_number
 	)
 	_bits_label.text = _format_number(float(_snapshot["bits"]))
 	_notes_label.text = (
 		"F%d" % int(_snapshot["failure_count"])
-		if bool(_snapshot["combat_v2_test_mode"])
+		if is_v2
 		else str(int(_snapshot["patch_notes"]))
 	)
+	if is_v2:
+		_notes_resource_caption.text = "실패"
+		_notes_resource_chip.set_meta(
+			RESOURCE_HELP_META,
+			"실패 횟수\n현재 Combat V2 테스트의 누적 실패입니다. 테스트 재시작 시 초기화됩니다."
+		)
+	else:
+		_notes_resource_caption.text = "노트"
+		_notes_resource_chip.set_meta(
+			RESOURCE_HELP_META,
+			"패치노트\n20단계 완료 후 버전 업데이트로 획득합니다. 근무를 넘어 유지되며 레거시 빌드 캐시에 사용합니다."
+		)
 	_stage_label.text = "%02d" % int(_snapshot["stage"])
 
 
@@ -800,23 +946,16 @@ func _set_diagnosis_error(message: String) -> void:
 
 
 func _refresh_appeals() -> void:
-	var is_v2 := bool(_snapshot["combat_v2_test_mode"])
-	if not _snapshot.has("appeals") or not (_snapshot["appeals"] is Array):
-		_appeal_panel.visible = false
-		_selected_appeal_operator_id = ""
-		return
-	var appeals := _snapshot["appeals"] as Array
-	var acknowledgment := String(_snapshot.get("appeal_acknowledgment", ""))
-	var selection_is_visible := _selected_appeal_operator_id.is_empty()
-	for raw_appeal: Variant in appeals:
-		if String((raw_appeal as Dictionary)["operator_id"]) == _selected_appeal_operator_id:
-			selection_is_visible = true
-			break
-	if not selection_is_visible:
-		_selected_appeal_operator_id = ""
-	_appeal_panel.visible = not appeals.is_empty() or not acknowledgment.is_empty()
-	_appeal_acknowledgment_label.text = acknowledgment
-	_appeal_acknowledgment_label.visible = not acknowledgment.is_empty()
+	var is_v2 := _report_is_v2
+	var appeals := _report_rows
+	if appeals.is_empty():
+		_appeal_panel_expanded = false
+	_appeal_panel.visible = (
+		_appeal_panel_expanded
+		and not appeals.is_empty()
+	)
+	_appeal_acknowledgment_label.text = ""
+	_appeal_acknowledgment_label.visible = false
 	for index: int in range(_appeal_cards.size()):
 		var card := _appeal_cards[index]
 		card.visible = index < appeals.size()
@@ -842,8 +981,54 @@ func _refresh_appeals() -> void:
 				String(appeal["message"]),
 				String(appeal["evidence"]),
 			]
-		card.tooltip_text = "요원 카드 검토: %s" % operator_name
-		_set_button_selected(card, operator_id == _selected_appeal_operator_id)
+		card.tooltip_text = ""
+		_set_button_selected(card, false)
+	_refresh_report_button()
+
+
+func _refresh_report_button() -> void:
+	if _report_button == null:
+		return
+	var has_report := not _report_rows.is_empty()
+	_report_button.tooltip_text = (
+		"현장 보고서 · 새 보고서가 도착했습니다."
+		if _report_unread
+		else (
+			"현장 보고서 · 눌러서 다시 확인하거나 접습니다."
+			if has_report
+			else "현장 보고서 · 아직 도착한 보고서가 없습니다."
+		)
+	)
+	_report_button.add_theme_stylebox_override(
+		"normal",
+		_button_selected_style
+		if _report_unread or _appeal_panel_expanded
+		else _button_normal_style
+	)
+	if _report_unread and (_reduced_motion or _reduced_flashes):
+		_report_button.self_modulate = COLOR_YELLOW
+	elif not _report_unread:
+		_report_button.self_modulate = COLOR_CYAN if _appeal_panel_expanded else Color.WHITE
+
+
+func _update_report_pulse(delta_seconds: float) -> void:
+	if _report_button == null or not _report_unread:
+		return
+	if _reduced_motion or _reduced_flashes:
+		_report_button.self_modulate = COLOR_YELLOW
+		return
+	_report_pulse_elapsed = fmod(_report_pulse_elapsed + delta_seconds, 1.2)
+	var pulse := 0.55 + 0.45 * (
+		sin((_report_pulse_elapsed / 1.2) * TAU - PI * 0.5) * 0.5 + 0.5
+	)
+	_report_button.self_modulate = Color(
+		COLOR_YELLOW.r,
+		COLOR_YELLOW.g,
+		COLOR_YELLOW.b,
+		pulse
+	)
+
+
 func _refresh_operators() -> void:
 	for item: Variant in _snapshot["operators"]:
 		var operator_data: Dictionary = item
@@ -909,11 +1094,7 @@ func _refresh_operators() -> void:
 				redeploy_button.disabled = true
 		panel.add_theme_stylebox_override(
 			"panel",
-			_make_style(
-				Color("1b3044") if operator_id == _selected_appeal_operator_id else COLOR_PANEL,
-				COLOR_YELLOW if operator_id == _selected_appeal_operator_id else COLOR_BORDER,
-				2 if operator_id == _selected_appeal_operator_id else 1
-			)
+			_make_style(COLOR_PANEL, COLOR_BORDER, 1)
 		)
 
 
@@ -1146,11 +1327,6 @@ func _refresh_version_page() -> void:
 
 
 func _refresh_tab_styles() -> void:
-	var has_appeals := (
-		_snapshot.has("appeals")
-		and _snapshot["appeals"] is Array
-		and not (_snapshot["appeals"] as Array).is_empty()
-	)
 	var diagnosis_target_tab := -1
 	if _snapshot.has("diagnosis") and _snapshot["diagnosis"] is Dictionary:
 		var diagnosis := _snapshot["diagnosis"] as Dictionary
@@ -1159,7 +1335,7 @@ func _refresh_tab_styles() -> void:
 	for index: int in range(_tab_buttons.size()):
 		var button := _tab_buttons[index]
 		_set_button_selected(button, index == _active_tab)
-		if index == TAB_OPERATORS and index != _active_tab and has_appeals:
+		if index == TAB_OPERATORS and index != _active_tab and _report_unread:
 			button.add_theme_stylebox_override(
 				"normal", _make_style(Color("2d2b25"), COLOR_YELLOW, 2)
 			)
@@ -1203,6 +1379,123 @@ func _on_diagnosis_action_pressed() -> void:
 	var action := _diagnosis_action_for(String(diagnosis["kind"]))
 	_show_tab(int(action["tab"]))
 	_show_feedback(String(action["feedback"]), false)
+
+
+func _on_report_pressed() -> void:
+	if _report_rows.is_empty():
+		_show_resource_help(
+			_report_button,
+			"현장 보고서\n아직 도착한 보고서가 없습니다.",
+			true
+		)
+		return
+	_audio_director.play_cue(&"ui_move")
+	var should_expand := not _appeal_panel_expanded or _active_tab != TAB_OPERATORS
+	var was_unread := _report_unread
+	_report_unread = false
+	_appeal_panel_expanded = should_expand
+	_report_pulse_elapsed = 0.0
+	if was_unread:
+		field_report_read.emit(_report_key)
+	_show_tab(TAB_OPERATORS)
+	_refresh_appeals()
+	if should_expand:
+		_operator_scroll.set_deferred("scroll_vertical", 0)
+	_show_resource_help(
+		_report_button,
+		"현장 보고서\n열었습니다. 아이콘을 다시 누르면 접힙니다."
+		if should_expand
+		else "현장 보고서\n접었습니다. 아이콘을 누르면 다시 볼 수 있습니다.",
+		true
+	)
+
+
+func _on_resource_chip_gui_input(event: InputEvent, chip: Control) -> void:
+	var activated := false
+	if event is InputEventMouseButton:
+		var mouse_event := event as InputEventMouseButton
+		activated = mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed
+	elif event is InputEventScreenTouch:
+		activated = (event as InputEventScreenTouch).pressed
+	if not activated:
+		return
+	accept_event()
+	_show_resource_help(chip, String(chip.get_meta(RESOURCE_HELP_META, "")), true)
+
+
+func _on_resource_chip_mouse_entered(chip: Control) -> void:
+	_show_resource_help(chip, String(chip.get_meta(RESOURCE_HELP_META, "")), false)
+
+
+func _on_resource_chip_mouse_exited(chip: Control) -> void:
+	if _resource_help_owner == chip and _resource_help_time_left <= 0.0:
+		_hide_resource_help()
+
+
+func _show_resource_help(anchor: Control, description: String, timed: bool) -> void:
+	if (
+		anchor == null
+		or description.is_empty()
+		or _resource_help_bubble == null
+		or _resource_help_bubble_label == null
+	):
+		return
+	_resource_help_owner = anchor
+	_resource_help_bubble_label.text = description
+	_resource_help_bubble.visible = true
+	_resource_help_tail.visible = true
+	_resource_help_time_left = RESOURCE_HELP_SECONDS if timed else 0.0
+	_position_resource_help()
+
+
+func _hide_resource_help() -> void:
+	_resource_help_time_left = 0.0
+	_resource_help_owner = null
+	if _resource_help_bubble != null:
+		_resource_help_bubble.visible = false
+	if _resource_help_tail != null:
+		_resource_help_tail.visible = false
+
+
+func _position_resource_help() -> void:
+	if (
+		_resource_help_owner == null
+		or not is_instance_valid(_resource_help_owner)
+		or _resource_help_bubble == null
+		or not _resource_help_bubble.visible
+	):
+		return
+	var root_rect := get_global_rect()
+	var anchor_rect := _resource_help_owner.get_global_rect()
+	var anchor_x := anchor_rect.get_center().x - root_rect.position.x
+	var bubble_size := RESOURCE_HELP_SIZE
+	var bubble_x := clampf(
+		anchor_x - bubble_size.x * 0.5,
+		8.0,
+		maxf(8.0, size.x - bubble_size.x - 8.0)
+	)
+	var bubble_y := anchor_rect.end.y - root_rect.position.y + 8.0
+	var tail_points := PackedVector2Array([
+		Vector2(-6.0, 0.0),
+		Vector2(6.0, 0.0),
+		Vector2(0.0, -6.0),
+	])
+	var tail_y := bubble_y
+	if bubble_y + bubble_size.y > size.y - 8.0:
+		bubble_y = anchor_rect.position.y - root_rect.position.y - bubble_size.y - 8.0
+		tail_y = bubble_y + bubble_size.y
+		tail_points = PackedVector2Array([
+			Vector2(-6.0, 0.0),
+			Vector2(6.0, 0.0),
+			Vector2(0.0, 6.0),
+		])
+	_resource_help_bubble.position = Vector2(floorf(bubble_x), floorf(bubble_y))
+	_resource_help_bubble.size = bubble_size
+	_resource_help_tail.position = Vector2(
+		roundf(clampf(anchor_x, bubble_x + 12.0, bubble_x + bubble_size.x - 12.0)),
+		roundf(tail_y)
+	)
+	_resource_help_tail.polygon = tail_points
 
 
 func _diagnosis_action_for(kind: String) -> Dictionary:
@@ -1253,21 +1546,6 @@ func _diagnosis_action_for(kind: String) -> Dictionary:
 		"label": "요원\n보기",
 		"feedback": "요원별 역할과 강화 상태를 확인하세요.",
 	}
-
-
-func _on_appeal_pressed(index: int) -> void:
-	if not _snapshot.has("appeals") or not (_snapshot["appeals"] is Array):
-		return
-	var appeals := _snapshot["appeals"] as Array
-	if index < 0 or index >= appeals.size():
-		push_error("Appeal selection index is out of range: %d" % index)
-		return
-	_selected_appeal_operator_id = String((appeals[index] as Dictionary)["operator_id"])
-	_audio_director.play_cue(&"ui_move")
-	_show_tab(TAB_OPERATORS)
-	_refresh_appeals()
-	_refresh_operators()
-	_show_feedback("현장 의견을 검토 중입니다. 강화는 기존 버튼으로만 실행됩니다.", false)
 
 
 func _on_operations_room_pressed() -> void:
@@ -1498,16 +1776,33 @@ func _make_resource_label(text_value: String, text_color: Color) -> Label:
 	return label
 
 
-func _make_resource_chip(icon_id: StringName, caption: String, value_label: Label) -> HBoxContainer:
+func _make_resource_chip(
+	icon_id: StringName,
+	caption: String,
+	value_label: Label,
+	node_name: StringName,
+	description: String
+) -> HBoxContainer:
 	var chip := HBoxContainer.new()
+	chip.name = node_name
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chip.custom_minimum_size.y = 48.0
 	chip.add_theme_constant_override("separation", 3)
+	chip.mouse_filter = Control.MOUSE_FILTER_STOP
+	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	chip.set_meta(RESOURCE_HELP_META, description)
+	chip.gui_input.connect(_on_resource_chip_gui_input.bind(chip))
+	chip.mouse_entered.connect(_on_resource_chip_mouse_entered.bind(chip))
+	chip.mouse_exited.connect(_on_resource_chip_mouse_exited.bind(chip))
 	var icon := _make_texture_rect(16)
 	icon.texture = ASSETS.ui_texture(icon_id)
 	chip.add_child(icon)
 	var caption_label := _make_label(caption, 8)
+	caption_label.name = "Caption"
+	caption_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	caption_label.add_theme_color_override("font_color", COLOR_MUTED)
 	chip.add_child(caption_label)
+	value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.add_child(value_label)
 	return chip
 
