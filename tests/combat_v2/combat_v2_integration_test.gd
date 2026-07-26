@@ -197,9 +197,31 @@ func _test_commands_and_state_ui() -> void:
 	_check(_operator_level(app.session_snapshot(), "debugger") == before_level + 1, "pointer upgrade must reach V2 simulator")
 	await _click_named(app, "DiagnosisActionButton")
 	_check(app.last_gameplay_tab() == 1, "diagnosis action must focus patches without a base-DPS action heuristic")
+	var remove_patch := app.find_child("RemovePatchButton", true, false) as Button
+	_check(
+		remove_patch != null and not remove_patch.visible,
+		"empty patch slots must not expose the secondary removal action"
+	)
 	await _click_named(app, "PatchCandidate_frame_skip")
 	await _click_named(app, "EquipPatchButton")
 	_check(String(app.session_snapshot()["patch_slots"][0]) == "frame_skip", "pointer patch command must reach V2 forecast/session")
+	var equip_patch := app.find_child("EquipPatchButton", true, false) as Button
+	_check(
+		equip_patch != null
+			and remove_patch != null
+			and remove_patch.visible
+			and not remove_patch.disabled
+			and remove_patch.flat
+			and remove_patch.custom_minimum_size == Vector2(96.0, 48.0)
+			and equip_patch.get_parent() == remove_patch.get_parent()
+			and remove_patch.size.x < equip_patch.size.x,
+		"occupied slots must expose removal as a compact secondary action beside the primary replacement"
+	)
+	await _click_named(app, "PatchCandidate_unsafe_build")
+	_check(
+		equip_patch != null and "교체" in equip_patch.text,
+		"occupied slots must present direct patch replacement as the primary action"
+	)
 	_check("현재/예상 다운" in _visible_text(app), "V2 diagnosis must render structured simulator evidence")
 	var appeal_card := app.find_child("OperatorAppealCard0", true, false) as Button
 	_check(appeal_card != null and appeal_card.visible and appeal_card.size.y >= 44.0, "appeal pointer target must be visible and at least 44px")
@@ -282,7 +304,7 @@ func _test_production_hybrid_ui() -> void:
 			break
 	_check(not down_operator_id.is_empty(), "boss HUD fixture must retain one process-down operator")
 	var down_status := app.find_child("OperatorStatus_%s" % down_operator_id, true, false) as Label
-	var down_hp := app.find_child("OperatorHP_%s" % down_operator_id, true, false) as ProgressBar
+	var down_hp := app.find_child("OperatorHP_%s" % down_operator_id, true, false) as ColorRect
 	_check(
 		down_status != null and down_status.is_visible_in_tree()
 		and "PROCESS DOWN" in down_status.text,

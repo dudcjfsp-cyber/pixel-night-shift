@@ -487,15 +487,31 @@ func _build_patch_page(page_host: Control) -> void:
 	action_row.custom_minimum_size.y = 48.0
 	action_row.add_theme_constant_override("separation", 4)
 	page.add_child(action_row)
+
 	_equip_patch_button = _make_button("선택한 패치 장착", 11)
 	_equip_patch_button.name = "EquipPatchButton"
 	_equip_patch_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_equip_patch_button.pressed.connect(_on_equip_patch_pressed)
 	action_row.add_child(_equip_patch_button)
-	_remove_patch_button = _make_button("비용으로 슬롯 비우기", 10)
+
+	_remove_patch_button = Button.new()
 	_remove_patch_button.name = "RemovePatchButton"
-	_remove_patch_button.custom_minimum_size.x = 104.0
+	_remove_patch_button.text = "패치 해제"
+	_remove_patch_button.tooltip_text = (
+		"현재 패치를 제거하고 슬롯을 비웁니다. 보유한 무료 교체 또는 교체 비용이 적용됩니다."
+	)
+	_remove_patch_button.custom_minimum_size = Vector2(96.0, 48.0)
+	_remove_patch_button.focus_mode = Control.FOCUS_ALL
+	_remove_patch_button.flat = true
+	_remove_patch_button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_remove_patch_button.add_theme_font_size_override("font_size", 8)
+	_remove_patch_button.add_theme_color_override("font_color", COLOR_MUTED)
+	_remove_patch_button.add_theme_color_override("font_hover_color", COLOR_YELLOW)
+	_remove_patch_button.add_theme_color_override("font_pressed_color", COLOR_TEXT)
+	_remove_patch_button.add_theme_color_override("font_focus_color", COLOR_YELLOW)
+	_remove_patch_button.add_theme_color_override("font_disabled_color", Color("66758a"))
 	_remove_patch_button.pressed.connect(_on_remove_patch_pressed)
+	_remove_patch_button.visible = false
 	action_row.add_child(_remove_patch_button)
 
 
@@ -983,7 +999,13 @@ func _refresh_patches() -> void:
 		slot_button.disabled = not unlocked
 		_set_button_selected(slot_button, slot_index == _selected_patch_slot and unlocked)
 
-	_remove_patch_button.disabled = _selected_patch_slot >= unlocked_slots or String(slots[_selected_patch_slot]).is_empty()
+	var can_remove_patch := (
+		_selected_patch_slot >= 0
+		and _selected_patch_slot < unlocked_slots
+		and not String(slots[_selected_patch_slot]).is_empty()
+	)
+	_remove_patch_button.visible = can_remove_patch
+	_remove_patch_button.disabled = not can_remove_patch
 	_refresh_patch_preview()
 
 
@@ -1037,7 +1059,19 @@ func _refresh_patch_preview() -> void:
 		_format_number(float(preview["cost"])),
 	]
 	var can_equip := bool(preview["can_equip"])
-	_equip_patch_button.text = "비트 %s로 장착" % _format_number(float(preview["cost"])) if can_equip else "현재 장착 불가"
+	var slots := _snapshot["patch_slots"] as Array
+	var selected_slot_patch_id := ""
+	if _selected_patch_slot >= 0 and _selected_patch_slot < slots.size():
+		selected_slot_patch_id = String(slots[_selected_patch_slot])
+	if selected_slot_patch_id == _selected_patch_id:
+		_equip_patch_button.text = "현재 슬롯에 장착 중"
+	elif can_equip:
+		_equip_patch_button.text = "비트 %s로 %s" % [
+			_format_number(float(preview["cost"])),
+			"교체" if not selected_slot_patch_id.is_empty() else "장착",
+		]
+	else:
+		_equip_patch_button.text = "현재 장착 불가"
 	_equip_patch_button.disabled = not can_equip
 
 
@@ -1227,7 +1261,11 @@ func _on_equip_patch_pressed() -> void:
 
 func _on_remove_patch_pressed() -> void:
 	var succeeded := bool(_session.remove_patch(_selected_patch_slot))
-	_finish_command(succeeded, "패치 슬롯 %d을 비웠습니다." % (_selected_patch_slot + 1), &"patch_remove")
+	_finish_command(
+		succeeded,
+		"슬롯 %d의 패치를 해제했습니다." % (_selected_patch_slot + 1),
+		&"patch_remove"
+	)
 
 
 func _on_buy_legacy_pressed() -> void:
