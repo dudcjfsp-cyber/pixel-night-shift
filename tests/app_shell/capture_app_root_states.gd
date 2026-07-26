@@ -3,6 +3,9 @@ extends SceneTree
 const APP_ROOT_SCENE: PackedScene = preload("res://game/app/app_root.tscn")
 const CAPTURE_BASE := "user://app_root_capture_fixtures"
 const STEP_SECONDS := 0.25
+const DEFAULT_CAPTURE_SIZE := Vector2i(360, 640)
+
+var _capture_size := DEFAULT_CAPTURE_SIZE
 
 class FakeClock extends RefCounted:
 	var value: int
@@ -19,7 +22,8 @@ func _init() -> void:
 
 
 func _capture_all() -> void:
-	root.size = Vector2i(360, 640)
+	_capture_size = _requested_capture_size()
+	root.size = _capture_size
 	var output_directory := _output_directory()
 	var directory_error := DirAccess.make_dir_recursive_absolute(output_directory)
 	if directory_error not in [OK, ERR_ALREADY_EXISTS]:
@@ -246,14 +250,17 @@ func _save_capture(output_path: String) -> int:
 	if image == null or image.is_empty():
 		push_error("Viewport returned an empty image for '%s'." % output_path)
 		return 1
-	if image.get_width() != 360 or image.get_height() != 640:
-		push_error("Capture '%s' is not 360x640." % output_path)
+	if image.get_size() != _capture_size:
+		push_error(
+			"Capture '%s' is %s instead of %s."
+			% [output_path, image.get_size(), _capture_size]
+		)
 		return 1
 	var save_error := image.save_png(output_path)
 	if save_error != OK:
 		push_error("Cannot save AppRoot capture '%s': error %d" % [output_path, save_error])
 		return 1
-	print("CAPTURE %s (360x640)" % output_path)
+	print("CAPTURE %s (%dx%d)" % [output_path, _capture_size.x, _capture_size.y])
 	return 0
 
 
@@ -336,3 +343,17 @@ func _output_directory() -> String:
 			assert(not requested.is_empty(), "--capture-dir requires an absolute path.")
 			return requested
 	return ProjectSettings.globalize_path("user://app_root_captures")
+
+
+func _requested_capture_size() -> Vector2i:
+	for argument: String in OS.get_cmdline_user_args():
+		if not argument.begins_with("--capture-size="):
+			continue
+		var requested := argument.trim_prefix("--capture-size=").to_lower()
+		var parts := requested.split("x", false, 1)
+		assert(parts.size() == 2, "--capture-size must use WIDTHxHEIGHT.")
+		assert(parts[0].is_valid_int() and parts[1].is_valid_int(), "--capture-size values must be integers.")
+		var size := Vector2i(parts[0].to_int(), parts[1].to_int())
+		assert(size.x > 0 and size.y > 0, "--capture-size values must be positive.")
+		return size
+	return DEFAULT_CAPTURE_SIZE

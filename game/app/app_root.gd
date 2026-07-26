@@ -1338,17 +1338,34 @@ func _apply_safe_area(safe_rect: Rect2i, window_size: Vector2i) -> void:
 	if window_size.x <= 0 or window_size.y <= 0 or safe_rect.size.x <= 0 or safe_rect.size.y <= 0:
 		UI.add_margins(_safe_margin, 0, 0, 0, 0)
 		return
-	var scale_x := UI.LOGICAL_SIZE.x / float(window_size.x)
-	var scale_y := UI.LOGICAL_SIZE.y / float(window_size.y)
+	var logical_per_pixel := maxf(
+		UI.LOGICAL_SIZE.x / float(window_size.x),
+		UI.LOGICAL_SIZE.y / float(window_size.y)
+	)
+	var logical_window_size := Vector2(window_size) * logical_per_pixel
 	var safe_end := safe_rect.position + safe_rect.size
-	var left := maxi(0, int(round(float(safe_rect.position.x) * scale_x)))
-	var top := maxi(0, int(round(float(safe_rect.position.y) * scale_y)))
-	var right := maxi(0, int(round(float(window_size.x - safe_end.x) * scale_x)))
-	var bottom := maxi(0, int(round(float(window_size.y - safe_end.y) * scale_y)))
-	left = mini(left, int(UI.LOGICAL_SIZE.x / 2.0))
-	right = mini(right, int(UI.LOGICAL_SIZE.x / 2.0))
-	top = mini(top, int(UI.LOGICAL_SIZE.y / 2.0))
-	bottom = mini(bottom, int(UI.LOGICAL_SIZE.y / 2.0))
+	var left := maxi(0, int(round(float(safe_rect.position.x) * logical_per_pixel)))
+	var top := maxi(0, int(round(float(safe_rect.position.y) * logical_per_pixel)))
+	var right := maxi(
+		0,
+		int(round(float(window_size.x - safe_end.x) * logical_per_pixel))
+	)
+	var bottom := maxi(
+		0,
+		int(round(float(window_size.y - safe_end.y) * logical_per_pixel))
+	)
+	var safe_logical_width := maxf(
+		0.0,
+		logical_window_size.x - float(left + right)
+	)
+	var centered_stage_margin := maxi(
+		0,
+		int(round((safe_logical_width - UI.LOGICAL_SIZE.x) * 0.5))
+	)
+	left = mini(left + centered_stage_margin, int(logical_window_size.x / 2.0))
+	right = mini(right + centered_stage_margin, int(logical_window_size.x / 2.0))
+	top = mini(top, int(logical_window_size.y / 2.0))
+	bottom = mini(bottom, int(logical_window_size.y / 2.0))
 	UI.add_margins(_safe_margin, left, right, top, bottom)
 
 

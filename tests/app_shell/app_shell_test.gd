@@ -67,6 +67,7 @@ func _init() -> void:
 
 
 func _run_all() -> void:
+	root.size = Vector2i(LOGICAL_SIZE)
 	print("Pixel Night Shift app-shell tests")
 	print("===================================")
 	await _run_async_test("product and preview scene smoke load", _test_scene_smoke_load)

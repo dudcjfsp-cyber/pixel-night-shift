@@ -628,6 +628,14 @@ func _test_settings_back_and_safe_area() -> void:
 	app.apply_safe_area(Rect2i(40, 80, 640, 1160), Vector2i(720, 1280))
 	if safe_area != null:
 		_check(safe_area.get_theme_constant("margin_left") == 20, "scaled safe-area inset must preserve logical size")
+	app.apply_safe_area(Rect2i(0, 80, 720, 1480), Vector2i(720, 1600))
+	if safe_area != null:
+		_check(safe_area.get_theme_constant("margin_top") == 40, "tall safe-area top inset must use the uniform content scale")
+		_check(safe_area.get_theme_constant("margin_bottom") == 20, "tall safe-area bottom inset must use the uniform content scale")
+	app.apply_safe_area(Rect2i(0, 0, 960, 1280), Vector2i(960, 1280))
+	if safe_area != null:
+		_check(safe_area.get_theme_constant("margin_left") == 60, "wide screens must center the fixed-width game stage")
+		_check(safe_area.get_theme_constant("margin_right") == 60, "wide screens must center the fixed-width game stage")
 	_check(app.find_child("ScreenScroll", true, false) != null, "operations room must scroll inside short safe areas")
 
 	_emit_button(app, "SettingsButton")

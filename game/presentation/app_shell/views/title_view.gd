@@ -50,7 +50,7 @@ func _build_interface() -> void:
 	background.name = "TitleBackground"
 	background.texture = ASSETS.TITLE_BACKGROUND
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
+	background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
