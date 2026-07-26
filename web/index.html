@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+	<meta charset="utf-8">
+	<meta
+		name="viewport"
+		content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+	>
+	<title>$GODOT_PROJECT_NAME</title>
+	<style>
+		:root {
+			color-scheme: dark;
+			background: #050914;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		html,
+		body {
+			position: fixed;
+			inset: 0;
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			overflow: hidden;
+			background: #050914;
+			overscroll-behavior: none;
+		}
+
+		#safe-frame {
+			position: fixed;
+			inset: 0;
+			display: grid;
+			min-width: 0;
+			min-height: 0;
+			padding:
+				env(safe-area-inset-top, 0)
+				env(safe-area-inset-right, 0)
+				env(safe-area-inset-bottom, 0)
+				env(safe-area-inset-left, 0);
+		}
+
+		#canvas {
+			display: block;
+			width: 100%;
+			height: 100%;
+			min-width: 0;
+			min-height: 0;
+			border: 0;
+			outline: 0;
+			touch-action: none;
+			image-rendering: pixelated;
+		}
+
+		#status {
+			position: fixed;
+			inset: 0;
+			display: grid;
+			place-items: center;
+			padding: 24px;
+			color: #edf4ff;
+			background: #050914;
+			font: 14px/1.5 system-ui, sans-serif;
+			text-align: center;
+		}
+
+		#status[hidden] {
+			display: none;
+		}
+	</style>
+	$GODOT_HEAD_INCLUDE
+</head>
+<body>
+	<div id="safe-frame">
+		<canvas id="canvas">
+			이 브라우저는 게임 실행에 필요한 Canvas를 지원하지 않습니다.
+		</canvas>
+	</div>
+	<div id="status" role="status" aria-live="polite">야간 근무를 준비하고 있습니다…</div>
+	<script src="$GODOT_URL"></script>
+	<script>
+		const GODOT_CONFIG = $GODOT_CONFIG;
+		const engine = new Engine(GODOT_CONFIG);
+		const status = document.getElementById("status");
+
+		engine.startGame({
+			canvas: document.getElementById("canvas"),
+			onProgress(current, total) {
+				if (total > 0) {
+					status.textContent = `야간 근무를 준비하고 있습니다… ${Math.round(current / total * 100)}%`;
+				}
+			},
+		}).then(() => {
+			status.hidden = true;
+		}).catch((error) => {
+			console.error(error);
+			status.textContent = "게임을 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요.";
+		});
+	</script>
+</body>
+</html>
