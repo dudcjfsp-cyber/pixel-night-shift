@@ -2,9 +2,18 @@
 
 > 서버가 살아있다
 
-《픽셀 야간근무》는 서비스 종료 직전의 레트로 게임을 지키는 야간 운영팀을 다룬 세로형 방치 게임입니다. 전투와 재도전은 완전 자동이며, 플레이어는 화면의 진단 정보를 읽고 요원을 강화하거나 장단점이 함께 있는 임시 패치를 선택합니다.
+《픽셀 야간근무》는 서비스 종료 직전의 레트로 게임을 지키는 야간 운영팀을 다룬 세로형
+운영 게임입니다. 현재 배포본은 연속 자동 전투이고, 개발 중인 Product V2는 주간 방치
+정비와 짧은 야간 자동 디펜스를 결합합니다.
 
-현재 실행 가능한 빌드는 **Godot 4.7용 20스테이지 혼합 전투 수직 슬라이스**입니다. `관찰 → 진단 → 패치 → 버전 업데이트` 순환과 앱 셸·로컬 저장·복구·오프라인 진행을 유지하면서, 보스전에서만 요원 역할·내구도·PROCESS DOWN·QA 자동 구조와 증거 기반 진단을 사용합니다. [본편 혼합 전투 완성도 명세](docs/COMBAT_HYBRID_SPEC.md)의 구현·자동 검증 순서 1~7과 [360×640 내부 한 회차 확인](docs/INTERNAL_PLAYTEST_2026-07-22.md)은 완료됐으며, 현재 후보는 공개 GitHub Pages에서 원격 테스트할 수 있습니다. 다음 완료 관문은 5인 플레이테스트입니다.
+현재 실행 가능한 빌드는 **Godot 4.7용 20스테이지 V1 수직 슬라이스**입니다. 앱 셸,
+schema 2 로컬 저장·복구와 오프라인 전투, 보스전 전용 역할·내구도·PROCESS DOWN·QA
+자동 구조가 구현돼 있고 공개 GitHub Pages에서 테스트할 수 있습니다. 상세 회귀 기준은
+[V1 전투 동결 기준선](docs/V1_COMBAT_BASELINE.md)에 남겨 두었습니다.
+
+현재 개발 목표는 [Product V2 계획표](docs/PRODUCT_V2_PLAN.md)의 1~7단계입니다. 목표
+전투는 [Product V2 혼합 디펜스 명세](docs/COMBAT_HYBRID_SPEC.md)를 따르며, Defense Lab
+검증 전에는 현재 V1 실행 경로와 저장을 변경하지 않습니다.
 
 **웹 테스트 플레이:** [https://dudcjfsp-cyber.github.io/pixel-night-shift/](https://dudcjfsp-cyber.github.io/pixel-night-shift/)
 
@@ -48,7 +57,7 @@ Windows의 Godot 4.7 공식 빌드에는 GUI 종료 시 네이티브 오류 창�
 
 검증 명령은 파일을 바꾸지 않습니다. `tools/generate_pixel_assets.gd`와 `tools/generate_audio.gd`는 원본 에셋을 다시 쓰므로 재생성이 목적일 때만 별도로 실행합니다. 마지막 명령은 메인 장면이 헤드리스 환경에서 파서·리소스 오류 없이 시작되는지 확인합니다.
 
-## 현재 포함 범위
+## 현재 배포본 V1 포함 범위
 
 - 360×640 세로형 메인 화면
 - 자동 전투와 20스테이지
@@ -70,7 +79,13 @@ Windows의 Godot 4.7 공식 빌드에는 GUI 종료 시 네이티브 오류 창�
 - Godot Web 내보내기 프리셋과 GitHub Pages 자동 테스트 배포
 - 결정론적 도메인 테스트와 콘텐츠 검증
 
-기본 본편에는 혼합 전투가 적용됐지만, 이전 Combat V2 테스트 모드와 중복 구현은 5인 플레이테스트 통과 전까지 비교 기준으로 남아 있습니다. Pages는 테스트 배포 경로일 뿐 정식 웹 서비스 범위는 아니며 Android 패키징도 현재 보류 중입니다. 부서·사건·장편 콘텐츠·스테이지 21 이상과 대규모 표현 확장은 현재 범위 밖입니다. 상세한 제품 규칙은 [게임 설계 문서](docs/GDD.md), 현재 전투 기준은 [본편 혼합 전투 완성도 명세](docs/COMBAT_HYBRID_SPEC.md), 사람 검증은 [플레이테스트](docs/PLAYTEST.md), 콜드 부트와 첫 근무 진입은 [오프닝 경험 명세](docs/OPENING_EXPERIENCE_SPEC.md), 나머지 앱 흐름은 [앱 셸 명세](docs/APP_SHELL_SPEC.md), 코드 의존 계약은 [아키텍처](docs/ARCHITECTURE.md)를 참고하세요.
+기본 본편에는 V1 혼합 전투가 적용됐지만 이전 Combat V2 테스트 모드는 Product V2
+Defense Lab과 별개의 Legacy 비교 기준입니다. Pages는 테스트 배포 경로일 뿐 정식 웹
+서비스가 아니며 Android 패키징도 현재 보류 중입니다. Product V2 범위는
+[범위 문서](docs/SCOPE.md), 제품 규칙은 [게임 설계](docs/GDD.md), 목표 전투는
+[혼합 디펜스 명세](docs/COMBAT_HYBRID_SPEC.md), 현재 V1 사람 검증 기록은
+[플레이테스트](docs/PLAYTEST.md), 앱 흐름은 [앱 셸 명세](docs/APP_SHELL_SPEC.md), 코드
+의존 계약은 [아키텍처](docs/ARCHITECTURE.md)를 참고하세요.
 
 ## 구조
 

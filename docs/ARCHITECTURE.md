@@ -1,6 +1,8 @@
-# 앱 셸 및 본편 혼합 전투 구현 계약
+# 앱 셸·현재 V1 및 Product V2 구현 계약
 
-> 현재 구현 기준선은 완료된 앱 셸, schema 2 로컬 저장과 20스테이지 혼합 전투 수직 슬라이스입니다. 전투 규칙과 완료 기준은 [본편 혼합 전투 완성도 명세](COMBAT_HYBRID_SPEC.md)가 우선합니다.
+> 현재 코드 기준선은 완료된 앱 셸, schema 2 로컬 저장과 20스테이지 V1 전투다.
+> Product V2 목표 전투와 완료 기준은 [혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)가
+> 우선하며, 6단계 본편 승격 전까지 목표 명세와 현재 구현을 구분한다.
 
 ## 의존 방향
 
@@ -24,6 +26,28 @@ Domain -> no presentation, file, clock, lifecycle, or audio dependency
 - `BattleLaneView` and `AudioDirector` receive presentation snapshots or semantic cues only. Neither imports `GameSession` nor changes simulation state.
 - `game/assets/` contains generated runtime files and provenance manifests. `tools/` owns deterministic regeneration; the game does not generate assets at runtime.
 
+## Product V2 설계 게이트
+
+판정은 `PASS`다. Product V2 야간 도메인은 현재 본편을 변경하지 않고 격리 구현할 수 있다.
+
+```text
+game/content/product_v2/ -> 기존 ContentCatalog의 요원·패치 정의를 참조
+game/domain/product_v2/  -> 장면·파일·시계에 독립적인 야간 상태와 시뮬레이터
+tests/product_v2/        -> 관찰 가능한 핵심 행동만 검증
+```
+
+- 2단계에서는 현재 `GameState`, `BattleSimulator`, `HybridBossSimulator`, Legacy
+  `CombatV2State`에 Product V2 분기를 추가하지 않는다.
+- Product V2 전용 카탈로그가 9+1웨이브, 안정도, 침입, 시간과 별 기준을 소유한다.
+- 야간 상태가 하위 상태, 웨이브·완료 수, 타이머, 적·보스·요원 런타임과 종료 이유를
+  소유하고 표시 계층은 위치·애니메이션만 계산한다.
+- 2단계에서는 `GameSession`, `AppRoot`, `project.godot`과 본편 저장 schema를 변경하지 않는다.
+- 3단계의 별도 `DefenseLabSession`이 격리 상태와 카탈로그를 소유한다. 해당 실행 경로의
+  조정자만 세션 `tick()`을 호출하고 Defense Lab 화면은 사용자 명령을 전달하며
+  `snapshot()`만 읽는다.
+- Defense Lab 승인 뒤 6단계에서만 Product V2를 유일한 본편 `GameSession`으로 승격하고
+  schema 3 전환을 적용한다.
+
 ## Animated presentation assets
 
 `game/assets/manifest.json` schema 2 is the activation boundary for generated character animation. Its `active_sprite_runs` map points to per-character native `manifest.json` files and pins both manifest and atlas SHA-256 values. The original 23 static asset entries remain present and validated.
@@ -34,7 +58,7 @@ Domain -> no presentation, file, clock, lifecycle, or audio dependency
 
 The run layout, regeneration, curation and provenance contract is documented in [SPRITE_PIPELINE.md](SPRITE_PIPELINE.md).
 
-## App shell ownership
+## 현재 V1 App shell ownership
 
 Top-level screens are `BOOT`, `TITLE`, `PROLOGUE`, `OPERATIONS_ROOM`, `GAMEPLAY`, and `SAVE_RECOVERY`. At most one of `OFFLINE_REPORT`, `SETTINGS`, `VERSION_UPDATE_CONFIRM`, `RUN_SUMMARY`, or `ONBOARDING` may be open over the active screen.
 
@@ -51,7 +75,7 @@ Top-level screens are `BOOT`, `TITLE`, `PROLOGUE`, `OPERATIONS_ROOM`, `GAMEPLAY`
 
 The cold-boot title and first-shift entry contract lives in [OPENING_EXPERIENCE_SPEC.md](OPENING_EXPERIENCE_SPEC.md). The remaining screen and lifecycle contract lives in [APP_SHELL_SPEC.md](APP_SHELL_SPEC.md).
 
-## GameSession public surface
+## 현재 V1 GameSession public surface
 
 The presentation and tests may depend on these operations:
 
@@ -139,7 +163,7 @@ Stable content IDs are:
 - Operators: `debugger`, `build_engineer`, `sprite_artist`, `qa_imp`
 - Patches: `frame_skip`, `unsafe_build`, `reward_bypass`, `rollback_lock`, `safe_mode`
 
-## 현재 구현 기준선
+## 현재 V1 구현 기준선
 
 - A normal stage contains three enemies and has no failure timer.
 - Stages 10 and 20 contain the Watchdog Process and use a 25-second timer.
@@ -148,8 +172,10 @@ Stable content IDs are:
 - Operators unlock progressively on the first run and all remain available after the first version update.
 - Clearing stage 20 enables a voluntary version update. It resets run progress and grants one patch note.
 
-현재 본편 혼합 전투는 위 20스테이지 흐름을 보존하면서 보스전에서만 요원 HP·DOWN·QA 자동 구조와 역할 효과를 활성화합니다. 일반전은 요원 피해나 전원 DOWN을 만들지 않습니다. 상세 수치, 실패 조건, 진단과 UI 정보 예산은 [COMBAT_HYBRID_SPEC.md](COMBAT_HYBRID_SPEC.md)를 따릅니다.
+현재 V1은 위 20스테이지 흐름을 보존하면서 보스전에서만 요원 HP·DOWN·QA 자동 구조와
+역할 효과를 활성화한다. Product V2는 이 V1 규칙을 숫자만 바꾸지 않고, 격리 검증 뒤
+[혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)의 주간·야간·결과 구조로 교체한다.
 
-## Test boundary
+## 현재 V1 Test boundary
 
 Required automated checks cover monotonic health/cost growth, deterministic simulation, patch tradeoffs, boss-failure recovery, boss-only operator durability, QA rescue, schema migration, prestige reset/preservation, content validation, and headless loading of the main scene. UI integration checks additionally cover field-report unread/read/reopen/update behavior, resource help hover·touch boundaries, integer HP without clipping, and lifecycle focus deduplication.

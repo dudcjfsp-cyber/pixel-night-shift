@@ -1,6 +1,8 @@
-# 본편 혼합 전투 플레이테스트
+# 현재 본편 V1 플레이테스트 기록
 
-> 현재 전투 완성도 마일스톤의 시간·전투 규칙은 [본편 혼합 전투 완성도 명세](COMBAT_HYBRID_SPEC.md)를 따릅니다.
+> 이 문서는 20스테이지 V1 배포본의 기존 테스트 절차다. Product V2의 Defense Lab과
+> 5인 완료 관문은 [Product V2 계획표](PRODUCT_V2_PLAN.md)와
+> [혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)를 따르며 7단계에서 이 절차를 교체한다.
 
 ## 목적
 
