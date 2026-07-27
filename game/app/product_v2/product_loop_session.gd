@@ -72,6 +72,7 @@ func start_shift(shift_index: int) -> bool:
 	var candidate := _state.deep_clone()
 	candidate.phase = ProductLoopState.Phase.NIGHT_ACTIVE
 	candidate.active_shift_index = shift_index
+	candidate.playback_speed = 1
 	_state = candidate
 	_last_error = ""
 	return true
@@ -95,8 +96,24 @@ func tick(delta_seconds: float) -> bool:
 		night_snapshot,
 		_catalog
 	)
+	candidate.playback_speed = 1
 	_state = candidate
 	_refresh_forecast_cache()
+	return true
+
+
+func set_playback_speed(multiplier: int) -> bool:
+	if multiplier not in [1, 2]:
+		return _reject("재생 배속은 1배 또는 2배만 사용할 수 있습니다.")
+	if multiplier == 2 and not _can_use_double_speed(_state):
+		return _reject("2배속은 3성 완료한 야간근무의 재도전에서만 사용할 수 있습니다.")
+	if _state.playback_speed == multiplier:
+		_last_error = ""
+		return true
+	var candidate := _state.deep_clone()
+	candidate.playback_speed = multiplier
+	_state = candidate
+	_last_error = ""
 	return true
 
 
@@ -108,6 +125,7 @@ func continue_to_day(now_unix: int = 0) -> bool:
 	var candidate := _state.deep_clone()
 	candidate.phase = ProductLoopState.Phase.DAY_PREP
 	candidate.active_shift_index = 0
+	candidate.playback_speed = 1
 	ProductMetaRules.arm_day_income(candidate, now_unix)
 	_state = candidate
 	_refresh_forecast_cache()
@@ -226,6 +244,7 @@ func version_update(now_unix: int) -> bool:
 		return _reject("버전 업데이트 기준 시각은 0 이상이어야 합니다.")
 	var candidate := _state.deep_clone()
 	ProductMetaRules.reset_for_version_update(candidate, _catalog, now_unix)
+	candidate.playback_speed = 1
 	if not _restart_lab_with_loadout(candidate, 1):
 		return _reject(String(_defense_lab.snapshot().get("last_error", "")))
 	_state = candidate
@@ -316,6 +335,7 @@ func snapshot() -> Dictionary:
 			and _state.patch_notes >= legacy_balance.legacy_cache_cost
 		),
 		"active_shift_index": _state.active_shift_index,
+		"playback_speed": _state.playback_speed,
 		"shift_records": records,
 		"operators": operator_rows,
 		"patches": patch_rows,
@@ -417,6 +437,47 @@ func restore_state(data: Dictionary) -> PackedStringArray:
 	return PackedStringArray()
 
 
+func restore_migrated_day_state(product_loop_data: Dictionary) -> PackedStringArray:
+	var errors := PackedStringArray()
+	var loop_result := ProductLoopStateDto.restore_candidate(
+		product_loop_data,
+		_catalog.balance.first_star_reward_bits,
+		_catalog
+	)
+	for error_message: String in loop_result.errors:
+		errors.append("product_loop: %s" % error_message)
+	if not errors.is_empty():
+		return errors
+	assert(loop_result.state != null, "Validated migration requires a loop state")
+	_validate_migration_seed(loop_result.state, errors)
+	if not errors.is_empty():
+		return errors
+
+	var candidate_lab := DefenseLabSession.new(_catalog, DEFAULT_PRESET, 1)
+	if not candidate_lab.restart_with_loadout(
+		1,
+		loop_result.state.operator_levels,
+		loop_result.state.unlocked_operator_ids,
+		loop_result.state.equipped_patch_ids,
+		loop_result.state.legacy_cache_level
+	):
+		errors.append(
+			"defense_lab: %s"
+			% String(candidate_lab.snapshot().get("last_error", "invalid loadout"))
+		)
+		return errors
+	_validate_cross_boundary(loop_result.state, candidate_lab.snapshot(), errors)
+	if not errors.is_empty():
+		return errors
+
+	_state = loop_result.state
+	_defense_lab = candidate_lab
+	_preset_id = DefenseLabSession.PRODUCT_LOOP_PRESET
+	_refresh_forecast_cache()
+	_last_error = ""
+	return PackedStringArray()
+
+
 func _validate_export_wrapper(data: Dictionary) -> PackedStringArray:
 	var errors := PackedStringArray()
 	for key: String in EXPORT_KEYS:
@@ -431,6 +492,72 @@ func _validate_export_wrapper(data: Dictionary) -> PackedStringArray:
 		if typeof(data[key]) != TYPE_DICTIONARY:
 			errors.append("%s: object is required" % key)
 	return errors
+
+
+func _validate_migration_seed(
+	loop_state: ProductLoopState,
+	errors: PackedStringArray
+) -> void:
+	if loop_state.migration_source_schema not in [1, 2]:
+		errors.append(
+			"product_loop.migration_source_schema: legacy schema 1 or 2 is required"
+		)
+	if (
+		loop_state.version
+		!= loop_state.migration_source_run_count + 1
+	):
+		errors.append(
+			"product_loop.version: migrated version must equal legacy run_count + 1"
+		)
+	if (
+		loop_state.phase != ProductLoopState.Phase.DAY_PREP
+		or loop_state.active_shift_index != 0
+		or loop_state.playback_speed != 1
+	):
+		errors.append(
+			"product_loop.phase: migration must enter fresh 1x DAY_PREP"
+		)
+	if (
+		loop_state.result_serial != 0
+		or loop_state.shift_2_unlocked
+		or loop_state.version_update_available
+		or not loop_state.last_result.is_empty()
+		or not loop_state.report_key.is_empty()
+		or not loop_state.report_rows.is_empty()
+		or not loop_state.report_read
+	):
+		errors.append(
+			"product_loop: migration cannot carry Product V2 run or report progress"
+		)
+	for record: ProductLoopState.ShiftRecord in loop_state.shift_records:
+		if (
+			record.attempts != 0
+			or record.highest_completed_waves != 0
+			or record.best_stars != 0
+			or record.claimed_reward_stars != 0
+			or record.boss_encountered
+		):
+			errors.append(
+				"product_loop.shift_records: migration must start fresh shifts"
+			)
+			break
+	for patch_id: StringName in loop_state.equipped_patch_ids:
+		if patch_id != &"":
+			errors.append(
+				"product_loop.equipped_patch_ids: migration must clear equipped patches"
+			)
+			break
+	if (
+		loop_state.day_income_anchor_unix
+		!= loop_state.migration_saved_at_unix
+		or loop_state.day_income_remainder_seconds != 0
+		or loop_state.last_day_income_elapsed_seconds != 0
+		or loop_state.last_day_income_bits != 0
+		or loop_state.day_income_report_available
+	):
+		errors.append(
+			"product_loop.day_income_anchor_unix: migration must start at saved_at"
+		)
 
 
 func _validate_cross_boundary(
@@ -590,6 +717,13 @@ func _restart_lab_with_loadout(
 
 func _forecast_shift_index() -> int:
 	return 2 if _state.shift_2_unlocked else 1
+
+
+func _can_use_double_speed(loop_state: ProductLoopState) -> bool:
+	if loop_state.phase != ProductLoopState.Phase.NIGHT_ACTIVE:
+		return false
+	var record := loop_state.get_shift_record(loop_state.active_shift_index)
+	return record != null and record.best_stars == 3
 
 
 func _forecast_for(

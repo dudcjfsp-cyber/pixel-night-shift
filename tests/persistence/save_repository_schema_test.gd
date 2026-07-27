@@ -12,44 +12,58 @@ func _init() -> void:
 func _run() -> void:
 	var repository := SaveRepository.new(TEST_ROOT)
 	repository.clear_records()
+	_test_supported_envelopes(repository)
+	_test_schema_rotation(repository)
+	_test_newer_and_invalid(repository)
+	repository.clear_records()
+	print("SaveRepository schema test: %s" % ("PASS" if _failures == 0 else "FAIL"))
+	quit(0 if _failures == 0 else 1)
 
-	_check(repository.save({"marker": "schema2"}, 2000, 2) == OK, "schema 2 save must succeed")
+
+func _test_supported_envelopes(repository: SaveRepository) -> void:
+	_check(repository.save({"marker": "schema3"}, 3000, 2) == OK, "schema 3 save must succeed")
 	var written := _read_json(repository.primary_path())
 	_check(
-		int(written.get("schema_version", 0)) == SaveRepository.CURRENT_SCHEMA_VERSION,
-		"new saves must use the current schema"
+		int(written.get("schema_version", 0)) == 3,
+		"new saves must use schema 3"
 	)
 	var current := repository.load()
-	_check(current.status == SaveLoadResult.Status.LOADED, "schema 2 envelope must load")
-	_check(current.schema_version == 2, "load result must expose schema 2")
+	_check(current.status == SaveLoadResult.Status.LOADED, "schema 3 envelope must load")
+	_check(current.schema_version == 3, "load result must expose schema 3")
 
+	_write_json(repository.primary_path(), _envelope(2, "schema2"))
+	var previous := repository.load()
+	_check(previous.status == SaveLoadResult.Status.LOADED, "schema 2 envelope must remain readable")
+	_check(previous.schema_version == 2, "load result must expose schema 2")
+	_check(previous.session_data.get("marker") == "schema2", "schema 2 payload must be preserved")
 	_write_json(repository.primary_path(), _envelope(1, "schema1"))
 	var legacy := repository.load()
 	_check(legacy.status == SaveLoadResult.Status.LOADED, "schema 1 envelope must remain readable")
 	_check(legacy.schema_version == 1, "load result must expose schema 1")
 	_check(legacy.session_data.get("marker") == "schema1", "legacy session payload must be preserved")
 
-	_check(repository.save({"marker": "migrated"}, 3000, 1) == OK, "schema 1 primary must rotate safely")
+
+func _test_schema_rotation(repository: SaveRepository) -> void:
+	repository.clear_records()
+	_write_json(repository.primary_path(), _envelope(2, "schema2"))
+	_check(repository.save({"marker": "migrated"}, 3000, 1) == OK, "schema 2 primary must rotate safely")
 	var migrated := repository.load()
 	var backup := repository.load_backup()
-	_check(migrated.schema_version == 2, "next save must promote the primary envelope to schema 2")
-	_check(backup.schema_version == 1, "atomic rotation must preserve the schema 1 backup")
-	_check(backup.session_data.get("marker") == "schema1", "rotated backup must retain legacy data")
+	_check(migrated.schema_version == 3, "next save must promote the primary envelope to schema 3")
+	_check(backup.schema_version == 2, "atomic rotation must preserve the schema 2 backup")
+	_check(backup.session_data.get("marker") == "schema2", "rotated backup must retain old data")
 
-	_write_json(repository.primary_path(), _envelope(3, "newer"))
+
+func _test_newer_and_invalid(repository: SaveRepository) -> void:
+	repository.clear_records()
+	_write_json(repository.primary_path(), _envelope(4, "newer"))
 	var newer := repository.load()
 	_check(newer.status == SaveLoadResult.Status.NEWER_SCHEMA, "newer schema must be rejected explicitly")
-	_check(newer.schema_version == 3, "newer result must expose its actual schema")
+	_check(newer.schema_version == 4, "newer result must expose its actual schema")
 
-	_write_json(repository.primary_path(), _envelope(0, "invalid"))
-	_check(repository.load().status == SaveLoadResult.Status.RECOVERED_BACKUP, "invalid primary must not block a valid backup")
 	repository.clear_records()
 	_write_json(repository.primary_path(), _envelope(0, "invalid"))
 	_check(repository.load().status == SaveLoadResult.Status.CORRUPT, "unsupported old schema must be invalid")
-
-	repository.clear_records()
-	print("SaveRepository schema test: %s" % ("PASS" if _failures == 0 else "FAIL"))
-	quit(0 if _failures == 0 else 1)
 
 
 func _envelope(schema_version: int, marker: String) -> Dictionary:

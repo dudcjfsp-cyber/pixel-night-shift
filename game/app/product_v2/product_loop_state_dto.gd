@@ -9,6 +9,7 @@ const ProductV2Catalog := preload(
 )
 
 const MAX_SAFE_INT := 2_000_000_000
+const MAX_JSON_SAFE_INTEGER := 9_007_199_254_740_991
 const MAX_UNIX_TIME := 9_000_000_000_000_000
 const STATE_KEYS: PackedStringArray = [
 	"phase",
@@ -16,6 +17,7 @@ const STATE_KEYS: PackedStringArray = [
 	"bits",
 	"active_shift_index",
 	"result_serial",
+	"playback_speed",
 	"shift_records",
 	"shift_2_unlocked",
 	"version_update_available",
@@ -35,6 +37,9 @@ const STATE_KEYS: PackedStringArray = [
 	"last_day_income_elapsed_seconds",
 	"last_day_income_bits",
 	"day_income_report_available",
+	"migration_source_schema",
+	"migration_source_run_count",
+	"migration_saved_at_unix",
 ]
 const SHIFT_RECORD_KEYS: PackedStringArray = [
 	"shift_index",
@@ -170,6 +175,7 @@ static func export_state(state: ProductLoopState) -> Dictionary:
 		"bits": state.bits,
 		"active_shift_index": state.active_shift_index,
 		"result_serial": state.result_serial,
+		"playback_speed": state.playback_speed,
 		"shift_records": records,
 		"shift_2_unlocked": state.shift_2_unlocked,
 		"version_update_available": state.version_update_available,
@@ -189,6 +195,9 @@ static func export_state(state: ProductLoopState) -> Dictionary:
 		"last_day_income_elapsed_seconds": state.last_day_income_elapsed_seconds,
 		"last_day_income_bits": state.last_day_income_bits,
 		"day_income_report_available": state.day_income_report_available,
+		"migration_source_schema": state.migration_source_schema,
+		"migration_source_run_count": state.migration_source_run_count,
+		"migration_saved_at_unix": state.migration_saved_at_unix,
 	}
 
 
@@ -208,17 +217,18 @@ static func restore_candidate(
 		return result
 
 	_require_int(data, "phase", 0, ProductLoopState.Phase.SHIFT_RESULT, result.errors)
-	_require_int(data, "version", 1, MAX_SAFE_INT, result.errors)
-	_require_int(data, "bits", 0, MAX_SAFE_INT, result.errors)
+	_require_int(data, "version", 1, MAX_JSON_SAFE_INTEGER, result.errors)
+	_require_int(data, "bits", 0, MAX_JSON_SAFE_INTEGER, result.errors)
 	_require_int(
 		data, "active_shift_index", 0, ProductLoopState.SHIFT_COUNT, result.errors
 	)
 	_require_int(data, "result_serial", 0, MAX_SAFE_INT, result.errors)
+	_require_int(data, "playback_speed", 1, 2, result.errors)
 	_require_bool(data, "shift_2_unlocked", result.errors)
 	_require_bool(data, "version_update_available", result.errors)
 	_require_string(data, "report_key", true, result.errors)
 	_require_bool(data, "report_read", result.errors)
-	_require_int(data, "patch_notes", 0, MAX_SAFE_INT, result.errors)
+	_require_int(data, "patch_notes", 0, MAX_JSON_SAFE_INTEGER, result.errors)
 	_require_int(data, "legacy_cache_level", 0, MAX_SAFE_INT, result.errors)
 	_require_int(data, "unlocked_patch_slots", 0, 3, result.errors)
 	_require_int(data, "day_income_anchor_unix", 0, MAX_UNIX_TIME, result.errors)
@@ -230,6 +240,15 @@ static func restore_candidate(
 	)
 	_require_int(data, "last_day_income_bits", 0, MAX_SAFE_INT, result.errors)
 	_require_bool(data, "day_income_report_available", result.errors)
+	_require_int(data, "migration_source_schema", 0, 2, result.errors)
+	_require_int(
+		data,
+		"migration_source_run_count",
+		0,
+		MAX_JSON_SAFE_INTEGER,
+		result.errors
+	)
+	_require_int(data, "migration_saved_at_unix", 0, MAX_UNIX_TIME, result.errors)
 	if typeof(data.get("shift_records")) != TYPE_ARRAY:
 		result.errors.append("product_loop.shift_records: array is required")
 	if typeof(data.get("last_result")) != TYPE_DICTIONARY:
@@ -292,6 +311,7 @@ static func restore_candidate(
 	candidate.bits = int(data["bits"])
 	candidate.active_shift_index = int(data["active_shift_index"])
 	candidate.result_serial = int(data["result_serial"])
+	candidate.playback_speed = int(data["playback_speed"])
 	candidate.shift_records = records
 	candidate.shift_2_unlocked = bool(data["shift_2_unlocked"])
 	candidate.version_update_available = bool(data["version_update_available"])
@@ -315,6 +335,9 @@ static func restore_candidate(
 	candidate.day_income_report_available = bool(
 		data["day_income_report_available"]
 	)
+	candidate.migration_source_schema = int(data["migration_source_schema"])
+	candidate.migration_source_run_count = int(data["migration_source_run_count"])
+	candidate.migration_saved_at_unix = int(data["migration_saved_at_unix"])
 	_validate_cross_state(candidate, first_reward_bits, catalog, result.errors)
 	if result.errors.is_empty():
 		result.state = candidate
@@ -491,7 +514,7 @@ static func _parse_last_result(
 		_require_nonempty_string_at(data, key, context, errors)
 	for key: String in ["success", "shift_2_unlocked_now", "version_update_available_now"]:
 		_require_bool_at(data, key, context, errors)
-	_require_int_at(data, "version", 1, MAX_SAFE_INT, context, errors)
+	_require_int_at(data, "version", 1, MAX_JSON_SAFE_INTEGER, context, errors)
 	_require_int_at(data, "shift_index", 1, 2, context, errors)
 	_require_int_at(data, "completed_waves", 0, 10, context, errors)
 	_require_int_at(data, "stars", 0, 3, context, errors)
@@ -508,11 +531,15 @@ static func _parse_last_result(
 		"performance_raw",
 		"performance_reward",
 		"total_reward",
-		"bits_before",
 	]:
 		_require_int_at(data, key, 0, MAX_SAFE_INT, context, errors)
+	_require_int_at(
+		data, "bits_before", 0, MAX_JSON_SAFE_INTEGER, context, errors
+	)
 	_require_nonnegative_number_at(data, "bit_multiplier", context, errors)
-	_require_int_at(data, "bits_after", 0, MAX_SAFE_INT, context, errors)
+	_require_int_at(
+		data, "bits_after", 0, MAX_JSON_SAFE_INTEGER, context, errors
+	)
 	if (
 		data.has("terminal_reason")
 		and typeof(data["terminal_reason"]) == TYPE_STRING
@@ -702,6 +729,16 @@ static func _validate_cross_state(
 			"product_loop.shift_records[1]: second shift cannot be attempted while locked"
 		)
 	_validate_meta_state(state, catalog, errors)
+	if state.playback_speed == 2:
+		var speed_record := state.get_shift_record(state.active_shift_index)
+		if (
+			state.phase != ProductLoopState.Phase.NIGHT_ACTIVE
+			or speed_record == null
+			or speed_record.best_stars != 3
+		):
+			errors.append(
+				"product_loop.playback_speed: 2x requires a three-star NIGHT retry"
+			)
 	match state.phase:
 		ProductLoopState.Phase.DAY_PREP:
 			if state.active_shift_index != 0:
@@ -894,6 +931,7 @@ static func _validate_meta_state(
 	var second := state.get_shift_record(2)
 	if first == null or second == null:
 		return
+	_validate_migration_provenance(state, errors)
 	var expected_operator_ids: Array[StringName] = [
 		&"debugger", &"build_engineer",
 	]
@@ -922,18 +960,19 @@ static func _validate_meta_state(
 			expected_patch_ids.append(&"safe_mode")
 		if second.best_stars >= 2:
 			expected_patch_slots = 3
-	if not _same_id_set(state.unlocked_operator_ids, expected_operator_ids):
-		errors.append(
-			"product_loop.unlocked_operator_ids: must exactly match version progress"
-		)
-	if not _same_id_set(state.discovered_patch_ids, expected_patch_ids):
-		errors.append(
-			"product_loop.discovered_patch_ids: must exactly match version progress"
-		)
-	if state.unlocked_patch_slots != expected_patch_slots:
-		errors.append(
-			"product_loop.unlocked_patch_slots: must exactly match version progress"
-		)
+	if state.migration_source_schema == 0:
+		if not _same_id_set(state.unlocked_operator_ids, expected_operator_ids):
+			errors.append(
+				"product_loop.unlocked_operator_ids: must exactly match version progress"
+			)
+		if not _same_id_set(state.discovered_patch_ids, expected_patch_ids):
+			errors.append(
+				"product_loop.discovered_patch_ids: must exactly match version progress"
+			)
+		if state.unlocked_patch_slots != expected_patch_slots:
+			errors.append(
+				"product_loop.unlocked_patch_slots: must exactly match version progress"
+			)
 	var earned_patch_notes := (
 		(state.version - 1) * catalog.balance.version_patch_notes_reward
 	)
@@ -985,6 +1024,30 @@ static func _same_id_set(
 		if not actual.has(value):
 			return false
 	return true
+
+
+static func _validate_migration_provenance(
+	state: ProductLoopState,
+	errors: PackedStringArray
+) -> void:
+	if state.migration_source_schema == 0:
+		if (
+			state.migration_source_run_count != 0
+			or state.migration_saved_at_unix != 0
+		):
+			errors.append(
+				"product_loop.migration: native state cannot contain migration provenance"
+			)
+		return
+	if state.migration_source_schema not in [1, 2]:
+		errors.append(
+			"product_loop.migration_source_schema: only legacy schema 1 or 2 is supported"
+		)
+		return
+	if state.version < state.migration_source_run_count + 1:
+		errors.append(
+			"product_loop.version: cannot precede its migrated legacy run"
+		)
 
 
 static func _validate_salary(

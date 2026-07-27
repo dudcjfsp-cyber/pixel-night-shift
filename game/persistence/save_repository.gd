@@ -1,8 +1,10 @@
 class_name SaveRepository
 extends RefCounted
 
-const CURRENT_SCHEMA_VERSION := 2
+const CURRENT_SCHEMA_VERSION := 3
 const LEGACY_SCHEMA_VERSION := 1
+const PREVIOUS_SCHEMA_VERSION := 2
+const SUPPORTED_SCHEMA_VERSIONS: PackedInt32Array = [1, 2, 3]
 const DEFAULT_BASE_DIR := "user://pixel_night_shift"
 const PRIMARY_FILE_NAME := "work_record.json"
 const BACKUP_FILE_NAME := "work_record.backup.json"
@@ -352,10 +354,9 @@ func _validate_supported_envelope(envelope: Dictionary) -> PackedStringArray:
 
 	if not _is_integer_number(envelope["schema_version"]):
 		errors.append("schema_version must be an integer.")
-	elif int(envelope["schema_version"]) not in [LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]:
+	elif not SUPPORTED_SCHEMA_VERSIONS.has(int(envelope["schema_version"])):
 		errors.append(
-			"schema_version must equal supported schema %d or %d."
-			% [LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]
+			"schema_version must equal supported schema 1, 2, or 3."
 		)
 
 	if not _is_integer_number(envelope["saved_at_unix"]):

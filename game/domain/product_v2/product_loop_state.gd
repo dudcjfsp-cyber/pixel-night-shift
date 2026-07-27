@@ -41,6 +41,7 @@ var version: int = 1
 var bits: int = 0
 var active_shift_index: int = 0
 var result_serial: int = 0
+var playback_speed: int = 1
 
 var shift_records: Array[ShiftRecord] = []
 var shift_2_unlocked: bool = false
@@ -65,6 +66,10 @@ var last_day_income_elapsed_seconds: int = 0
 var last_day_income_bits: int = 0
 var day_income_report_available: bool = false
 
+var migration_source_schema: int = 0
+var migration_source_run_count: int = 0
+var migration_saved_at_unix: int = 0
+
 
 func _init() -> void:
 	for shift_index: int in range(1, SHIFT_COUNT + 1):
@@ -85,6 +90,7 @@ func deep_clone() -> ProductLoopState:
 	copy.bits = bits
 	copy.active_shift_index = active_shift_index
 	copy.result_serial = result_serial
+	copy.playback_speed = playback_speed
 	copy.shift_records.clear()
 	for record: ShiftRecord in shift_records:
 		copy.shift_records.append(record.deep_clone())
@@ -107,4 +113,7 @@ func deep_clone() -> ProductLoopState:
 	copy.last_day_income_elapsed_seconds = last_day_income_elapsed_seconds
 	copy.last_day_income_bits = last_day_income_bits
 	copy.day_income_report_available = day_income_report_available
+	copy.migration_source_schema = migration_source_schema
+	copy.migration_source_run_count = migration_source_run_count
+	copy.migration_saved_at_unix = migration_saved_at_unix
 	return copy
