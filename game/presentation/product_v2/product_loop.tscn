@@ -1,0 +1,38 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://game/app/product_v2/product_loop_runner.gd" id="1_runner"]
+[ext_resource type="Script" path="res://game/presentation/product_v2/day_prep_view.gd" id="2_day"]
+[ext_resource type="Script" path="res://game/presentation/product_v2/defense_lab_view.gd" id="3_night"]
+[ext_resource type="Script" path="res://game/presentation/product_v2/shift_result_view.gd" id="4_result"]
+
+[node name="ProductLoop" type="Node"]
+script = ExtResource("1_runner")
+
+[node name="DayPrepView" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("2_day")
+
+[node name="DefenseLabView" type="Control" parent="."]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("3_night")
+
+[node name="ShiftResultView" type="Control" parent="."]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("4_result")

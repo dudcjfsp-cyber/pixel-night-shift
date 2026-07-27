@@ -371,6 +371,7 @@ var _lab_button: Button
 var _pause_button: Button
 var _speed_button: Button
 var _preset_button: Button
+var _product_shift_label: Label
 var _phase_label: Label
 var _timer_label: Label
 var _stability_label: Label
@@ -388,12 +389,15 @@ var _terminal_overlay: Panel
 var _terminal_title: Label
 var _terminal_stars: Label
 var _terminal_reason: Label
+var _restart_button: Button
 
 var _snapshot: Dictionary = {}
 var _paused := false
 var _speed := 1.0
 var _preset: StringName = &"first_two"
 var _shift_index := 1
+var _product_mode := false
+var _double_speed_unlocked := false
 
 
 func _ready() -> void:
@@ -415,15 +419,50 @@ func configure(
 	_speed = speed
 	_preset = preset
 	_shift_index = shift_index
+	_pause_button.text = "계속" if _paused else "일시정지"
+	if _product_mode:
+		_product_shift_label.text = "%d차 야간" % _shift_index
+		_speed_button.text = (
+			"×%d" % int(_speed)
+			if _double_speed_unlocked
+			else "2배속 잠김"
+		)
+		_speed_button.tooltip_text = (
+			"이 야간근무를 ★★★로 완료하면 재도전 2배속이 열립니다."
+			if not _double_speed_unlocked
+			else "야간근무 배속 전환"
+		)
+		return
 	_lab_button.text = "LAB · S%d" % _shift_index
 	_lab_button.tooltip_text = (
 		"Shift 전환"
 		if save_status.is_empty()
 		else "Shift 전환 · %s" % save_status
 	)
-	_pause_button.text = "계속" if _paused else "일시정지"
 	_speed_button.text = "×%d" % int(_speed)
 	_preset_button.text = "편성 4" if _preset == &"full_team" else "편성 2"
+
+
+func set_product_mode(
+	enabled: bool,
+	double_speed_unlocked: bool = false
+) -> void:
+	_product_mode = enabled
+	_double_speed_unlocked = enabled and double_speed_unlocked
+	if not is_node_ready():
+		return
+	_lab_button.visible = not enabled
+	_preset_button.visible = not enabled
+	_product_shift_label.visible = enabled
+	_restart_button.visible = not enabled
+	_pause_button.position = Vector2(7.0, 6.0) if enabled else Vector2(116.0, 6.0)
+	_pause_button.size = Vector2(104.0, 25.0) if enabled else Vector2(82.0, 25.0)
+	_speed_button.position = Vector2(228.0, 6.0) if enabled else Vector2(202.0, 6.0)
+	_speed_button.size = Vector2(113.0, 25.0) if enabled else Vector2(50.0, 25.0)
+	_speed_button.disabled = enabled and not _double_speed_unlocked
+	_terminal_overlay.visible = (
+		false if enabled else _terminal_overlay.visible
+	)
 
 
 func refresh(value: Dictionary) -> void:
@@ -502,6 +541,16 @@ func _build_ui() -> void:
 	_preset_button.name = "PresetButton"
 	_preset_button.pressed.connect(func() -> void: preset_requested.emit())
 	top_panel.add_child(_preset_button)
+	_product_shift_label = _make_label(
+		Rect2(116.0, 6.0, 108.0, 25.0),
+		"1차 야간",
+		11,
+		COLOR_CYAN
+	)
+	_product_shift_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_product_shift_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_product_shift_label.visible = false
+	top_panel.add_child(_product_shift_label)
 
 	_stability_label = _make_label(
 		Rect2(8.0, 36.0, 74.0, 18.0),
@@ -653,13 +702,13 @@ func _build_terminal_overlay() -> void:
 	_terminal_reason.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_terminal_reason.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_terminal_overlay.add_child(_terminal_reason)
-	var restart_button := _make_button(
+	_restart_button = _make_button(
 		Rect2(35.0, 142.0, 228.0, 32.0),
 		"같은 조건으로 재시작"
 	)
-	restart_button.name = "RestartButton"
-	restart_button.pressed.connect(func() -> void: restart_requested.emit())
-	_terminal_overlay.add_child(restart_button)
+	_restart_button.name = "RestartButton"
+	_restart_button.pressed.connect(func() -> void: restart_requested.emit())
+	_terminal_overlay.add_child(_restart_button)
 
 
 func _fit_logical_root() -> void:
@@ -790,6 +839,9 @@ func _update_operators() -> void:
 
 
 func _update_terminal() -> void:
+	if _product_mode:
+		_terminal_overlay.visible = false
+		return
 	var terminal_value: Variant = _snapshot.get("terminal", false)
 	var is_terminal := false
 	if typeof(terminal_value) == TYPE_BOOL:
