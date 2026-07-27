@@ -246,10 +246,10 @@ class BattleField:
 		if lab_font != null:
 			draw_string(
 				lab_font,
-				center + Vector2(-27.0, 30.0),
-				"HP %d/%d" % [int(floorf(hp)), int(floorf(max_hp))],
+				center + Vector2(-10.0, 30.0),
+				str(int(floorf(hp))),
 				HORIZONTAL_ALIGNMENT_CENTER,
-				54.0,
+				20.0,
 				7,
 				COLOR_TEXT
 			)
