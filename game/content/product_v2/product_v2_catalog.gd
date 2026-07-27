@@ -30,6 +30,17 @@ class BalanceProfile:
 	var danger_stability: int
 	var star_thresholds: PackedInt32Array = PackedInt32Array()
 	var first_star_reward_bits: PackedInt32Array = PackedInt32Array()
+	var starting_bits: int
+	var base_salary_bits: int
+	var completed_wave_salary_bits: int
+	var boss_defeat_salary_bits: int
+	var stability_step_percent: int
+	var stability_step_salary_bits: int
+	var patch_equip_cost_bits: int
+	var day_income_interval_seconds: int
+	var day_income_cap_seconds: int
+	var day_income_cap_bits: int
+	var version_patch_notes_reward: int
 	var operator_hp_growth: float
 	var qa_rescue_delay: float
 	var qa_rescue_hp_fraction: float

@@ -18,7 +18,10 @@ const NightShiftStateDto := preload(
 )
 
 const DEFAULT_PRESET := &"first_two"
-const PRESET_IDS: Array[StringName] = [&"first_two", &"full_team"]
+const PRODUCT_LOOP_PRESET := &"product_loop"
+const PRESET_IDS: Array[StringName] = [
+	&"first_two", &"full_team", PRODUCT_LOOP_PRESET,
+]
 const SAVE_KEYS: PackedStringArray = ["preset", "night_shift"]
 
 var _catalog: ProductV2Catalog
@@ -61,6 +64,54 @@ func restart(
 	shift_index: int = 0
 ) -> bool:
 	return _restart_with_candidate(preset_id, shift_index)
+
+
+func restart_with_loadout(
+	shift_index: int,
+	operator_levels: Dictionary,
+	unlocked_operator_ids: Array[StringName],
+	equipped_patch_ids: Array[StringName],
+	legacy_cache_level: int
+) -> bool:
+	if not _catalog.has_shift(shift_index):
+		return _reject("알 수 없는 Product V2 근무 차수입니다: %d" % shift_index)
+	if unlocked_operator_ids.is_empty():
+		return _reject("야간근무에는 해금된 요원이 한 명 이상 필요합니다.")
+	if legacy_cache_level < 0 or (
+		legacy_cache_level
+		> _catalog.base_catalog.balance.max_legacy_cache_level
+	):
+		return _reject("레거시 빌드 캐시 단계가 유효하지 않습니다.")
+	var seen_operators: Dictionary = {}
+	for operator_id: StringName in unlocked_operator_ids:
+		if (
+			seen_operators.has(operator_id)
+			or not _catalog.base_catalog.has_operator(operator_id)
+			or int(operator_levels.get(operator_id, 0)) <= 0
+		):
+			return _reject("요원 편성 정보가 유효하지 않습니다: %s" % operator_id)
+		seen_operators[operator_id] = true
+	var seen_patches: Dictionary = {}
+	for patch_id: StringName in equipped_patch_ids:
+		if patch_id == &"":
+			continue
+		if (
+			seen_patches.has(patch_id)
+			or not _catalog.base_catalog.has_patch(patch_id)
+		):
+			return _reject("패치 편성 정보가 유효하지 않습니다: %s" % patch_id)
+		seen_patches[patch_id] = true
+	_state = NightShiftSimulator.create_state(
+		_catalog,
+		shift_index,
+		operator_levels.duplicate(true),
+		unlocked_operator_ids,
+		equipped_patch_ids,
+		legacy_cache_level
+	)
+	_preset_id = PRODUCT_LOOP_PRESET
+	_last_error = ""
+	return true
 
 
 func snapshot() -> Dictionary:
@@ -145,6 +196,8 @@ func snapshot() -> Dictionary:
 		"completed_waves": _state.completed_waves,
 		"stars": _state.star_count(_catalog.balance.star_thresholds),
 		"star_thresholds": star_thresholds,
+		"equipped_patch_ids": _string_name_array(_state.equipped_patch_ids),
+		"legacy_cache_level": _state.legacy_cache_level,
 		"stability": _state.stability,
 		"max_stability": _catalog.balance.max_stability,
 		"danger_stability": _catalog.balance.danger_stability,
@@ -234,7 +287,10 @@ func restore_state(data: Dictionary) -> PackedStringArray:
 	if not errors.is_empty():
 		return errors
 	assert(restore_result.state != null, "Validated Defense Lab restore requires a state")
-	if not _candidate_matches_preset(restore_result.state, preset_id):
+	if (
+		preset_id != PRODUCT_LOOP_PRESET
+		and not _candidate_matches_preset(restore_result.state, preset_id)
+	):
 		errors.append("night_shift: loadout does not match preset '%s'" % preset_id)
 		return errors
 	_state = restore_result.state
@@ -246,6 +302,8 @@ func restore_state(data: Dictionary) -> PackedStringArray:
 func _restart_with_candidate(preset_id: StringName, shift_index: int) -> bool:
 	if not PRESET_IDS.has(preset_id):
 		return _reject("알 수 없는 Defense Lab 프리셋입니다: %s" % preset_id)
+	if preset_id == PRODUCT_LOOP_PRESET:
+		return _reject("Product loop 프리셋은 명시적 편성이 필요합니다.")
 	var config := _preset_config(preset_id)
 	var selected_shift := int(config["shift_index"]) if shift_index == 0 else shift_index
 	if not _catalog.has_shift(selected_shift):
@@ -439,6 +497,13 @@ func _copy_dictionary_for_view(source: Dictionary) -> Dictionary:
 
 func _visible_timer(value: float) -> float:
 	return 0.0 if is_inf(value) else maxf(0.0, value)
+
+
+func _string_name_array(source: Array[StringName]) -> Array[String]:
+	var result: Array[String] = []
+	for value: StringName in source:
+		result.append(String(value))
+	return result
 
 
 func _reject(message: String) -> bool:

@@ -19,6 +19,7 @@ class ShiftRecord:
 	var highest_completed_waves: int = 0
 	var best_stars: int = 0
 	var claimed_reward_stars: int = 0
+	var boss_encountered: bool = false
 
 
 	func _init(index: int = 1) -> void:
@@ -31,6 +32,7 @@ class ShiftRecord:
 		copy.highest_completed_waves = highest_completed_waves
 		copy.best_stars = best_stars
 		copy.claimed_reward_stars = claimed_reward_stars
+		copy.boss_encountered = boss_encountered
 		return copy
 
 
@@ -48,6 +50,20 @@ var last_result: Dictionary = {}
 var report_key := ""
 var report_rows: Array[Dictionary] = []
 var report_read: bool = true
+
+var patch_notes: int = 0
+var legacy_cache_level: int = 0
+var operator_levels: Dictionary = {}
+var unlocked_operator_ids: Array[StringName] = []
+var discovered_patch_ids: Array[StringName] = []
+var unlocked_patch_slots: int = 0
+var equipped_patch_ids: Array[StringName] = [&"", &"", &""]
+
+var day_income_anchor_unix: int = 0
+var day_income_remainder_seconds: int = 0
+var last_day_income_elapsed_seconds: int = 0
+var last_day_income_bits: int = 0
+var day_income_report_available: bool = false
 
 
 func _init() -> void:
@@ -79,4 +95,16 @@ func deep_clone() -> ProductLoopState:
 	for row: Dictionary in report_rows:
 		copy.report_rows.append(row.duplicate(true))
 	copy.report_read = report_read
+	copy.patch_notes = patch_notes
+	copy.legacy_cache_level = legacy_cache_level
+	copy.operator_levels = operator_levels.duplicate(true)
+	copy.unlocked_operator_ids.assign(unlocked_operator_ids)
+	copy.discovered_patch_ids.assign(discovered_patch_ids)
+	copy.unlocked_patch_slots = unlocked_patch_slots
+	copy.equipped_patch_ids.assign(equipped_patch_ids)
+	copy.day_income_anchor_unix = day_income_anchor_unix
+	copy.day_income_remainder_seconds = day_income_remainder_seconds
+	copy.last_day_income_elapsed_seconds = last_day_income_elapsed_seconds
+	copy.last_day_income_bits = last_day_income_bits
+	copy.day_income_report_available = day_income_report_available
 	return copy

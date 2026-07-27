@@ -4,6 +4,12 @@ extends RefCounted
 const ProductLoopState := preload(
 	"res://game/domain/product_v2/product_loop_state.gd"
 )
+const ProductMetaRules := preload(
+	"res://game/domain/product_v2/product_meta_rules.gd"
+)
+const ProductV2Catalog := preload(
+	"res://game/content/product_v2/product_v2_catalog.gd"
+)
 
 const MAX_STARS := 3
 
@@ -46,7 +52,7 @@ static func first_reward_bits(
 static func settle_terminal(
 	state: ProductLoopState,
 	night_snapshot: Dictionary,
-	reward_bits: PackedInt32Array
+	catalog: ProductV2Catalog
 ) -> Dictionary:
 	assert(
 		state.phase == ProductLoopState.Phase.NIGHT_ACTIVE,
@@ -71,7 +77,33 @@ static func settle_terminal(
 		record.claimed_reward_stars, achieved_stars
 	)
 	var first_bits := first_reward_bits(
-		record.claimed_reward_stars, achieved_stars, reward_bits
+		record.claimed_reward_stars,
+		achieved_stars,
+		catalog.balance.first_star_reward_bits
+	)
+	var bits_before := state.bits
+	var success := bool(night_snapshot["success"])
+	var completion_reward := (
+		completed_waves * catalog.balance.completed_wave_salary_bits
+	)
+	var boss_reward := catalog.balance.boss_defeat_salary_bits if success else 0
+	var stability := int(night_snapshot["stability"])
+	var max_stability := int(night_snapshot["max_stability"])
+	var stability_steps := floori(
+		float(stability * 100)
+		/ float(maxi(1, max_stability) * catalog.balance.stability_step_percent)
+	)
+	var stability_reward := (
+		stability_steps * catalog.balance.stability_step_salary_bits
+	)
+	var modifiers := ProgressionRules.patch_modifiers(
+		state.equipped_patch_ids, catalog.base_catalog
+	)
+	var bit_multiplier := float(modifiers.bits)
+	var performance_raw := completion_reward + boss_reward + stability_reward
+	var performance_reward := floori(float(performance_raw) * bit_multiplier)
+	var total_reward := (
+		catalog.balance.base_salary_bits + performance_reward + first_bits
 	)
 
 	record.attempts += 1
@@ -82,7 +114,11 @@ static func settle_terminal(
 	record.claimed_reward_stars = maxi(
 		record.claimed_reward_stars, achieved_stars
 	)
-	state.bits += first_bits
+	record.boss_encountered = (
+		record.boss_encountered
+		or int(night_snapshot.get("current_wave", 0)) == 10
+	)
+	state.bits += total_reward
 
 	var unlocked_shift_2_now := (
 		not state.shift_2_unlocked
@@ -98,6 +134,7 @@ static func settle_terminal(
 	)
 	if unlocked_update_now:
 		state.version_update_available = true
+	var new_unlocks := ProductMetaRules.refresh_unlocks(state, catalog)
 
 	state.result_serial += 1
 	var result_key := "v%d:s%d:r%d" % [
@@ -114,7 +151,7 @@ static func settle_terminal(
 		"key": result_key,
 		"version": state.version,
 		"shift_index": shift_index,
-		"success": bool(night_snapshot["success"]),
+		"success": success,
 		"terminal_reason": String(night_snapshot["terminal_reason"]),
 		"completed_waves": completed_waves,
 		"stars": achieved_stars,
@@ -124,9 +161,19 @@ static func settle_terminal(
 		"best_stars": record.best_stars,
 		"first_reward_bits": first_bits,
 		"new_reward_stars": newly_rewarded,
+		"base_salary": catalog.balance.base_salary_bits,
+		"completion_reward": completion_reward,
+		"boss_reward": boss_reward,
+		"stability_reward": stability_reward,
+		"performance_raw": performance_raw,
+		"bit_multiplier": bit_multiplier,
+		"performance_reward": performance_reward,
+		"total_reward": total_reward,
+		"bits_before": bits_before,
 		"bits_after": state.bits,
 		"shift_2_unlocked_now": unlocked_shift_2_now,
 		"version_update_available_now": unlocked_update_now,
+		"new_unlocks": new_unlocks,
 		"report_key": result_key,
 		"boss": (night_snapshot["boss"] as Dictionary).duplicate(true),
 		"combat_metrics": (

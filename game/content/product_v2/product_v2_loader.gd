@@ -25,6 +25,17 @@ const BALANCE_KEYS: Array[String] = [
 	"danger_stability",
 	"star_thresholds",
 	"first_star_reward_bits",
+	"starting_bits",
+	"base_salary_bits",
+	"completed_wave_salary_bits",
+	"boss_defeat_salary_bits",
+	"stability_step_percent",
+	"stability_step_salary_bits",
+	"patch_equip_cost_bits",
+	"day_income_interval_seconds",
+	"day_income_cap_seconds",
+	"day_income_cap_bits",
+	"version_patch_notes_reward",
 	"operator_hp_growth",
 	"qa_rescue_delay",
 	"qa_rescue_hp_fraction",
@@ -190,6 +201,39 @@ static func _parse_balance(
 	profile.first_star_reward_bits = _required_increasing_positive_int_array(
 		data, "first_star_reward_bits", "product_v2.balance", result
 	)
+	profile.starting_bits = _required_positive_int(
+		data, "starting_bits", "product_v2.balance", result
+	)
+	profile.base_salary_bits = _required_positive_int(
+		data, "base_salary_bits", "product_v2.balance", result
+	)
+	profile.completed_wave_salary_bits = _required_positive_int(
+		data, "completed_wave_salary_bits", "product_v2.balance", result
+	)
+	profile.boss_defeat_salary_bits = _required_positive_int(
+		data, "boss_defeat_salary_bits", "product_v2.balance", result
+	)
+	profile.stability_step_percent = _required_positive_int(
+		data, "stability_step_percent", "product_v2.balance", result
+	)
+	profile.stability_step_salary_bits = _required_positive_int(
+		data, "stability_step_salary_bits", "product_v2.balance", result
+	)
+	profile.patch_equip_cost_bits = _required_positive_int(
+		data, "patch_equip_cost_bits", "product_v2.balance", result
+	)
+	profile.day_income_interval_seconds = _required_positive_int(
+		data, "day_income_interval_seconds", "product_v2.balance", result
+	)
+	profile.day_income_cap_seconds = _required_positive_int(
+		data, "day_income_cap_seconds", "product_v2.balance", result
+	)
+	profile.day_income_cap_bits = _required_positive_int(
+		data, "day_income_cap_bits", "product_v2.balance", result
+	)
+	profile.version_patch_notes_reward = _required_positive_int(
+		data, "version_patch_notes_reward", "product_v2.balance", result
+	)
 	profile.operator_hp_growth = _required_positive_float(
 		data, "operator_hp_growth", "product_v2.balance", result
 	)
@@ -242,6 +286,32 @@ static func _parse_balance(
 	):
 		result.errors.append(
 			"product_v2.balance.first_star_reward_bits: must be exactly [12, 18, 30]"
+		)
+	var fixed_integer_values := {
+		"starting_bits": 30,
+		"base_salary_bits": 12,
+		"completed_wave_salary_bits": 3,
+		"boss_defeat_salary_bits": 6,
+		"stability_step_percent": 20,
+		"stability_step_salary_bits": 2,
+		"patch_equip_cost_bits": 8,
+		"day_income_interval_seconds": 1200,
+		"day_income_cap_seconds": 43200,
+		"day_income_cap_bits": 36,
+		"version_patch_notes_reward": 1,
+	}
+	for key: String in fixed_integer_values:
+		if int(profile.get(key)) != int(fixed_integer_values[key]):
+			result.errors.append(
+				"product_v2.balance.%s: must be exactly %d"
+				% [key, int(fixed_integer_values[key])]
+			)
+	if (
+		profile.day_income_cap_seconds / profile.day_income_interval_seconds
+		!= profile.day_income_cap_bits
+	):
+		result.errors.append(
+			"product_v2.balance: day income cap seconds and bits must agree"
 		)
 	if profile.operator_hp_growth <= 1.0:
 		result.errors.append(

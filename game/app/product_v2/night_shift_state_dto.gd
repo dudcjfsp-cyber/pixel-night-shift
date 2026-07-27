@@ -568,6 +568,8 @@ static func _validate_loadout_and_runtimes(
 			errors.append("leveled operator '%s' must be unlocked" % operator_id)
 	var patches: Dictionary = {}
 	for patch_id: StringName in state.equipped_patch_ids:
+		if patch_id == &"":
+			continue
 		if not catalog.base_catalog.has_patch(patch_id):
 			errors.append("unknown equipped patch '%s'" % patch_id)
 		elif patches.has(patch_id):

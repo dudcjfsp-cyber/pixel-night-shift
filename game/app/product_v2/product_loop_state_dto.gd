@@ -4,8 +4,12 @@ extends RefCounted
 const ProductLoopState := preload(
 	"res://game/domain/product_v2/product_loop_state.gd"
 )
+const ProductV2Catalog := preload(
+	"res://game/content/product_v2/product_v2_catalog.gd"
+)
 
 const MAX_SAFE_INT := 2_000_000_000
+const MAX_UNIX_TIME := 9_000_000_000_000_000
 const STATE_KEYS: PackedStringArray = [
 	"phase",
 	"version",
@@ -19,6 +23,18 @@ const STATE_KEYS: PackedStringArray = [
 	"report_key",
 	"report_rows",
 	"report_read",
+	"patch_notes",
+	"legacy_cache_level",
+	"operator_levels",
+	"unlocked_operator_ids",
+	"discovered_patch_ids",
+	"unlocked_patch_slots",
+	"equipped_patch_ids",
+	"day_income_anchor_unix",
+	"day_income_remainder_seconds",
+	"last_day_income_elapsed_seconds",
+	"last_day_income_bits",
+	"day_income_report_available",
 ]
 const SHIFT_RECORD_KEYS: PackedStringArray = [
 	"shift_index",
@@ -26,6 +42,7 @@ const SHIFT_RECORD_KEYS: PackedStringArray = [
 	"highest_completed_waves",
 	"best_stars",
 	"claimed_reward_stars",
+	"boss_encountered",
 ]
 const RESULT_KEYS: PackedStringArray = [
 	"key",
@@ -41,14 +58,27 @@ const RESULT_KEYS: PackedStringArray = [
 	"best_stars",
 	"first_reward_bits",
 	"new_reward_stars",
+	"base_salary",
+	"completion_reward",
+	"boss_reward",
+	"stability_reward",
+	"performance_raw",
+	"bit_multiplier",
+	"performance_reward",
+	"total_reward",
+	"bits_before",
 	"bits_after",
 	"shift_2_unlocked_now",
 	"version_update_available_now",
+	"new_unlocks",
 	"report_key",
 	"boss",
 	"combat_metrics",
 	"down_evidence",
 	"qa_outcome",
+]
+const NEW_UNLOCK_KEYS: PackedStringArray = [
+	"operator_ids", "patch_ids", "patch_slots",
 ]
 const REPORT_ROW_KEYS: PackedStringArray = [
 	"kind",
@@ -129,6 +159,7 @@ static func export_state(state: ProductLoopState) -> Dictionary:
 			"highest_completed_waves": record.highest_completed_waves,
 			"best_stars": record.best_stars,
 			"claimed_reward_stars": record.claimed_reward_stars,
+			"boss_encountered": record.boss_encountered,
 		})
 	var report_rows: Array[Dictionary] = []
 	for row: Dictionary in state.report_rows:
@@ -146,12 +177,25 @@ static func export_state(state: ProductLoopState) -> Dictionary:
 		"report_key": state.report_key,
 		"report_rows": report_rows,
 		"report_read": state.report_read,
+		"patch_notes": state.patch_notes,
+		"legacy_cache_level": state.legacy_cache_level,
+		"operator_levels": _export_levels(state.operator_levels),
+		"unlocked_operator_ids": _export_ids(state.unlocked_operator_ids),
+		"discovered_patch_ids": _export_ids(state.discovered_patch_ids),
+		"unlocked_patch_slots": state.unlocked_patch_slots,
+		"equipped_patch_ids": _export_ids(state.equipped_patch_ids),
+		"day_income_anchor_unix": state.day_income_anchor_unix,
+		"day_income_remainder_seconds": state.day_income_remainder_seconds,
+		"last_day_income_elapsed_seconds": state.last_day_income_elapsed_seconds,
+		"last_day_income_bits": state.last_day_income_bits,
+		"day_income_report_available": state.day_income_report_available,
 	}
 
 
 static func restore_candidate(
 	data: Dictionary,
-	first_reward_bits: PackedInt32Array
+	first_reward_bits: PackedInt32Array,
+	catalog: ProductV2Catalog = null
 ) -> RestoreResult:
 	var result := RestoreResult.new()
 	if first_reward_bits.size() != 3:
@@ -174,12 +218,31 @@ static func restore_candidate(
 	_require_bool(data, "version_update_available", result.errors)
 	_require_string(data, "report_key", true, result.errors)
 	_require_bool(data, "report_read", result.errors)
+	_require_int(data, "patch_notes", 0, MAX_SAFE_INT, result.errors)
+	_require_int(data, "legacy_cache_level", 0, MAX_SAFE_INT, result.errors)
+	_require_int(data, "unlocked_patch_slots", 0, 3, result.errors)
+	_require_int(data, "day_income_anchor_unix", 0, MAX_UNIX_TIME, result.errors)
+	_require_int(
+		data, "day_income_remainder_seconds", 0, MAX_SAFE_INT, result.errors
+	)
+	_require_int(
+		data, "last_day_income_elapsed_seconds", 0, MAX_SAFE_INT, result.errors
+	)
+	_require_int(data, "last_day_income_bits", 0, MAX_SAFE_INT, result.errors)
+	_require_bool(data, "day_income_report_available", result.errors)
 	if typeof(data.get("shift_records")) != TYPE_ARRAY:
 		result.errors.append("product_loop.shift_records: array is required")
 	if typeof(data.get("last_result")) != TYPE_DICTIONARY:
 		result.errors.append("product_loop.last_result: object is required")
 	if typeof(data.get("report_rows")) != TYPE_ARRAY:
 		result.errors.append("product_loop.report_rows: array is required")
+	if typeof(data.get("operator_levels")) != TYPE_DICTIONARY:
+		result.errors.append("product_loop.operator_levels: object is required")
+	for key: String in [
+		"unlocked_operator_ids", "discovered_patch_ids", "equipped_patch_ids",
+	]:
+		if typeof(data.get(key)) != TYPE_ARRAY:
+			result.errors.append("product_loop.%s: array is required" % key)
 	if not result.errors.is_empty():
 		return result
 
@@ -192,6 +255,34 @@ static func restore_candidate(
 	var report_rows := _parse_report_rows(
 		data["report_rows"] as Array, result.errors
 	)
+	var operator_levels := _parse_operator_levels(
+		data["operator_levels"] as Dictionary, result.errors
+	)
+	var unlocked_operator_ids := _parse_id_array(
+		data["unlocked_operator_ids"] as Array,
+		"product_loop.unlocked_operator_ids",
+		ProductV2Catalog.STABLE_OPERATOR_IDS,
+		false,
+		result.errors
+	)
+	var discovered_patch_ids := _parse_id_array(
+		data["discovered_patch_ids"] as Array,
+		"product_loop.discovered_patch_ids",
+		ProductV2Catalog.STABLE_PATCH_IDS,
+		false,
+		result.errors
+	)
+	var equipped_patch_ids := _parse_id_array(
+		data["equipped_patch_ids"] as Array,
+		"product_loop.equipped_patch_ids",
+		ProductV2Catalog.STABLE_PATCH_IDS,
+		true,
+		result.errors
+	)
+	if (data["equipped_patch_ids"] as Array).size() != 3:
+		result.errors.append(
+			"product_loop.equipped_patch_ids: exactly three slots are required"
+		)
 	if not result.errors.is_empty():
 		return result
 
@@ -208,10 +299,131 @@ static func restore_candidate(
 	candidate.report_key = String(data["report_key"])
 	candidate.report_rows = report_rows
 	candidate.report_read = bool(data["report_read"])
-	_validate_cross_state(candidate, first_reward_bits, result.errors)
+	candidate.patch_notes = int(data["patch_notes"])
+	candidate.legacy_cache_level = int(data["legacy_cache_level"])
+	candidate.operator_levels = operator_levels
+	candidate.unlocked_operator_ids = unlocked_operator_ids
+	candidate.discovered_patch_ids = discovered_patch_ids
+	candidate.unlocked_patch_slots = int(data["unlocked_patch_slots"])
+	candidate.equipped_patch_ids = equipped_patch_ids
+	candidate.day_income_anchor_unix = int(data["day_income_anchor_unix"])
+	candidate.day_income_remainder_seconds = int(data["day_income_remainder_seconds"])
+	candidate.last_day_income_elapsed_seconds = int(
+		data["last_day_income_elapsed_seconds"]
+	)
+	candidate.last_day_income_bits = int(data["last_day_income_bits"])
+	candidate.day_income_report_available = bool(
+		data["day_income_report_available"]
+	)
+	_validate_cross_state(candidate, first_reward_bits, catalog, result.errors)
 	if result.errors.is_empty():
 		result.state = candidate
 	return result
+
+
+static func _export_levels(source: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	for raw_id: Variant in source.keys():
+		result[String(raw_id)] = int(source[raw_id])
+	return result
+
+
+static func _export_ids(source: Array[StringName]) -> Array[String]:
+	var result: Array[String] = []
+	for value: StringName in source:
+		result.append(String(value))
+	return result
+
+
+static func _parse_operator_levels(
+	data: Dictionary,
+	errors: PackedStringArray
+) -> Dictionary:
+	var expected := PackedStringArray()
+	for operator_id: StringName in ProductV2Catalog.STABLE_OPERATOR_IDS:
+		expected.append(String(operator_id))
+	_validate_keys(data, expected, "product_loop.operator_levels", errors)
+	var result: Dictionary = {}
+	for operator_id: StringName in ProductV2Catalog.STABLE_OPERATOR_IDS:
+		var key := String(operator_id)
+		_require_int_at(
+			data, key, 0, 1000, "product_loop.operator_levels", errors
+		)
+		if data.has(key) and _is_integer(data[key]):
+			result[operator_id] = int(data[key])
+	return result
+
+
+static func _parse_id_array(
+	raw_values: Array,
+	context: String,
+	allowed_ids: Array[StringName],
+	allow_empty: bool,
+	errors: PackedStringArray
+) -> Array[StringName]:
+	var result: Array[StringName] = []
+	var seen: Dictionary = {}
+	for index: int in raw_values.size():
+		var raw_value: Variant = raw_values[index]
+		if typeof(raw_value) != TYPE_STRING:
+			errors.append("%s[%d]: string is required" % [context, index])
+			continue
+		var value := StringName(String(raw_value))
+		if value == &"" and allow_empty:
+			result.append(value)
+			continue
+		if value == &"" or not allowed_ids.has(value):
+			errors.append("%s[%d]: unknown id '%s'" % [context, index, value])
+			continue
+		if seen.has(value):
+			errors.append("%s[%d]: duplicate id '%s'" % [context, index, value])
+			continue
+		seen[value] = true
+		result.append(value)
+	return result
+
+
+static func _validate_new_unlocks(
+	data: Dictionary,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	_validate_keys(data, NEW_UNLOCK_KEYS, context, errors)
+	for key: String in NEW_UNLOCK_KEYS:
+		if typeof(data.get(key)) != TYPE_ARRAY:
+			errors.append("%s.%s: array is required" % [context, key])
+	if not errors.is_empty():
+		return
+	_parse_id_array(
+		data["operator_ids"] as Array,
+		"%s.operator_ids" % context,
+		ProductV2Catalog.STABLE_OPERATOR_IDS,
+		false,
+		errors
+	)
+	_parse_id_array(
+		data["patch_ids"] as Array,
+		"%s.patch_ids" % context,
+		ProductV2Catalog.STABLE_PATCH_IDS,
+		false,
+		errors
+	)
+	var seen_slots: Dictionary = {}
+	for index: int in (data["patch_slots"] as Array).size():
+		var raw_slot: Variant = (data["patch_slots"] as Array)[index]
+		if not _is_integer(raw_slot):
+			errors.append(
+				"%s.patch_slots[%d]: integer is required" % [context, index]
+			)
+			continue
+		var slot := int(raw_slot)
+		if slot < 0 or slot > 2 or seen_slots.has(slot):
+			errors.append(
+				"%s.patch_slots[%d]: unique slot from 0 to 2 is required"
+				% [context, index]
+			)
+			continue
+		seen_slots[slot] = true
 
 
 static func _parse_shift_records(
@@ -238,6 +450,7 @@ static func _parse_shift_records(
 		)
 		_require_int_at(data, "best_stars", 0, 3, context, errors)
 		_require_int_at(data, "claimed_reward_stars", 0, 3, context, errors)
+		_require_bool_at(data, "boss_encountered", context, errors)
 		if errors.size() != error_count_before:
 			continue
 		var record := ProductLoopState.ShiftRecord.new(index + 1)
@@ -245,6 +458,7 @@ static func _parse_shift_records(
 		record.highest_completed_waves = int(data["highest_completed_waves"])
 		record.best_stars = int(data["best_stars"])
 		record.claimed_reward_stars = int(data["claimed_reward_stars"])
+		record.boss_encountered = bool(data["boss_encountered"])
 		if record.claimed_reward_stars != record.best_stars:
 			errors.append(
 				"%s.claimed_reward_stars: must match best_stars after settlement"
@@ -258,6 +472,7 @@ static func _parse_shift_records(
 			record.highest_completed_waves > 0
 			or record.best_stars > 0
 			or record.claimed_reward_stars > 0
+			or record.boss_encountered
 		):
 			errors.append("%s: an unattempted shift cannot have progress" % context)
 		records.append(record)
@@ -285,6 +500,18 @@ static func _parse_last_result(
 	_require_int_at(data, "previous_best_stars", 0, 3, context, errors)
 	_require_int_at(data, "best_stars", 0, 3, context, errors)
 	_require_int_at(data, "first_reward_bits", 0, MAX_SAFE_INT, context, errors)
+	for key: String in [
+		"base_salary",
+		"completion_reward",
+		"boss_reward",
+		"stability_reward",
+		"performance_raw",
+		"performance_reward",
+		"total_reward",
+		"bits_before",
+	]:
+		_require_int_at(data, key, 0, MAX_SAFE_INT, context, errors)
+	_require_nonnegative_number_at(data, "bit_multiplier", context, errors)
 	_require_int_at(data, "bits_after", 0, MAX_SAFE_INT, context, errors)
 	if (
 		data.has("terminal_reason")
@@ -311,6 +538,14 @@ static func _parse_last_result(
 					% context
 				)
 			previous = star
+	if typeof(data.get("new_unlocks")) != TYPE_DICTIONARY:
+		errors.append("%s.new_unlocks: object is required" % context)
+	else:
+		_validate_new_unlocks(
+			data["new_unlocks"] as Dictionary,
+			"%s.new_unlocks" % context,
+			errors
+		)
 	_validate_result_evidence(data, context, errors)
 	if not errors.is_empty():
 		return {}
@@ -446,6 +681,7 @@ static func _validate_result_evidence(
 static func _validate_cross_state(
 	state: ProductLoopState,
 	first_reward_bits: PackedInt32Array,
+	catalog: ProductV2Catalog,
 	errors: PackedStringArray
 ) -> void:
 	var first := state.get_shift_record(1)
@@ -465,6 +701,7 @@ static func _validate_cross_state(
 		errors.append(
 			"product_loop.shift_records[1]: second shift cannot be attempted while locked"
 		)
+	_validate_meta_state(state, catalog, errors)
 	match state.phase:
 		ProductLoopState.Phase.DAY_PREP:
 			if state.active_shift_index != 0:
@@ -538,8 +775,13 @@ static func _validate_cross_state(
 		errors.append(
 			"product_loop.last_result.success: must match boss defeat evidence"
 		)
-	if int(state.last_result.get("bits_after", -1)) != state.bits:
-		errors.append("product_loop.last_result.bits_after: must match current bits")
+	if (
+		state.phase == ProductLoopState.Phase.SHIFT_RESULT
+		and int(state.last_result.get("bits_after", -1)) != state.bits
+	):
+		errors.append(
+			"product_loop.last_result.bits_after: must match result-phase bits"
+		)
 	var previous_best := int(state.last_result.get("previous_best_stars", -1))
 	var expected_best := maxi(previous_best, achieved_stars)
 	if int(state.last_result.get("best_stars", -1)) != expected_best:
@@ -560,6 +802,7 @@ static func _validate_cross_state(
 		errors.append(
 			"product_loop.last_result.first_reward_bits: does not match new tiers"
 		)
+	_validate_salary(state.last_result, catalog, errors)
 	var expected_key := "v%d:s%d:r%d" % [
 		state.version, result_shift, state.result_serial,
 	]
@@ -590,6 +833,224 @@ static func _validate_cross_state(
 		errors.append(
 			"product_loop.last_result.version_update_available_now: inconsistent unlock"
 		)
+
+
+static func _validate_meta_state(
+	state: ProductLoopState,
+	catalog: ProductV2Catalog,
+	errors: PackedStringArray
+) -> void:
+	for required_id: StringName in [&"debugger", &"build_engineer"]:
+		if not state.unlocked_operator_ids.has(required_id):
+			errors.append(
+				"product_loop.unlocked_operator_ids: starting operators are required"
+			)
+			break
+	for operator_id: StringName in ProductV2Catalog.STABLE_OPERATOR_IDS:
+		var level := int(state.operator_levels.get(operator_id, -1))
+		var unlocked := state.unlocked_operator_ids.has(operator_id)
+		if (unlocked and level <= 0) or (not unlocked and level != 0):
+			errors.append(
+				"product_loop.operator_levels.%s: must match unlock state"
+				% operator_id
+			)
+	for patch_id: StringName in state.equipped_patch_ids:
+		if patch_id != &"" and not state.discovered_patch_ids.has(patch_id):
+			errors.append(
+				"product_loop.equipped_patch_ids: equipped patches must be discovered"
+			)
+			break
+	for slot_index: int in state.equipped_patch_ids.size():
+		if (
+			slot_index >= state.unlocked_patch_slots
+			and state.equipped_patch_ids[slot_index] != &""
+		):
+			errors.append(
+				"product_loop.equipped_patch_ids: locked slots must be empty"
+			)
+			break
+	var income_interval := (
+		catalog.balance.day_income_interval_seconds if catalog != null else 1200
+	)
+	var income_cap := (
+		catalog.balance.day_income_cap_bits if catalog != null else 36
+	)
+	if state.day_income_remainder_seconds >= income_interval:
+		errors.append(
+			"product_loop.day_income_remainder_seconds: must be below one interval"
+		)
+	if state.last_day_income_bits > income_cap:
+		errors.append(
+			"product_loop.last_day_income_bits: exceeds the DAY income cap"
+		)
+	if catalog != null and (
+		state.legacy_cache_level
+		> catalog.base_catalog.balance.max_legacy_cache_level
+	):
+		errors.append(
+			"product_loop.legacy_cache_level: exceeds the catalog maximum"
+		)
+	var first := state.get_shift_record(1)
+	var second := state.get_shift_record(2)
+	if first == null or second == null:
+		return
+	var expected_operator_ids: Array[StringName] = [
+		&"debugger", &"build_engineer",
+	]
+	var expected_patch_ids: Array[StringName] = []
+	var expected_patch_slots := 0
+	if state.version >= 2:
+		expected_operator_ids.assign(ProductV2Catalog.STABLE_OPERATOR_IDS)
+		expected_patch_ids.assign(ProductV2Catalog.STABLE_PATCH_IDS)
+		expected_patch_slots = 3
+	else:
+		if first.best_stars >= 1:
+			expected_operator_ids.append(&"sprite_artist")
+			expected_patch_ids.append(&"frame_skip")
+			expected_patch_slots = 1
+		if first.highest_completed_waves >= 5:
+			expected_patch_ids.append(&"unsafe_build")
+		if first.best_stars >= 2:
+			expected_operator_ids.append(&"qa_imp")
+		if first.highest_completed_waves >= 7:
+			expected_patch_ids.append(&"reward_bypass")
+		if first.highest_completed_waves >= 9:
+			expected_patch_ids.append(&"rollback_lock")
+		if first.best_stars >= 3:
+			expected_patch_slots = 2
+		if second.boss_encountered:
+			expected_patch_ids.append(&"safe_mode")
+		if second.best_stars >= 2:
+			expected_patch_slots = 3
+	if not _same_id_set(state.unlocked_operator_ids, expected_operator_ids):
+		errors.append(
+			"product_loop.unlocked_operator_ids: must exactly match version progress"
+		)
+	if not _same_id_set(state.discovered_patch_ids, expected_patch_ids):
+		errors.append(
+			"product_loop.discovered_patch_ids: must exactly match version progress"
+		)
+	if state.unlocked_patch_slots != expected_patch_slots:
+		errors.append(
+			"product_loop.unlocked_patch_slots: must exactly match version progress"
+		)
+	var earned_patch_notes := (
+		(state.version - 1) * catalog.balance.version_patch_notes_reward
+	)
+	var spent_patch_notes := (
+		state.legacy_cache_level
+		* catalog.base_catalog.balance.legacy_cache_cost
+	)
+	if state.patch_notes + spent_patch_notes != earned_patch_notes:
+		errors.append(
+			"product_loop.patch_notes: must match completed version updates and cache spending"
+		)
+	if first.best_stars >= 1 and (
+		not state.unlocked_operator_ids.has(&"sprite_artist")
+		or not state.discovered_patch_ids.has(&"frame_skip")
+		or state.unlocked_patch_slots < 1
+	):
+		errors.append(
+			"product_loop: Shift 1 one-star unlocks are missing"
+		)
+	if first.highest_completed_waves >= 5 and not state.discovered_patch_ids.has(
+		&"unsafe_build"
+	):
+		errors.append("product_loop: Shift 1 wave-5 patch is missing")
+	if first.best_stars >= 2 and not state.unlocked_operator_ids.has(&"qa_imp"):
+		errors.append("product_loop: Shift 1 two-star operator is missing")
+	if first.highest_completed_waves >= 7 and not state.discovered_patch_ids.has(
+		&"reward_bypass"
+	):
+		errors.append("product_loop: Shift 1 wave-7 patch is missing")
+	if first.highest_completed_waves >= 9 and not state.discovered_patch_ids.has(
+		&"rollback_lock"
+	):
+		errors.append("product_loop: Shift 1 wave-9 patch is missing")
+	if first.best_stars >= 3 and state.unlocked_patch_slots < 2:
+		errors.append("product_loop: Shift 1 three-star slot is missing")
+	if second.boss_encountered and not state.discovered_patch_ids.has(&"safe_mode"):
+		errors.append("product_loop: Shift 2 boss patch is missing")
+	if second.best_stars >= 2 and state.unlocked_patch_slots < 3:
+		errors.append("product_loop: Shift 2 two-star slot is missing")
+
+
+static func _same_id_set(
+	actual: Array[StringName],
+	expected: Array[StringName]
+) -> bool:
+	if actual.size() != expected.size():
+		return false
+	for value: StringName in expected:
+		if not actual.has(value):
+			return false
+	return true
+
+
+static func _validate_salary(
+	result: Dictionary,
+	catalog: ProductV2Catalog,
+	errors: PackedStringArray
+) -> void:
+	var performance_raw := (
+		int(result.get("completion_reward", -1))
+		+ int(result.get("boss_reward", -1))
+		+ int(result.get("stability_reward", -1))
+	)
+	if int(result.get("performance_raw", -1)) != performance_raw:
+		errors.append(
+			"product_loop.last_result.performance_raw: reward components do not add up"
+		)
+	var expected_performance := floori(
+		float(performance_raw) * float(result.get("bit_multiplier", 0.0))
+	)
+	if int(result.get("performance_reward", -1)) != expected_performance:
+		errors.append(
+			"product_loop.last_result.performance_reward: multiplier must be floored once"
+		)
+	var expected_total := (
+		int(result.get("base_salary", -1))
+		+ expected_performance
+		+ int(result.get("first_reward_bits", -1))
+	)
+	if int(result.get("total_reward", -1)) != expected_total:
+		errors.append(
+			"product_loop.last_result.total_reward: salary components do not add up"
+		)
+	if (
+		int(result.get("bits_after", -1))
+		!= int(result.get("bits_before", -1)) + expected_total
+	):
+		errors.append(
+			"product_loop.last_result.bits_after: must equal bits_before plus total reward"
+		)
+	if catalog == null:
+		return
+	var completed_waves := int(result.get("completed_waves", 0))
+	var success := bool(result.get("success", false))
+	var stability := int(result.get("stability", 0))
+	var max_stability := maxi(1, int(result.get("max_stability", 1)))
+	var expected_stability_steps := floori(
+		float(stability * 100)
+		/ float(
+			max_stability * catalog.balance.stability_step_percent
+		)
+	)
+	if int(result.get("base_salary", -1)) != catalog.balance.base_salary_bits:
+		errors.append("product_loop.last_result.base_salary: catalog mismatch")
+	if (
+		int(result.get("completion_reward", -1))
+		!= completed_waves * catalog.balance.completed_wave_salary_bits
+	):
+		errors.append("product_loop.last_result.completion_reward: catalog mismatch")
+	if int(result.get("boss_reward", -1)) != (
+		catalog.balance.boss_defeat_salary_bits if success else 0
+	):
+		errors.append("product_loop.last_result.boss_reward: catalog mismatch")
+	if int(result.get("stability_reward", -1)) != (
+		expected_stability_steps * catalog.balance.stability_step_salary_bits
+	):
+		errors.append("product_loop.last_result.stability_reward: catalog mismatch")
 
 
 static func _stars_for_waves(completed_waves: int) -> int:
