@@ -9,6 +9,7 @@
     "wave_leak_cap": 40,
     "danger_stability": 40,
     "star_thresholds": [3, 6, 10],
+    "first_star_reward_bits": [12, 18, 30],
     "operator_hp_growth": 1.12,
     "qa_rescue_delay": 5.0,
     "qa_rescue_hp_fraction": 0.4

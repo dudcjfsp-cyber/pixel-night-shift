@@ -29,6 +29,7 @@ class BalanceProfile:
 	var wave_leak_cap: int
 	var danger_stability: int
 	var star_thresholds: PackedInt32Array = PackedInt32Array()
+	var first_star_reward_bits: PackedInt32Array = PackedInt32Array()
 	var operator_hp_growth: float
 	var qa_rescue_delay: float
 	var qa_rescue_hp_fraction: float

@@ -1,0 +1,718 @@
+class_name ProductLoopStateDto
+extends RefCounted
+
+const ProductLoopState := preload(
+	"res://game/domain/product_v2/product_loop_state.gd"
+)
+
+const MAX_SAFE_INT := 2_000_000_000
+const STATE_KEYS: PackedStringArray = [
+	"phase",
+	"version",
+	"bits",
+	"active_shift_index",
+	"result_serial",
+	"shift_records",
+	"shift_2_unlocked",
+	"version_update_available",
+	"last_result",
+	"report_key",
+	"report_rows",
+	"report_read",
+]
+const SHIFT_RECORD_KEYS: PackedStringArray = [
+	"shift_index",
+	"attempts",
+	"highest_completed_waves",
+	"best_stars",
+	"claimed_reward_stars",
+]
+const RESULT_KEYS: PackedStringArray = [
+	"key",
+	"version",
+	"shift_index",
+	"success",
+	"terminal_reason",
+	"completed_waves",
+	"stars",
+	"stability",
+	"max_stability",
+	"previous_best_stars",
+	"best_stars",
+	"first_reward_bits",
+	"new_reward_stars",
+	"bits_after",
+	"shift_2_unlocked_now",
+	"version_update_available_now",
+	"report_key",
+	"boss",
+	"combat_metrics",
+	"down_evidence",
+	"qa_outcome",
+]
+const REPORT_ROW_KEYS: PackedStringArray = [
+	"kind",
+	"operator_id",
+	"operator_name",
+	"summary",
+	"primary_value",
+	"primary_max",
+	"count",
+	"seconds",
+]
+const BOSS_KEYS: PackedStringArray = [
+	"id",
+	"name",
+	"asset_id",
+	"active",
+	"hp",
+	"max_hp",
+	"time_limit",
+	"time_left",
+	"poll_remaining",
+	"special_remaining",
+	"rollback_remaining",
+	"debuff_applied",
+	"recovery_count",
+	"recovered_health",
+]
+const COMBAT_METRIC_KEYS: PackedStringArray = [
+	"enemies_defeated",
+	"enemies_leaked",
+	"leak_damage",
+	"largest_wave_leak_damage",
+	"last_wave_leak_damage",
+]
+const DOWN_EVIDENCE_KEYS: PackedStringArray = [
+	"total_count", "total_time", "records",
+]
+const DOWN_RECORD_KEYS: PackedStringArray = [
+	"operator_id", "attack", "boss_time",
+]
+const QA_OUTCOME_KEYS: PackedStringArray = [
+	"consumed",
+	"pending_target_id",
+	"remaining",
+	"rescue_count",
+	"outcome",
+	"target_id",
+	"reason",
+	"time",
+]
+const REPORT_KINDS: PackedStringArray = [
+	"stability_depleted",
+	"boss_timeout",
+	"boss_all_down",
+	"qa_outcome",
+	"operator_down",
+	"boss_defeated",
+]
+const TERMINAL_REASONS: PackedStringArray = [
+	"boss_defeated", "stability_depleted", "boss_timeout", "boss_all_down",
+]
+
+
+class RestoreResult:
+	extends RefCounted
+
+	var state: ProductLoopState
+	var errors: PackedStringArray = PackedStringArray()
+
+
+static func export_state(state: ProductLoopState) -> Dictionary:
+	assert(state != null, "ProductLoopStateDto requires a state")
+	var records: Array[Dictionary] = []
+	for record: ProductLoopState.ShiftRecord in state.shift_records:
+		records.append({
+			"shift_index": record.shift_index,
+			"attempts": record.attempts,
+			"highest_completed_waves": record.highest_completed_waves,
+			"best_stars": record.best_stars,
+			"claimed_reward_stars": record.claimed_reward_stars,
+		})
+	var report_rows: Array[Dictionary] = []
+	for row: Dictionary in state.report_rows:
+		report_rows.append(row.duplicate(true))
+	return {
+		"phase": state.phase,
+		"version": state.version,
+		"bits": state.bits,
+		"active_shift_index": state.active_shift_index,
+		"result_serial": state.result_serial,
+		"shift_records": records,
+		"shift_2_unlocked": state.shift_2_unlocked,
+		"version_update_available": state.version_update_available,
+		"last_result": state.last_result.duplicate(true),
+		"report_key": state.report_key,
+		"report_rows": report_rows,
+		"report_read": state.report_read,
+	}
+
+
+static func restore_candidate(
+	data: Dictionary,
+	first_reward_bits: PackedInt32Array
+) -> RestoreResult:
+	var result := RestoreResult.new()
+	if first_reward_bits.size() != 3:
+		result.errors.append(
+			"product_loop: exactly three catalog first-star rewards are required"
+		)
+		return result
+	_validate_keys(data, STATE_KEYS, "product_loop", result.errors)
+	if not result.errors.is_empty():
+		return result
+
+	_require_int(data, "phase", 0, ProductLoopState.Phase.SHIFT_RESULT, result.errors)
+	_require_int(data, "version", 1, MAX_SAFE_INT, result.errors)
+	_require_int(data, "bits", 0, MAX_SAFE_INT, result.errors)
+	_require_int(
+		data, "active_shift_index", 0, ProductLoopState.SHIFT_COUNT, result.errors
+	)
+	_require_int(data, "result_serial", 0, MAX_SAFE_INT, result.errors)
+	_require_bool(data, "shift_2_unlocked", result.errors)
+	_require_bool(data, "version_update_available", result.errors)
+	_require_string(data, "report_key", true, result.errors)
+	_require_bool(data, "report_read", result.errors)
+	if typeof(data.get("shift_records")) != TYPE_ARRAY:
+		result.errors.append("product_loop.shift_records: array is required")
+	if typeof(data.get("last_result")) != TYPE_DICTIONARY:
+		result.errors.append("product_loop.last_result: object is required")
+	if typeof(data.get("report_rows")) != TYPE_ARRAY:
+		result.errors.append("product_loop.report_rows: array is required")
+	if not result.errors.is_empty():
+		return result
+
+	var records := _parse_shift_records(
+		data["shift_records"] as Array, result.errors
+	)
+	var last_result := _parse_last_result(
+		data["last_result"] as Dictionary, result.errors
+	)
+	var report_rows := _parse_report_rows(
+		data["report_rows"] as Array, result.errors
+	)
+	if not result.errors.is_empty():
+		return result
+
+	var candidate := ProductLoopState.new()
+	candidate.phase = int(data["phase"])
+	candidate.version = int(data["version"])
+	candidate.bits = int(data["bits"])
+	candidate.active_shift_index = int(data["active_shift_index"])
+	candidate.result_serial = int(data["result_serial"])
+	candidate.shift_records = records
+	candidate.shift_2_unlocked = bool(data["shift_2_unlocked"])
+	candidate.version_update_available = bool(data["version_update_available"])
+	candidate.last_result = last_result
+	candidate.report_key = String(data["report_key"])
+	candidate.report_rows = report_rows
+	candidate.report_read = bool(data["report_read"])
+	_validate_cross_state(candidate, first_reward_bits, result.errors)
+	if result.errors.is_empty():
+		result.state = candidate
+	return result
+
+
+static func _parse_shift_records(
+	raw_records: Array,
+	errors: PackedStringArray
+) -> Array[ProductLoopState.ShiftRecord]:
+	var records: Array[ProductLoopState.ShiftRecord] = []
+	if raw_records.size() != ProductLoopState.SHIFT_COUNT:
+		errors.append("product_loop.shift_records: exactly two records are required")
+		return records
+	for index: int in raw_records.size():
+		var context := "product_loop.shift_records[%d]" % index
+		var raw_record: Variant = raw_records[index]
+		if typeof(raw_record) != TYPE_DICTIONARY:
+			errors.append("%s: object is required" % context)
+			continue
+		var data := raw_record as Dictionary
+		var error_count_before := errors.size()
+		_validate_keys(data, SHIFT_RECORD_KEYS, context, errors)
+		_require_int_at(data, "shift_index", index + 1, index + 1, context, errors)
+		_require_int_at(data, "attempts", 0, MAX_SAFE_INT, context, errors)
+		_require_int_at(
+			data, "highest_completed_waves", 0, 10, context, errors
+		)
+		_require_int_at(data, "best_stars", 0, 3, context, errors)
+		_require_int_at(data, "claimed_reward_stars", 0, 3, context, errors)
+		if errors.size() != error_count_before:
+			continue
+		var record := ProductLoopState.ShiftRecord.new(index + 1)
+		record.attempts = int(data["attempts"])
+		record.highest_completed_waves = int(data["highest_completed_waves"])
+		record.best_stars = int(data["best_stars"])
+		record.claimed_reward_stars = int(data["claimed_reward_stars"])
+		if record.claimed_reward_stars != record.best_stars:
+			errors.append(
+				"%s.claimed_reward_stars: must match best_stars after settlement"
+				% context
+			)
+		if record.best_stars != _stars_for_waves(record.highest_completed_waves):
+			errors.append(
+				"%s.best_stars: must match the completed-wave record" % context
+			)
+		if record.attempts == 0 and (
+			record.highest_completed_waves > 0
+			or record.best_stars > 0
+			or record.claimed_reward_stars > 0
+		):
+			errors.append("%s: an unattempted shift cannot have progress" % context)
+		records.append(record)
+	return records
+
+
+static func _parse_last_result(
+	data: Dictionary,
+	errors: PackedStringArray
+) -> Dictionary:
+	if data.is_empty():
+		return {}
+	var context := "product_loop.last_result"
+	_validate_keys(data, RESULT_KEYS, context, errors)
+	for key: String in ["key", "terminal_reason", "report_key"]:
+		_require_nonempty_string_at(data, key, context, errors)
+	for key: String in ["success", "shift_2_unlocked_now", "version_update_available_now"]:
+		_require_bool_at(data, key, context, errors)
+	_require_int_at(data, "version", 1, MAX_SAFE_INT, context, errors)
+	_require_int_at(data, "shift_index", 1, 2, context, errors)
+	_require_int_at(data, "completed_waves", 0, 10, context, errors)
+	_require_int_at(data, "stars", 0, 3, context, errors)
+	_require_int_at(data, "stability", 0, MAX_SAFE_INT, context, errors)
+	_require_int_at(data, "max_stability", 1, MAX_SAFE_INT, context, errors)
+	_require_int_at(data, "previous_best_stars", 0, 3, context, errors)
+	_require_int_at(data, "best_stars", 0, 3, context, errors)
+	_require_int_at(data, "first_reward_bits", 0, MAX_SAFE_INT, context, errors)
+	_require_int_at(data, "bits_after", 0, MAX_SAFE_INT, context, errors)
+	if (
+		data.has("terminal_reason")
+		and typeof(data["terminal_reason"]) == TYPE_STRING
+		and not TERMINAL_REASONS.has(String(data["terminal_reason"]))
+	):
+		errors.append("%s.terminal_reason: unknown terminal reason" % context)
+	if typeof(data.get("new_reward_stars")) != TYPE_ARRAY:
+		errors.append("%s.new_reward_stars: array is required" % context)
+	else:
+		var previous := 0
+		for index: int in (data["new_reward_stars"] as Array).size():
+			var raw_star: Variant = (data["new_reward_stars"] as Array)[index]
+			if not _is_integer(raw_star):
+				errors.append(
+					"%s.new_reward_stars[%d]: integer is required"
+					% [context, index]
+				)
+				continue
+			var star := int(raw_star)
+			if star <= previous or star < 1 or star > 3:
+				errors.append(
+					"%s.new_reward_stars: tiers must be increasing values from 1 to 3"
+					% context
+				)
+			previous = star
+	_validate_result_evidence(data, context, errors)
+	if not errors.is_empty():
+		return {}
+	var restored := data.duplicate(true)
+	return restored
+
+
+static func _parse_report_rows(
+	raw_rows: Array,
+	errors: PackedStringArray
+) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var seen_ids: Dictionary = {}
+	for index: int in raw_rows.size():
+		var context := "product_loop.report_rows[%d]" % index
+		var raw_row: Variant = raw_rows[index]
+		if typeof(raw_row) != TYPE_DICTIONARY:
+			errors.append("%s: object is required" % context)
+			continue
+		var data := raw_row as Dictionary
+		_validate_keys(data, REPORT_ROW_KEYS, context, errors)
+		_require_nonempty_string_at(data, "kind", context, errors)
+		for key: String in ["operator_id", "operator_name"]:
+			if not data.has(key) or typeof(data[key]) != TYPE_STRING:
+				errors.append("%s.%s: string is required" % [context, key])
+		_require_nonempty_string_at(data, "summary", context, errors)
+		for key: String in ["primary_value", "primary_max", "seconds"]:
+			_require_nonnegative_number_at(data, key, context, errors)
+		_require_int_at(data, "count", 0, MAX_SAFE_INT, context, errors)
+		if (
+			data.has("kind")
+			and typeof(data["kind"]) == TYPE_STRING
+			and not REPORT_KINDS.has(String(data["kind"]))
+		):
+			errors.append("%s.kind: unknown factual report row" % context)
+		if not data.has("operator_id") or typeof(data["operator_id"]) != TYPE_STRING:
+			continue
+		var identity := "%s:%s" % [String(data.get("kind", "")), String(data["operator_id"])]
+		if seen_ids.has(identity):
+			errors.append("%s: duplicate factual report row" % context)
+			continue
+		seen_ids[identity] = true
+		rows.append(data.duplicate(true))
+	if rows.size() > 2:
+		errors.append("product_loop.report_rows: at most two factual rows are allowed")
+	return rows
+
+
+static func _validate_result_evidence(
+	data: Dictionary,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	for key: String in ["boss", "combat_metrics", "down_evidence", "qa_outcome"]:
+		if typeof(data.get(key)) != TYPE_DICTIONARY:
+			errors.append("%s.%s: object is required" % [context, key])
+	if not errors.is_empty():
+		return
+	var boss := data["boss"] as Dictionary
+	_validate_keys(boss, BOSS_KEYS, "%s.boss" % context, errors)
+	for key: String in ["id", "name", "asset_id"]:
+		_require_nonempty_string_at(boss, key, "%s.boss" % context, errors)
+	for key: String in ["active", "debuff_applied"]:
+		_require_bool_at(boss, key, "%s.boss" % context, errors)
+	for key: String in [
+		"hp",
+		"max_hp",
+		"time_limit",
+		"time_left",
+		"poll_remaining",
+		"special_remaining",
+		"rollback_remaining",
+		"recovered_health",
+	]:
+		_require_nonnegative_number_at(boss, key, "%s.boss" % context, errors)
+	_require_int_at(
+		boss, "recovery_count", 0, MAX_SAFE_INT, "%s.boss" % context, errors
+	)
+
+	var metrics := data["combat_metrics"] as Dictionary
+	_validate_keys(
+		metrics, COMBAT_METRIC_KEYS, "%s.combat_metrics" % context, errors
+	)
+	for key: String in COMBAT_METRIC_KEYS:
+		_require_int_at(
+			metrics, key, 0, MAX_SAFE_INT, "%s.combat_metrics" % context, errors
+		)
+
+	var down := data["down_evidence"] as Dictionary
+	_validate_keys(
+		down, DOWN_EVIDENCE_KEYS, "%s.down_evidence" % context, errors
+	)
+	_require_int_at(
+		down, "total_count", 0, MAX_SAFE_INT, "%s.down_evidence" % context, errors
+	)
+	_require_nonnegative_number_at(
+		down, "total_time", "%s.down_evidence" % context, errors
+	)
+	if typeof(down.get("records")) != TYPE_ARRAY:
+		errors.append("%s.down_evidence.records: array is required" % context)
+	else:
+		for index: int in (down["records"] as Array).size():
+			var raw_record: Variant = (down["records"] as Array)[index]
+			var record_context := "%s.down_evidence.records[%d]" % [context, index]
+			if typeof(raw_record) != TYPE_DICTIONARY:
+				errors.append("%s: object is required" % record_context)
+				continue
+			var record := raw_record as Dictionary
+			_validate_keys(record, DOWN_RECORD_KEYS, record_context, errors)
+			for key: String in ["operator_id", "attack"]:
+				_require_nonempty_string_at(record, key, record_context, errors)
+			_require_nonnegative_number_at(
+				record, "boss_time", record_context, errors
+			)
+
+	var qa := data["qa_outcome"] as Dictionary
+	_validate_keys(qa, QA_OUTCOME_KEYS, "%s.qa_outcome" % context, errors)
+	_require_bool_at(qa, "consumed", "%s.qa_outcome" % context, errors)
+	for key: String in [
+		"pending_target_id", "outcome", "target_id", "reason",
+	]:
+		if not qa.has(key) or typeof(qa[key]) != TYPE_STRING:
+			errors.append("%s.qa_outcome.%s: string is required" % [context, key])
+	for key: String in ["remaining", "time"]:
+		_require_nonnegative_number_at(
+			qa, key, "%s.qa_outcome" % context, errors
+		)
+	_require_int_at(
+		qa, "rescue_count", 0, MAX_SAFE_INT, "%s.qa_outcome" % context, errors
+	)
+
+
+static func _validate_cross_state(
+	state: ProductLoopState,
+	first_reward_bits: PackedInt32Array,
+	errors: PackedStringArray
+) -> void:
+	var first := state.get_shift_record(1)
+	var second := state.get_shift_record(2)
+	if first == null or second == null:
+		errors.append("product_loop.shift_records: both shift records are required")
+		return
+	if state.shift_2_unlocked != (first.best_stars == 3):
+		errors.append(
+			"product_loop.shift_2_unlocked: must match first-shift three-star progress"
+		)
+	if state.version_update_available != (second.best_stars == 3):
+		errors.append(
+			"product_loop.version_update_available: must match second-shift three-star progress"
+		)
+	if second.attempts > 0 and not state.shift_2_unlocked:
+		errors.append(
+			"product_loop.shift_records[1]: second shift cannot be attempted while locked"
+		)
+	match state.phase:
+		ProductLoopState.Phase.DAY_PREP:
+			if state.active_shift_index != 0:
+				errors.append(
+					"product_loop.active_shift_index: day prep requires zero"
+				)
+		ProductLoopState.Phase.NIGHT_ACTIVE:
+			if (
+				state.active_shift_index < 1
+				or state.active_shift_index > ProductLoopState.SHIFT_COUNT
+			):
+				errors.append(
+					"product_loop.active_shift_index: active night requires a shift"
+				)
+			elif state.active_shift_index == 2 and not state.shift_2_unlocked:
+				errors.append(
+					"product_loop.active_shift_index: second shift is still locked"
+				)
+		ProductLoopState.Phase.SHIFT_RESULT:
+			if state.last_result.is_empty():
+				errors.append("product_loop.last_result: result phase requires a result")
+			elif (
+				state.active_shift_index
+				!= int(state.last_result.get("shift_index", 0))
+			):
+				errors.append(
+					"product_loop.active_shift_index: result must match its shift"
+				)
+	if state.last_result.is_empty():
+		if (
+			not state.report_key.is_empty()
+			or not state.report_rows.is_empty()
+			or not state.report_read
+		):
+			errors.append(
+				"product_loop: an empty result cannot have a field report"
+			)
+		return
+	if state.report_key != String(state.last_result.get("report_key", "")):
+		errors.append("product_loop.report_key: must match the latest result")
+	if state.report_rows.is_empty():
+		errors.append("product_loop.report_rows: latest result requires operator facts")
+	if int(state.last_result.get("version", 0)) != state.version:
+		errors.append("product_loop.last_result.version: must match current version")
+	var result_shift := int(state.last_result.get("shift_index", 0))
+	var record := state.get_shift_record(result_shift)
+	if record == null:
+		errors.append("product_loop.last_result.shift_index: missing shift record")
+		return
+	if int(state.last_result.get("best_stars", -1)) != record.best_stars:
+		errors.append(
+			"product_loop.last_result.best_stars: must match the shift record"
+		)
+	if record.attempts <= 0:
+		errors.append(
+			"product_loop.last_result: its shift must have at least one attempt"
+		)
+	var completed_waves := int(state.last_result.get("completed_waves", -1))
+	var achieved_stars := int(state.last_result.get("stars", -1))
+	if achieved_stars != _stars_for_waves(completed_waves):
+		errors.append(
+			"product_loop.last_result.stars: must match completed_waves"
+		)
+	var success := bool(state.last_result.get("success", false))
+	var terminal_reason := String(state.last_result.get("terminal_reason", ""))
+	if success != (
+		terminal_reason == "boss_defeated"
+		and completed_waves == 10
+		and achieved_stars == 3
+	):
+		errors.append(
+			"product_loop.last_result.success: must match boss defeat evidence"
+		)
+	if int(state.last_result.get("bits_after", -1)) != state.bits:
+		errors.append("product_loop.last_result.bits_after: must match current bits")
+	var previous_best := int(state.last_result.get("previous_best_stars", -1))
+	var expected_best := maxi(previous_best, achieved_stars)
+	if int(state.last_result.get("best_stars", -1)) != expected_best:
+		errors.append(
+			"product_loop.last_result.best_stars: must be the achieved or previous best"
+		)
+	var expected_reward_stars: Array[int] = []
+	for star: int in range(previous_best + 1, achieved_stars + 1):
+		expected_reward_stars.append(star)
+	if state.last_result.get("new_reward_stars", []) != expected_reward_stars:
+		errors.append(
+			"product_loop.last_result.new_reward_stars: do not match the new tiers"
+		)
+	var expected_reward_bits := 0
+	for star: int in expected_reward_stars:
+		expected_reward_bits += first_reward_bits[star - 1]
+	if int(state.last_result.get("first_reward_bits", -1)) != expected_reward_bits:
+		errors.append(
+			"product_loop.last_result.first_reward_bits: does not match new tiers"
+		)
+	var expected_key := "v%d:s%d:r%d" % [
+		state.version, result_shift, state.result_serial,
+	]
+	if (
+		String(state.last_result.get("key", "")) != expected_key
+		or state.report_key != expected_key
+	):
+		errors.append(
+			"product_loop.last_result.key: must match version, shift, and result serial"
+		)
+	var expected_shift_unlock := (
+		result_shift == 1 and previous_best < 3 and expected_best == 3
+	)
+	if (
+		bool(state.last_result.get("shift_2_unlocked_now", false))
+		!= expected_shift_unlock
+	):
+		errors.append(
+			"product_loop.last_result.shift_2_unlocked_now: inconsistent unlock"
+		)
+	var expected_update_unlock := (
+		result_shift == 2 and previous_best < 3 and expected_best == 3
+	)
+	if (
+		bool(state.last_result.get("version_update_available_now", false))
+		!= expected_update_unlock
+	):
+		errors.append(
+			"product_loop.last_result.version_update_available_now: inconsistent unlock"
+		)
+
+
+static func _stars_for_waves(completed_waves: int) -> int:
+	if completed_waves >= 10:
+		return 3
+	if completed_waves >= 6:
+		return 2
+	if completed_waves >= 3:
+		return 1
+	return 0
+
+
+static func _validate_keys(
+	data: Dictionary,
+	expected: PackedStringArray,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	for key: String in expected:
+		if not data.has(key):
+			errors.append("%s.%s: required field is missing" % [context, key])
+	for raw_key: Variant in data.keys():
+		if typeof(raw_key) != TYPE_STRING or not expected.has(String(raw_key)):
+			errors.append("%s.%s: unexpected field" % [context, String(raw_key)])
+
+
+static func _require_int(
+	data: Dictionary,
+	key: String,
+	minimum: int,
+	maximum: int,
+	errors: PackedStringArray
+) -> void:
+	_require_int_at(data, key, minimum, maximum, "product_loop", errors)
+
+
+static func _require_int_at(
+	data: Dictionary,
+	key: String,
+	minimum: int,
+	maximum: int,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	if not data.has(key) or not _is_integer(data[key]):
+		errors.append("%s.%s: integer is required" % [context, key])
+		return
+	var value := int(data[key])
+	if value < minimum or value > maximum:
+		errors.append(
+			"%s.%s: value must be between %d and %d"
+			% [context, key, minimum, maximum]
+		)
+
+
+static func _require_bool(
+	data: Dictionary,
+	key: String,
+	errors: PackedStringArray
+) -> void:
+	_require_bool_at(data, key, "product_loop", errors)
+
+
+static func _require_bool_at(
+	data: Dictionary,
+	key: String,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	if not data.has(key) or typeof(data[key]) != TYPE_BOOL:
+		errors.append("%s.%s: boolean is required" % [context, key])
+
+
+static func _require_string(
+	data: Dictionary,
+	key: String,
+	allow_empty: bool,
+	errors: PackedStringArray
+) -> void:
+	if not data.has(key) or typeof(data[key]) != TYPE_STRING:
+		errors.append("product_loop.%s: string is required" % key)
+	elif not allow_empty and String(data[key]).is_empty():
+		errors.append("product_loop.%s: non-empty string is required" % key)
+
+
+static func _require_nonempty_string_at(
+	data: Dictionary,
+	key: String,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	if (
+		not data.has(key)
+		or typeof(data[key]) != TYPE_STRING
+		or String(data[key]).is_empty()
+	):
+		errors.append("%s.%s: non-empty string is required" % [context, key])
+
+
+static func _require_nonnegative_number_at(
+	data: Dictionary,
+	key: String,
+	context: String,
+	errors: PackedStringArray
+) -> void:
+	if (
+		not data.has(key)
+		or not _is_number(data[key])
+		or float(data[key]) < 0.0
+		or not is_finite(float(data[key]))
+	):
+		errors.append("%s.%s: non-negative finite number is required" % [context, key])
+
+
+static func _is_integer(value: Variant) -> bool:
+	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+		return false
+	var numeric := float(value)
+	return (
+		is_finite(numeric)
+		and is_equal_approx(numeric, float(int(numeric)))
+	)
+
+
+static func _is_number(value: Variant) -> bool:
+	return typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT

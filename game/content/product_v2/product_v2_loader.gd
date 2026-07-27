@@ -24,6 +24,7 @@ const BALANCE_KEYS: Array[String] = [
 	"wave_leak_cap",
 	"danger_stability",
 	"star_thresholds",
+	"first_star_reward_bits",
 	"operator_hp_growth",
 	"qa_rescue_delay",
 	"qa_rescue_hp_fraction",
@@ -186,6 +187,9 @@ static func _parse_balance(
 	profile.star_thresholds = _required_increasing_positive_int_array(
 		data, "star_thresholds", "product_v2.balance", result
 	)
+	profile.first_star_reward_bits = _required_increasing_positive_int_array(
+		data, "first_star_reward_bits", "product_v2.balance", result
+	)
 	profile.operator_hp_growth = _required_positive_float(
 		data, "operator_hp_growth", "product_v2.balance", result
 	)
@@ -231,6 +235,13 @@ static func _parse_balance(
 	):
 		result.errors.append(
 			"product_v2.balance.star_thresholds: must be exactly [3, 6, 10]"
+		)
+	if (
+		profile.first_star_reward_bits.size() != 3
+		or profile.first_star_reward_bits != PackedInt32Array([12, 18, 30])
+	):
+		result.errors.append(
+			"product_v2.balance.first_star_reward_bits: must be exactly [12, 18, 30]"
 		)
 	if profile.operator_hp_growth <= 1.0:
 		result.errors.append(
