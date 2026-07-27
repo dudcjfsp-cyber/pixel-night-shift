@@ -25,9 +25,11 @@ var _title: Label
 var _stars: Label
 var _completion: Label
 var _reason: Label
-var _salary_value: Label
+var _base_salary_value: Label
+var _performance_value: Label
 var _first_reward_value: Label
 var _total_value: Label
+var _wallet_label: Label
 var _unlock_title: Label
 var _unlock_body: Label
 var _report_title: Label
@@ -78,16 +80,34 @@ func refresh(value: Dictionary) -> void:
 		success
 	)
 
+	var base_salary := int(result.get(
+		"base_salary",
+		result.get("base_salary_bits", 0)
+	))
 	var first_reward := int(result.get(
 		"first_star_reward",
 		result.get("first_reward_bits", result.get("first_reward", 0))
 	))
-	var previous_best := clampi(int(result.get("previous_best_stars", 0)), 0, 3)
-	var best_stars := clampi(int(result.get("best_stars", stars)), 0, 3)
+	var performance_reward := int(result.get(
+		"performance_reward",
+		result.get(
+			"performance_reward_bits",
+			maxi(0, int(result.get("salary_bits", 0)) - base_salary)
+		)
+	))
+	var total_reward := int(result.get(
+		"total_reward",
+		result.get(
+			"total_reward_bits",
+			base_salary + performance_reward + first_reward
+		)
+	))
 	var bits_after := int(result.get("bits_after", value.get("bits", 0)))
-	_salary_value.text = "★%d → ★%d" % [previous_best, best_stars]
+	_base_salary_value.text = "+%d" % base_salary
+	_performance_value.text = "+%d" % performance_reward
 	_first_reward_value.text = "+%d" % first_reward
-	_total_value.text = "%d BIT" % bits_after
+	_total_value.text = "+%d" % total_reward
+	_wallet_label.text = "정산 후 보유 · %d BIT" % bits_after
 
 	var unlock_rows := _result_unlock_rows(result)
 	_unlock_title.text = (
@@ -143,7 +163,7 @@ func _build_ui() -> void:
 	_logical_root.add_child(background)
 
 	var result_panel := _make_panel(
-		Rect2(6.0, 6.0, 348.0, 226.0),
+		Rect2(6.0, 6.0, 348.0, 208.0),
 		COLOR_PANEL,
 		COLOR_LINE,
 		2
@@ -182,7 +202,7 @@ func _build_ui() -> void:
 	_completion.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_panel.add_child(_completion)
 	_reason = _make_label(
-		Rect2(25.0, 149.0, 298.0, 58.0),
+		Rect2(25.0, 145.0, 298.0, 46.0),
 		"서버 방어 기록을 정리하는 중입니다.",
 		10,
 		COLOR_MUTED
@@ -193,7 +213,7 @@ func _build_ui() -> void:
 	result_panel.add_child(_reason)
 
 	var reward_panel := _make_panel(
-		Rect2(6.0, 238.0, 348.0, 88.0),
+		Rect2(6.0, 220.0, 348.0, 106.0),
 		Color("102b35"),
 		COLOR_CYAN
 	)
@@ -205,32 +225,42 @@ func _build_ui() -> void:
 		COLOR_CYAN
 	)
 	reward_panel.add_child(reward_title)
-	var reward_names := ["최고 기록", "최초 별 보상", "보유 비트"]
-	for index: int in 3:
-		var x := 8.0 + float(index) * 110.0
+	var reward_names := ["기본급", "성과급", "최초 별", "이번 합계"]
+	for index: int in 4:
+		var x := 5.0 + float(index) * 84.0
 		var name_label := _make_label(
-			Rect2(x, 31.0, 104.0, 17.0),
+			Rect2(x, 29.0, 82.0, 17.0),
 			reward_names[index],
-			9,
+			8,
 			COLOR_MUTED
 		)
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		reward_panel.add_child(name_label)
 		var value_label := _make_label(
-			Rect2(x, 51.0, 104.0, 23.0),
+			Rect2(x, 48.0, 82.0, 21.0),
 			"+0",
-			13,
-			COLOR_YELLOW if index < 2 else COLOR_GREEN
+			11,
+			COLOR_GREEN if index == 3 else COLOR_YELLOW
 		)
 		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		reward_panel.add_child(value_label)
 		match index:
 			0:
-				_salary_value = value_label
+				_base_salary_value = value_label
 			1:
-				_first_reward_value = value_label
+				_performance_value = value_label
 			2:
+				_first_reward_value = value_label
+			3:
 				_total_value = value_label
+	_wallet_label = _make_label(
+		Rect2(10.0, 76.0, 328.0, 18.0),
+		"정산 후 보유 · 0 BIT",
+		9,
+		COLOR_CYAN
+	)
+	_wallet_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	reward_panel.add_child(_wallet_label)
 
 	var unlock_panel := _make_panel(
 		Rect2(6.0, 332.0, 348.0, 93.0),
@@ -314,14 +344,95 @@ func _report_rows(report: Dictionary) -> PackedStringArray:
 
 func _result_unlock_rows(source: Dictionary) -> PackedStringArray:
 	var rows := PackedStringArray()
-	if bool(source.get("shift_2_unlocked_now", false)):
-		rows.append("둘째 야간근무")
-	if bool(source.get("version_update_available_now", false)):
-		rows.append("주간 버전 업데이트")
-	var reward_stars := source.get("new_reward_stars", []) as Array
-	if not reward_stars.is_empty():
-		rows.append("별 최초 보상 ★%d까지" % int(reward_stars.back()))
+	var unlock_value: Variant = source.get(
+		"unlock_summary",
+		source.get("new_unlocks", {})
+	)
+	if unlock_value is Dictionary:
+		var groups := unlock_value as Dictionary
+		var operator_names := _unlock_names(
+			groups.get("operator_ids", []) as Array,
+			true
+		)
+		if not operator_names.is_empty():
+			rows.append("신규 요원 · %s" % ", ".join(operator_names))
+		if bool(source.get("shift_2_unlocked_now", false)):
+			rows.append("다음 근무 · 둘째 야간근무")
+		elif bool(source.get("version_update_available_now", false)):
+			rows.append("다음 단계 · 주간 버전 업데이트")
+		var patch_names := _unlock_names(
+			groups.get("patch_ids", []) as Array,
+			false
+		)
+		var slots := groups.get("patch_slots", []) as Array
+		var system_parts := PackedStringArray()
+		if not patch_names.is_empty():
+			system_parts.append("패치 %s" % ", ".join(patch_names))
+		if not slots.is_empty():
+			system_parts.append("슬롯 %d칸" % (int(slots.back()) + 1))
+		if not system_parts.is_empty():
+			rows.append("새 시스템 · %s" % " / ".join(system_parts))
+	elif unlock_value is Array:
+		for value: Variant in unlock_value as Array:
+			if value is Dictionary:
+				var row_text := String((value as Dictionary).get(
+					"label",
+					(value as Dictionary).get("display_name", "")
+				))
+				if not row_text.is_empty() and not rows.has(row_text):
+					rows.append(row_text)
+			else:
+				var value_text := String(value)
+				if not value_text.is_empty() and not rows.has(value_text):
+					rows.append(value_text)
+			if rows.size() >= 3:
+				return rows
+	if (
+		not rows.has("다음 근무 · 둘째 야간근무")
+		and bool(source.get("shift_2_unlocked_now", false))
+	):
+		rows.append("다음 근무 · 둘째 야간근무")
+	if (
+		not rows.has("다음 단계 · 주간 버전 업데이트")
+		and bool(source.get("version_update_available_now", false))
+	):
+		rows.append("다음 단계 · 주간 버전 업데이트")
+	if rows.size() > 3:
+		rows.resize(3)
 	return rows
+
+
+func _unlock_names(values: Array, operators: bool) -> PackedStringArray:
+	var result := PackedStringArray()
+	for value: Variant in values:
+		var content_id := StringName(String(value))
+		if operators:
+			match content_id:
+				&"debugger":
+					result.append("디버거")
+				&"build_engineer":
+					result.append("빌드 엔지니어")
+				&"sprite_artist":
+					result.append("스프라이트 장인")
+				&"qa_imp":
+					result.append("QA 임프")
+				_:
+					result.append(String(content_id))
+		else:
+			match content_id:
+				&"frame_skip":
+					result.append("프레임 생략")
+				&"unsafe_build":
+					result.append("검증 생략")
+				&"reward_bypass":
+					result.append("보상 우회")
+				&"rollback_lock":
+					result.append("롤백 잠금")
+				&"safe_mode":
+					result.append("안전 모드")
+				_:
+					result.append(String(content_id))
+	return result
 
 
 func _fallback_report(

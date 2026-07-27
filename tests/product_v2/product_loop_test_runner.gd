@@ -161,7 +161,14 @@ func _test_first_star_reward_contract() -> void:
 		int(first_result.get("first_reward_bits", -1)) == 12,
 		"first 1-star result must grant 12 bits"
 	)
-	_check(int(first_snapshot.get("bits", -1)) == 12, "wallet must receive 12 bits")
+	var first_bits := int(first_snapshot.get("bits", -1))
+	_check(
+		first_bits == int(first_result.get("bits_after", -2))
+		and first_bits
+			== int(first_result.get("bits_before", -3))
+				+ int(first_result.get("total_reward", -4)),
+		"wallet must receive salary and the first-star reward once"
+	)
 
 	var settled_state: Dictionary = session.export_state()
 	_check(session.tick(LARGE_TICK_SECONDS), "RESULT tick must be accepted as a no-op")
@@ -182,21 +189,31 @@ func _test_first_star_reward_contract() -> void:
 		"jumping from 1 to 3 stars must grant skipped rewards 18 + 30"
 	)
 	_check(
-		int(improved_snapshot.get("bits", -1)) == 60,
-		"all first-star rewards must total 60 bits"
+		int(improved_snapshot.get("bits", -1))
+			== int(improved_result.get("bits_after", -2))
+		and int(improved_result.get("bits_after", -2))
+			== int(improved_result.get("bits_before", -3))
+				+ int(improved_result.get("total_reward", -4)),
+		"improved retry must add one salary and the newly earned star rewards"
 	)
 
 	_check(session.continue_to_day(), "improved result must return to DAY")
+	var bits_before_repeat := int(improved_snapshot.get("bits", -1))
 	_check(session.start_shift(1), "completed night must remain retryable")
 	_check(session.tick(LARGE_TICK_SECONDS), "completed retry must settle")
 	var repeated_snapshot := session.snapshot()
+	var repeated_result := _result(repeated_snapshot)
 	_check(
-		int(_result(repeated_snapshot).get("first_reward_bits", -1)) == 0,
+		int(repeated_result.get("first_reward_bits", -1)) == 0,
 		"repeating the same best result must not pay a first reward"
 	)
 	_check(
-		int(repeated_snapshot.get("bits", -1)) == 60,
-		"repeat completion must not change the first-reward wallet"
+		int(repeated_snapshot.get("bits", -1))
+			== int(repeated_result.get("bits_after", -2))
+		and int(repeated_result.get("bits_before", -3)) == bits_before_repeat
+		and int(repeated_result.get("bits_after", -2))
+			== bits_before_repeat + int(repeated_result.get("total_reward", -4)),
+		"repeat completion must add salary without duplicating first rewards"
 	)
 
 
@@ -276,9 +293,9 @@ func _test_failure_report_and_retry() -> void:
 func _test_restore_contract_and_scene_smoke() -> void:
 	var catalog: Variant = _easy_catalog()
 
-	var day := ProductLoopSessionScript.new(catalog, &"full_team")
+	var day := ProductLoopSessionScript.new(catalog, &"first_two")
 	var day_data: Dictionary = day.export_state()
-	var restored_day := ProductLoopSessionScript.new(catalog, &"full_team")
+	var restored_day := ProductLoopSessionScript.new(catalog, &"first_two")
 	_check(
 		restored_day.restore_state(day_data).is_empty(),
 		"valid DAY state must restore"
@@ -288,7 +305,7 @@ func _test_restore_contract_and_scene_smoke() -> void:
 	_check(day.start_shift(1), "NIGHT restore fixture must start")
 	_check(day.tick(2.1), "NIGHT restore fixture must advance mid-wave")
 	var night_data: Dictionary = day.export_state()
-	var restored_night := ProductLoopSessionScript.new(catalog, &"full_team")
+	var restored_night := ProductLoopSessionScript.new(catalog, &"first_two")
 	_check(
 		restored_night.restore_state(night_data).is_empty(),
 		"valid mid-NIGHT state must restore"
@@ -300,9 +317,12 @@ func _test_restore_contract_and_scene_smoke() -> void:
 
 	_check(day.tick(LARGE_TICK_SECONDS), "RESULT restore fixture must settle")
 	var result_data: Dictionary = day.export_state()
-	var restored_result := ProductLoopSessionScript.new(catalog, &"full_team")
+	var restored_result := ProductLoopSessionScript.new(catalog, &"first_two")
+	var result_restore_errors: PackedStringArray = restored_result.restore_state(result_data)
+	if not result_restore_errors.is_empty():
+		print("      result restore errors: %s" % "; ".join(result_restore_errors))
 	_check(
-		restored_result.restore_state(result_data).is_empty(),
+		result_restore_errors.is_empty(),
 		"valid RESULT state must restore"
 	)
 	_check(

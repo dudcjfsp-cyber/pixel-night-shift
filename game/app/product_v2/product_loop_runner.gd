@@ -30,6 +30,7 @@ var _refresh_remaining := 0.0
 var _save_remaining := SAVE_INTERVAL_SECONDS
 var _last_snapshot: Dictionary = {}
 var _active_surface: StringName = &""
+var _last_saved_at_unix := 0
 
 
 func _ready() -> void:
@@ -45,6 +46,7 @@ func _ready() -> void:
 	_connect_views()
 	_night_view.set_product_mode(true, false)
 	_restore_isolated_state()
+	_arm_fresh_day_income()
 	_refresh(true)
 
 
@@ -67,7 +69,14 @@ func _process(delta_seconds: float) -> void:
 		_refresh_remaining += REFRESH_INTERVAL_SECONDS
 		_refresh(false)
 	if _save_remaining <= 0.0:
-		_save_now("자동 저장됨")
+		var day_income_before: Dictionary = {}
+		if _active_surface == &"day_prep":
+			day_income_before = _account_open_day_income()
+		if not _save_now("자동 저장됨") and not day_income_before.is_empty():
+			_restore_after_failed_save(day_income_before, "주간 수입 자동 저장")
+			_refresh(true)
+		elif not day_income_before.is_empty():
+			_refresh(true)
 
 
 func _exit_tree() -> void:
@@ -95,6 +104,11 @@ func speed_for_test() -> float:
 func _connect_views() -> void:
 	_day_view.start_shift_requested.connect(_start_shift)
 	_day_view.field_report_read_requested.connect(_mark_report_read)
+	_day_view.upgrade_operator_requested.connect(_upgrade_operator)
+	_day_view.patch_preview_requested.connect(_preview_patch)
+	_day_view.patch_equip_requested.connect(_equip_patch)
+	_day_view.version_update_requested.connect(_version_update)
+	_day_view.legacy_cache_purchase_requested.connect(_buy_legacy_cache)
 	_night_view.pause_requested.connect(_toggle_pause)
 	_night_view.speed_requested.connect(_toggle_speed)
 	_result_view.continue_to_day_requested.connect(_continue_to_day)
@@ -164,7 +178,8 @@ func _start_shift(shift_index: int) -> void:
 
 
 func _continue_to_day() -> void:
-	if not _session.continue_to_day():
+	var now_unix := int(Time.get_unix_time_from_system())
+	if not _session.continue_to_day(now_unix):
 		_report_session_error("Return to day prep was rejected")
 		_refresh(true)
 		return
@@ -172,6 +187,47 @@ func _continue_to_day() -> void:
 	_speed = 1.0
 	_save_now("주간 정비 저장됨")
 	_refresh(true)
+
+
+func _upgrade_operator(operator_id: StringName) -> void:
+	_execute_saved_day_command(
+		func() -> bool: return _session.upgrade_operator(operator_id),
+		"Operator upgrade was rejected",
+		"요원 강화 저장됨"
+	)
+
+
+func _preview_patch(slot_index: int, patch_id: StringName) -> void:
+	var preview := _session.get_patch_preview(slot_index, patch_id)
+	if preview.is_empty():
+		_report_session_error("Patch preview was rejected")
+	_day_view.set_patch_preview(preview)
+
+
+func _equip_patch(slot_index: int, patch_id: StringName) -> void:
+	if _execute_saved_day_command(
+		func() -> bool: return _session.equip_patch(slot_index, patch_id),
+		"Patch replacement was rejected",
+		"패치 교체 저장됨"
+	):
+		_preview_patch(slot_index, patch_id)
+
+
+func _version_update() -> void:
+	var now_unix := int(Time.get_unix_time_from_system())
+	_execute_saved_day_command(
+		func() -> bool: return _session.version_update(now_unix),
+		"Version update was rejected",
+		"버전 업데이트 저장됨"
+	)
+
+
+func _buy_legacy_cache() -> void:
+	_execute_saved_day_command(
+		func() -> bool: return _session.buy_legacy_cache(),
+		"Legacy cache purchase was rejected",
+		"레거시 캐시 저장됨"
+	)
 
 
 func _mark_report_read(report_key: String) -> void:
@@ -221,6 +277,7 @@ func _restore_isolated_state() -> void:
 	var load_result: SaveLoadResult = _repository.load()
 	if load_result.has_session_candidate():
 		if _restore_candidate(load_result.session_data):
+			_last_saved_at_unix = load_result.saved_at_unix
 			_save_status = (
 				"백업 복원됨"
 				if load_result.status == SaveLoadResult.Status.RECOVERED_BACKUP
@@ -233,18 +290,21 @@ func _restore_isolated_state() -> void:
 						"Product loop backup could not be promoted: %d"
 						% promote_error
 					)
+			_apply_restored_day_income(load_result.saved_at_unix)
 			return
 		var backup_result: SaveLoadResult = _repository.load_backup()
 		if (
 			backup_result.has_session_candidate()
 			and _restore_candidate(backup_result.session_data)
 		):
+			_last_saved_at_unix = backup_result.saved_at_unix
 			_save_status = "백업 복원됨"
 			var promote_error := _repository.promote_backup()
 			if promote_error != OK:
 				push_warning(
 					"Product loop backup promotion failed: %d" % promote_error
 				)
+			_apply_restored_day_income(backup_result.saved_at_unix)
 			return
 		_preserve_invalid_records()
 		return
@@ -260,12 +320,14 @@ func _restore_isolated_state() -> void:
 			backup_result.has_session_candidate()
 			and _restore_candidate(backup_result.session_data)
 		):
+			_last_saved_at_unix = backup_result.saved_at_unix
 			_save_status = "백업 복원됨"
 			var promote_error := _repository.promote_backup()
 			if promote_error != OK:
 				push_warning(
 					"Product loop backup promotion failed: %d" % promote_error
 				)
+			_apply_restored_day_income(backup_result.saved_at_unix)
 			return
 		_preserve_invalid_records()
 
@@ -317,21 +379,131 @@ func _preserve_invalid_records() -> void:
 func _save_now(success_status: String) -> bool:
 	if not _save_enabled:
 		return false
+	var saved_at_unix := maxi(
+		_last_saved_at_unix,
+		int(Time.get_unix_time_from_system())
+	)
 	var error := _repository.save(
 		{
 			"session": _session.export_state(),
 			"speed": _speed,
 		},
-		int(Time.get_unix_time_from_system())
+		saved_at_unix
 	)
 	if error != OK:
 		_save_status = "저장 실패 %d" % error
 		_save_remaining = SAVE_INTERVAL_SECONDS
 		push_error("Product loop isolated save failed: %d" % error)
 		return false
+	_last_saved_at_unix = saved_at_unix
 	_save_status = success_status
 	_save_remaining = SAVE_INTERVAL_SECONDS
 	return true
+
+
+func _execute_saved_day_command(
+	command: Callable,
+	error_context: String,
+	success_status: String
+) -> bool:
+	var before := _session.export_state()
+	if not bool(command.call()):
+		_report_session_error(error_context)
+		_refresh(true)
+		return false
+	if not _save_now(success_status):
+		_restore_after_failed_save(before, success_status)
+		_refresh(true)
+		return false
+	_refresh(true)
+	return true
+
+
+func _apply_restored_day_income(saved_at_unix: int) -> void:
+	var before_snapshot := _session.snapshot()
+	if String(before_snapshot.get("phase_name", "")) != "day_prep":
+		return
+	var before_state := _session.export_state()
+	var now_unix := int(Time.get_unix_time_from_system())
+	var offline := before_snapshot.get("offline", {}) as Dictionary
+	if int(offline.get("anchor_unix", 0)) == 0 and saved_at_unix > 0:
+		_session.account_day_income(saved_at_unix)
+	var income: Dictionary = _session.account_day_income(now_unix)
+	if income.is_empty():
+		_report_session_error("Restored day income was rejected")
+		return
+	var after_snapshot := _session.snapshot()
+	var awarded_bits := maxi(
+		0,
+		int(income.get(
+			"awarded_bits",
+			int(after_snapshot.get("bits", 0)) - int(before_snapshot.get("bits", 0))
+		))
+	)
+	var state_changed := _session.export_state() != before_state
+	if state_changed and not _save_now("주간 수입 반영 저장됨"):
+		_restore_after_failed_save(before_state, "주간 수입 반영")
+		return
+	if awarded_bits <= 0:
+		return
+	var elapsed_seconds := int(income.get(
+		"elapsed_seconds",
+		maxi(0, now_unix - saved_at_unix)
+	))
+	_day_view.show_offline_handoff({
+		"awarded_bits": awarded_bits,
+		"elapsed_seconds": elapsed_seconds,
+		"reached_cap": bool(income.get(
+			"reached_cap",
+			elapsed_seconds >= 12 * 60 * 60
+		)),
+	})
+
+
+func _arm_fresh_day_income() -> void:
+	if not _save_enabled:
+		return
+	var snapshot := _session.snapshot()
+	if String(snapshot.get("phase_name", "")) != "day_prep":
+		return
+	var offline := snapshot.get("offline", {}) as Dictionary
+	if int(offline.get("anchor_unix", 0)) != 0:
+		return
+	var before := _session.export_state()
+	_session.account_day_income(int(Time.get_unix_time_from_system()))
+	if _session.export_state() == before:
+		return
+	if not _save_now("주간 기준 시각 저장됨"):
+		_restore_after_failed_save(before, "주간 기준 시각 저장")
+
+
+func _account_open_day_income() -> Dictionary:
+	if _active_surface != &"day_prep":
+		return {}
+	var before := _session.export_state()
+	var income: Dictionary = _session.account_day_income(
+		int(Time.get_unix_time_from_system())
+	)
+	if income.is_empty():
+		_report_session_error("Open day income was rejected")
+		return {}
+	if _session.export_state() == before:
+		return {}
+	return before
+
+
+func _restore_after_failed_save(
+	before: Dictionary,
+	context: String
+) -> void:
+	var restore_errors := _session.restore_state(before)
+	if restore_errors.is_empty():
+		return
+	_save_enabled = false
+	push_error(
+		"%s could not roll back after a save failure: %s"
+		% [context, "; ".join(restore_errors)]
+	)
 
 
 func _report_session_error(context: String) -> void:
