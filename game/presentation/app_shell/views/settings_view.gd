@@ -165,7 +165,6 @@ func _build_interface() -> void:
 	)
 	vibration_help.custom_minimum_size.y = 30.0
 	content.add_child(vibration_help)
-	_add_toggle_row(content, "화면 흔들림", "screen_shake_enabled", screen_shake_changed.emit)
 	_add_toggle_row(content, "점멸 효과 줄이기", "reduced_flashes", reduced_flashes_changed.emit)
 	_add_toggle_row(content, "동작 줄이기", "reduced_motion", reduced_motion_changed.emit)
 

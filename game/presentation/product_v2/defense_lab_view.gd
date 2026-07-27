@@ -36,6 +36,7 @@ class BattleField:
 
 	const FIELD_RECT := Rect2(0.0, 0.0, 348.0, 390.0)
 	const CORE_CENTER := Vector2(174.0, 292.0)
+	const BOSS_CENTER := Vector2(174.0, 137.0)
 	const PATH_TOP := 50.0
 	const PATH_BOTTOM := 268.0
 	const OPERATOR_POSITIONS: Array[Vector2] = [
@@ -98,6 +99,8 @@ class BattleField:
 		_draw_enemies()
 		_draw_operators()
 		_draw_effects()
+		if String(snapshot.get("phase_name", "")) == "countdown":
+			_draw_countdown_guidance()
 		if danger_pulse > 0.0:
 			var alpha := 0.16 * (danger_pulse / 0.45)
 			draw_rect(FIELD_RECT, Color(COLOR_RED, alpha))
@@ -149,10 +152,10 @@ class BattleField:
 		if lab_font != null:
 			draw_string(
 				lab_font,
-				CORE_CENTER + Vector2(-18.0, 4.0),
-				"CORE",
-				HORIZONTAL_ALIGNMENT_LEFT,
-				-1.0,
+				CORE_CENTER + Vector2(-24.0, 4.0),
+				"서버",
+				HORIZONTAL_ALIGNMENT_CENTER,
+				48.0,
 				11,
 				COLOR_TEXT
 			)
@@ -240,6 +243,16 @@ class BattleField:
 		var bar_rect := Rect2(center + Vector2(-15.0, 17.0), Vector2(30.0, 3.0))
 		draw_rect(bar_rect, Color("071019"))
 		draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x * ratio, 3.0)), COLOR_RED)
+		if lab_font != null:
+			draw_string(
+				lab_font,
+				center + Vector2(-27.0, 30.0),
+				"HP %d/%d" % [int(floorf(hp)), int(floorf(max_hp))],
+				HORIZONTAL_ALIGNMENT_CENTER,
+				54.0,
+				7,
+				COLOR_TEXT
+			)
 
 
 	func _draw_operators() -> void:
@@ -282,18 +295,25 @@ class BattleField:
 			var duration := maxf(0.001, float(effect["duration"]))
 			var ratio := clampf(remaining / duration, 0.0, 1.0)
 			match StringName(String(effect["kind"])):
-				&"shot":
+				&"hit":
 					var from: Vector2 = effect["from"]
 					var to: Vector2 = effect["to"]
-					var head := to.lerp(from, ratio)
-					draw_line(from, head, Color(COLOR_CYAN, 0.35 + 0.65 * ratio), 2.0)
-					draw_circle(head, 2.5, COLOR_YELLOW)
+					var expansion := 1.0 - ratio
+					draw_line(from, to, Color(COLOR_CYAN, ratio), 2.0)
+					draw_circle(to, 2.5, Color(COLOR_TEXT, ratio))
+					draw_circle(
+						to,
+						4.0 + 10.0 * expansion,
+						Color(COLOR_YELLOW, ratio),
+						false,
+						2.0
+					)
 				&"impact":
 					var center: Vector2 = effect["position"]
 					draw_circle(center, 14.0 * (1.0 - ratio), Color(COLOR_YELLOW, ratio), false, 2.0)
 				&"rollback":
 					draw_arc(
-						Vector2(174.0, 137.0),
+						BOSS_CENTER,
 						28.0 + 12.0 * (1.0 - ratio),
 						0.0,
 						TAU,
@@ -301,6 +321,60 @@ class BattleField:
 						Color(COLOR_GREEN, ratio),
 						2.0
 					)
+
+
+	func _draw_countdown_guidance() -> void:
+		if lab_font == null:
+			return
+		var panel_rect := Rect2(15.0, 164.0, 318.0, 62.0)
+		draw_rect(panel_rect, Color(0.03, 0.07, 0.12, 0.88))
+		draw_rect(panel_rect, Color(COLOR_CYAN, 0.72), false, 1.0)
+		draw_string(
+			lab_font,
+			Vector2(20.0, 190.0),
+			"적이 서버에 닿으면 안정도가 줄어요.",
+			HORIZONTAL_ALIGNMENT_CENTER,
+			308.0,
+			9,
+			COLOR_TEXT
+		)
+		draw_string(
+			lab_font,
+			Vector2(20.0, 211.0),
+			"밤에 막고 낮에 정비해 다시 도전하세요.",
+			HORIZONTAL_ALIGNMENT_CENTER,
+			308.0,
+			9,
+			COLOR_YELLOW
+		)
+
+
+	func _enemy_position_for_serial(target_serial: int) -> Vector2:
+		var timers := snapshot.get("timers", {}) as Dictionary
+		var wave_elapsed := float(timers.get(
+			"wave_elapsed",
+			snapshot.get("wave_elapsed", 0.0)
+		))
+		var wave_seconds := maxf(0.001, float(timers.get("normal_wave_seconds", 5.0)))
+		var base_progress := clampf(wave_elapsed / wave_seconds, 0.0, 1.0)
+		var progress := base_progress
+		for enemy_value: Variant in snapshot.get("enemies", []) as Array:
+			if not enemy_value is Dictionary:
+				continue
+			var enemy := enemy_value as Dictionary
+			if int(enemy.get("serial", -1)) != target_serial:
+				continue
+			progress = clampf(
+				float(enemy.get("progress", base_progress)),
+				0.0,
+				1.0
+			)
+			break
+		var lane_offset := float(posmod(target_serial, 3) - 1) * 24.0
+		return Vector2(
+			174.0 + lane_offset,
+			lerpf(PATH_TOP, PATH_BOTTOM, progress)
+		)
 
 
 	func _consume_events(events_value: Array) -> void:
@@ -338,21 +412,27 @@ class BattleField:
 					else Vector2(174.0, 350.0)
 				)
 				var to := (
-					Vector2(174.0, 137.0)
+					BOSS_CENTER
 					if kind == &"operator_attacked_boss"
-					else Vector2(174.0, 125.0)
+					else _enemy_position_for_serial(
+						int(event.get("target_serial", 0))
+					)
 				)
 				effects.append({
-					"kind": &"shot",
+					"kind": &"hit",
 					"from": from,
 					"to": to,
-					"duration": 0.16,
-					"remaining": 0.16,
+					"duration": 0.14,
+					"remaining": 0.14,
 				})
+				hit_pulse = 0.18
 			&"enemy_defeated":
+				var defeated_position := _enemy_position_for_serial(
+					int(event.get("enemy_serial", 0))
+				)
 				effects.append({
 					"kind": &"impact",
-					"position": Vector2(174.0, 125.0),
+					"position": defeated_position,
 					"duration": 0.20,
 					"remaining": 0.20,
 				})
@@ -458,10 +538,36 @@ func set_product_mode(
 	_settings_button.visible = enabled
 	_product_shift_label.visible = enabled
 	_restart_button.visible = not enabled
-	_pause_button.position = Vector2(7.0, 6.0) if enabled else Vector2(116.0, 6.0)
-	_pause_button.size = Vector2(104.0, 25.0) if enabled else Vector2(82.0, 25.0)
-	_speed_button.position = Vector2(220.0, 6.0) if enabled else Vector2(202.0, 6.0)
-	_speed_button.size = Vector2(68.0, 25.0) if enabled else Vector2(50.0, 25.0)
+	_pause_button.position = Vector2(7.0, 2.0) if enabled else Vector2(116.0, 6.0)
+	_pause_button.size = Vector2(104.0, 48.0) if enabled else Vector2(82.0, 25.0)
+	_speed_button.position = Vector2(115.0, 2.0) if enabled else Vector2(202.0, 6.0)
+	_speed_button.size = Vector2(72.0, 48.0) if enabled else Vector2(50.0, 25.0)
+	_product_shift_label.position = Vector2(191.0, 2.0) if enabled else Vector2(114.0, 6.0)
+	_product_shift_label.size = Vector2(98.0, 48.0) if enabled else Vector2(100.0, 25.0)
+	_settings_button.position = Vector2(293.0, 2.0)
+	_settings_button.size = Vector2(48.0, 48.0)
+	_stability_label.position = Vector2(8.0, 51.0) if enabled else Vector2(8.0, 36.0)
+	_stability_label.size = Vector2(74.0, 14.0) if enabled else Vector2(74.0, 18.0)
+	_stability_bar.position = Vector2(82.0, 54.0) if enabled else Vector2(82.0, 40.0)
+	_stability_bar.size = Vector2(68.0, 8.0) if enabled else Vector2(81.0, 9.0)
+	_phase_label.position = Vector2(153.0, 51.0) if enabled else Vector2(168.0, 35.0)
+	_phase_label.size = Vector2(90.0, 14.0) if enabled else Vector2(56.0, 19.0)
+	_timer_label.position = Vector2(246.0, 51.0) if enabled else Vector2(228.0, 35.0)
+	_timer_label.size = Vector2(95.0, 14.0) if enabled else Vector2(62.0, 19.0)
+	for index: int in _progress_cells.size():
+		_progress_cells[index].position = Vector2(
+			7.0 + float(index) * 33.4,
+			68.0 if enabled else 61.0
+		)
+		_progress_cells[index].size = Vector2(
+			31.0,
+			20.0 if enabled else 24.0
+		)
+		_progress_labels[index].position = Vector2.ZERO if enabled else Vector2(0.0, 1.0)
+		_progress_labels[index].size = Vector2(
+			31.0,
+			20.0 if enabled else 22.0
+		)
 	_speed_button.disabled = enabled and not _double_speed_unlocked
 	_terminal_overlay.visible = (
 		false if enabled else _terminal_overlay.visible
@@ -483,10 +589,10 @@ func refresh(value: Dictionary) -> void:
 	))
 
 	_phase_label.text = "%s  ·  %d★" % [_phase_display_name(phase_name), stars]
-	_timer_label.text = "⏱ %.1f" % maxf(0.0, phase_remaining)
+	_timer_label.text = "시간 %.1f초" % maxf(0.0, phase_remaining)
 	_timer_label.add_theme_color_override(
 		"font_color",
-		COLOR_RED if phase_name == "boss_active" else COLOR_YELLOW
+		COLOR_RED if phase_name in ["boss_warning", "boss_active"] else COLOR_YELLOW
 	)
 	_stability_label.text = "안정도 %d" % stability
 	_stability_label.add_theme_color_override(
@@ -587,7 +693,7 @@ func _build_ui() -> void:
 	top_panel.add_child(_phase_label)
 	_timer_label = _make_label(
 		Rect2(228.0, 35.0, 62.0, 19.0),
-		"⏱ 2.0",
+		"시간 2.0초",
 		11,
 		COLOR_TEXT
 	)
@@ -684,7 +790,7 @@ func _build_terminal_overlay() -> void:
 	_logical_root.add_child(_terminal_overlay)
 	var eyebrow := _make_label(
 		Rect2(16.0, 13.0, 266.0, 17.0),
-		"NIGHT SHIFT RESULT",
+		"야간근무 결과",
 		9,
 		COLOR_MUTED
 	)
@@ -773,10 +879,10 @@ func _update_boss(phase_name: String) -> void:
 	)
 	_boss_bar.visible = boss_visible and phase_name != "boss_warning"
 	if phase_name == "boss_warning":
-		_boss_label.text = "⚠ WATCHDOG 연결 중"
+		_boss_label.text = "보스 연결 중"
 		_boss_label.add_theme_color_override("font_color", COLOR_RED)
 	elif boss_visible:
-		_boss_label.text = "WATCHDOG  HP %d / %d" % [
+		_boss_label.text = "보스 HP %d / %d" % [
 			int(floorf(boss_hp)),
 			int(floorf(boss_max_hp)),
 		]
@@ -829,7 +935,7 @@ func _update_operators() -> void:
 				_panel_style(Color("0a1220"), Color("24364d"), 1)
 			)
 		elif down:
-			_operator_labels[index].text = "%s Lv.%d\nDOWN" % [display_name, level]
+			_operator_labels[index].text = "%s Lv.%d\n쓰러짐" % [display_name, level]
 			_operator_labels[index].add_theme_color_override("font_color", COLOR_RED)
 			_operator_bars[index].max_value = max_hp
 			_operator_bars[index].value = hp
@@ -1022,9 +1128,9 @@ func _terminal_reason_text(reason: String, success: bool) -> String:
 		return "10개 웨이브의 방어 기록이 저장되었습니다."
 	match reason:
 		"stability_depleted":
-			return "안정도가 0이 되어 코어 방어가 중단되었습니다."
+			return "안정도가 0이 되어 서버 방어가 중단되었습니다."
 		"boss_timeout":
-			return "30초 안에 WATCHDOG을 종료하지 못했습니다."
+			return "30초 안에 보스를 쓰러뜨리지 못했습니다."
 		"boss_all_down":
-			return "모든 요원이 프로세스 다운 상태입니다."
+			return "모든 요원이 쓰러졌습니다."
 	return "방어 기록: %s" % (reason if not reason.is_empty() else "알 수 없음")

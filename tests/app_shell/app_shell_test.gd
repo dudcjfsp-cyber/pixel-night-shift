@@ -248,8 +248,8 @@ func _test_title_and_prologue() -> void:
 		"first prologue step",
 		PackedStringArray([
 			"야간 인수인계 1 / 5",
-			"꺼지지 않는 도시",
-			"도시가 잠든 뒤에도 서비스는 멈추지 않습니다.",
+			"낡은 서버의 밤",
+			"《픽셀 야간근무》에서 당신은 낡은 게임 서버를 밤새 지키는 야간 관리자입니다.",
 		])
 	)
 	var prologue_primary := _find_button(
@@ -266,7 +266,7 @@ func _test_title_and_prologue() -> void:
 	_check_copy(
 		prologue,
 		"last replay prologue step",
-		PackedStringArray(["야간 인수인계 5 / 5", "권한 인계"])
+		PackedStringArray(["야간 인수인계 5 / 5", "야간 인계"])
 	)
 	_check(
 		prologue_primary.text == "타이틀로 돌아가기",

@@ -65,8 +65,8 @@ func refresh(value: Dictionary) -> void:
 		value.get("active_shift_index", 1)
 	))
 
-	_eyebrow.text = "NIGHT SHIFT %d · 근무 결과" % shift_index
-	_title.text = "서버 방어 완료" if success else "야간근무 중단"
+	_eyebrow.text = "야간근무 %d차 · 결과" % shift_index
+	_title.text = "야간근무 성공" if success else "야간근무 실패"
 	_title.add_theme_color_override(
 		"font_color",
 		COLOR_GREEN if success else COLOR_RED
@@ -108,7 +108,7 @@ func refresh(value: Dictionary) -> void:
 	_performance_value.text = "+%d" % performance_reward
 	_first_reward_value.text = "+%d" % first_reward
 	_total_value.text = "+%d" % total_reward
-	_wallet_label.text = "정산 후 보유 · %d BIT" % bits_after
+	_wallet_label.text = "정산 후 보유 · %d비트" % bits_after
 
 	var unlock_rows := _result_unlock_rows(result)
 	_unlock_title.text = (
@@ -127,10 +127,10 @@ func refresh(value: Dictionary) -> void:
 	)
 
 	var report_rows := _report_rows(report)
-	_report_title.text = String(report.get(
+	_report_title.text = _plain_language(String(report.get(
 		"title",
-		"현장 보고서 · 사실 확인 후 판단"
-	))
+		"현장 보고서 · 무슨 일이 있었나요?"
+	)))
 	_report_body.text = (
 		"\n".join(report_rows)
 		if not report_rows.is_empty()
@@ -172,7 +172,7 @@ func _build_ui() -> void:
 	_logical_root.add_child(result_panel)
 	_eyebrow = _make_label(
 		Rect2(14.0, 12.0, 265.0, 18.0),
-		"NIGHT SHIFT 1 · 근무 결과",
+		"야간근무 1차 · 결과",
 		9,
 		COLOR_CYAN
 	)
@@ -188,7 +188,7 @@ func _build_ui() -> void:
 	result_panel.add_child(settings_button)
 	_title = _make_label(
 		Rect2(14.0, 38.0, 320.0, 32.0),
-		"야간근무 중단",
+		"야간근무 실패",
 		21,
 		COLOR_RED
 	)
@@ -264,7 +264,7 @@ func _build_ui() -> void:
 				_total_value = value_label
 	_wallet_label = _make_label(
 		Rect2(10.0, 76.0, 328.0, 18.0),
-		"정산 후 보유 · 0 BIT",
+		"정산 후 보유 · 0비트",
 		9,
 		COLOR_CYAN
 	)
@@ -301,7 +301,7 @@ func _build_ui() -> void:
 	_logical_root.add_child(report_panel)
 	_report_title = _make_label(
 		Rect2(11.0, 8.0, 326.0, 19.0),
-		"현장 보고서 · 사실 확인 후 판단",
+		"현장 보고서 · 무슨 일이 있었나요?",
 		11,
 		COLOR_YELLOW
 	)
@@ -317,8 +317,8 @@ func _build_ui() -> void:
 	report_panel.add_child(_report_body)
 
 	var continue_button := _make_button(
-		Rect2(24.0, 581.0, 312.0, 45.0),
-		"주간 정비로"
+		Rect2(24.0, 578.0, 312.0, 48.0),
+		"주간 정비로 이동"
 	)
 	continue_button.name = "ContinueToDayButton"
 	continue_button.add_theme_font_size_override("font_size", 13)
@@ -341,11 +341,12 @@ func _report_rows(report: Dictionary) -> PackedStringArray:
 			var message := String(row.get("message", row.get("text", "")))
 			if message.is_empty():
 				message = String(row.get("summary", ""))
+			message = _plain_language(message)
 			result.append(
 				("%s · %s" % [speaker, message]) if not speaker.is_empty() else message
 			)
 		else:
-			result.append(String(value))
+			result.append(_plain_language(String(value)))
 		if result.size() >= 3:
 			break
 	return result
@@ -467,14 +468,23 @@ func _reason_text(reason: String, success: bool) -> String:
 		"stability_depleted":
 			return "적이 서버에 도달해 안정도가 0이 되었습니다."
 		"boss_timeout":
-			return "30초 안에 보스 프로세스를 종료하지 못했습니다."
+			return "30초 안에 보스를 쓰러뜨리지 못했습니다."
 		"boss_all_down":
-			return "모든 요원이 프로세스 다운 상태가 되었습니다."
+			return "모든 요원이 쓰러졌습니다."
 	return (
 		"완료하지 못한 원인을 현장 보고서에서 확인하세요."
 		if reason.is_empty()
-		else "종료 이유 · %s" % reason
+		else "종료 이유 · %s" % _plain_language(reason)
 	)
+
+
+func _plain_language(source: String) -> String:
+	var result := source.replace("보스 프로세스", "보스")
+	result = result.replace("프로세스 다운", "쓰러짐")
+	result = result.replace("WATCHDOG", "보스")
+	result = result.replace("DOWN", "쓰러짐")
+	result = result.replace("코어", "서버")
+	return result
 
 
 func _fit_logical_root() -> void:

@@ -704,6 +704,9 @@ func _show_product_day(snapshot: Dictionary) -> void:
 	view.settings_requested.connect(_show_settings)
 	_set_screen(SCREEN_DAY_PREP, view)
 	_product_day_view = view
+	view.set_reduced_motion(
+		_settings.reduced_motion or _settings.reduced_flashing
+	)
 	view.refresh(snapshot)
 	_product_refresh_left = PRODUCT_VIEW_REFRESH_SECONDS
 
@@ -1404,13 +1407,16 @@ func _on_reduced_motion_changed(enabled: bool) -> void:
 
 
 func _apply_gameplay_accessibility() -> void:
-	if _gameplay_view == null:
-		return
-	_gameplay_view.apply_accessibility(
-		_settings.screen_shake_enabled,
-		_settings.reduced_flashing,
-		_settings.reduced_motion
-	)
+	if _gameplay_view != null:
+		_gameplay_view.apply_accessibility(
+			_settings.screen_shake_enabled,
+			_settings.reduced_flashing,
+			_settings.reduced_motion
+		)
+	if _product_day_view != null:
+		_product_day_view.set_reduced_motion(
+			_settings.reduced_motion or _settings.reduced_flashing
+		)
 
 
 func _on_save_retry_requested() -> void:

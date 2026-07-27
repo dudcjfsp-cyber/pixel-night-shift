@@ -9,18 +9,18 @@ const ASSETS: GDScript = preload("res://game/presentation/presentation_assets.gd
 const STEP_COUNT := 5
 const VISUAL_SIZE := Vector2(344.0, 224.0)
 const TITLES := [
-	"꺼지지 않는 도시",
-	"깨어난 결함",
-	"자동 대응",
-	"자동화의 한계",
-	"권한 인계",
+	"낡은 서버의 밤",
+	"쌓인 오류",
+	"자동 방어",
+	"낮의 정비",
+	"야간 인계",
 ]
 const BODIES := [
-	"도시가 잠든 뒤에도 서비스는 멈추지 않습니다.",
-	"누적된 결함은 깨진 픽셀과 비정상 프로세스로 깨어납니다.",
-	"요원들은 지시를 기다리지 않고 현장을 지킵니다.",
-	"하지만 병목의 원인과 감수할 위험은 결정하지 못합니다.",
-	"03:00, 야간 운영 권한이 당신에게 이관됩니다. 진단하고, 강화하고, 패치를 승인하십시오.",
+	"《픽셀 야간근무》에서 당신은 낡은 게임 서버를 밤새 지키는 야간 관리자입니다.",
+	"오류 괴물이 몰려오면 요원들이 자동으로 게임 서버를 방어합니다.",
+	"야간근무 동안 요원들은 열 개의 웨이브를 자동으로 막아 냅니다.",
+	"해가 뜨면 요원을 강화하고 패치를 골라 다음 밤을 준비합니다.",
+	"정비를 마쳤다면 야간근무를 시작하세요. 서버가 살아 있는 한, 다음 밤은 옵니다.",
 ]
 
 var _step := 0
@@ -157,6 +157,7 @@ func _rebuild_visual() -> void:
 
 func _build_city_visual() -> void:
 	_add_texture(ASSETS.CITY_NETWORK_BACKGROUND, Rect2(Vector2.ZERO, VISUAL_SIZE))
+	_add_status_strip("구형 서버실 // 오늘도 야간근무", UI.COLOR_INFO)
 
 
 func _build_fault_visual() -> void:
@@ -164,7 +165,7 @@ func _build_fault_visual() -> void:
 	_add_animated_sprite(ASSETS.make_enemy_frames(1, false, "combat"), Vector2(64, 160), 2.0)
 	_add_animated_sprite(ASSETS.make_enemy_frames(2, false, "combat"), Vector2(172, 160), 2.0)
 	_add_animated_sprite(ASSETS.make_enemy_frames(3, false, "combat"), Vector2(280, 160), 2.0)
-	_add_status_strip("[오류] 비정상 프로세스 증가", UI.COLOR_DANGER)
+	_add_status_strip("오류 73건 // 당직자 한숨 +1", UI.COLOR_DANGER)
 
 
 func _build_operator_visual() -> void:
@@ -179,21 +180,21 @@ func _build_operator_visual() -> void:
 		_add_animated_sprite(
 			ASSETS.make_operator_frames(operator_ids[index]), positions[index], 2.0
 		)
-	_add_status_strip("[자동] 현장 대응 계속", UI.COLOR_SAFE)
+	_add_status_strip("자동 방어 가동 // 커피는 수동", UI.COLOR_SAFE)
 
 
 func _build_decision_visual() -> void:
 	_add_grid_background()
 	_add_signal_card(
-		Rect2(18, 52, 92, 116), ASSETS.ui_texture(&"diagnosis"), "병목 진단", UI.COLOR_INFO
+		Rect2(18, 52, 92, 116), ASSETS.ui_texture(&"diagnosis"), "요원 강화", UI.COLOR_INFO
 	)
 	_add_signal_card(
-		Rect2(126, 52, 92, 116), ASSETS.ui_texture(&"maintenance"), "위험 판단", UI.COLOR_WARNING
+		Rect2(126, 52, 92, 116), ASSETS.ui_texture(&"maintenance"), "패치 선택", UI.COLOR_WARNING
 	)
 	_add_signal_card(
-		Rect2(234, 52, 92, 116), ASSETS.patch_texture(&"unsafe_build"), "패치 승인", UI.COLOR_SPECIAL
+		Rect2(234, 52, 92, 116), ASSETS.patch_texture(&"unsafe_build"), "출근 준비", UI.COLOR_SPECIAL
 	)
-	_add_status_strip("[대기] 운영 책임자의 판단 필요", UI.COLOR_DANGER)
+	_add_status_strip("주간 정비 // 밀린 작업 처리 중", UI.COLOR_WARNING)
 
 
 func _build_handoff_visual() -> void:
@@ -202,7 +203,7 @@ func _build_handoff_visual() -> void:
 	crop.region = Rect2(8, 224, 344, 224)
 	crop.filter_clip = true
 	_add_texture(crop, Rect2(Vector2.ZERO, VISUAL_SIZE))
-	_add_status_strip("03:00 // 야간 운영 권한 인계", UI.COLOR_INFO)
+	_add_status_strip("인계 완료 // 이제 당신 차례", UI.COLOR_INFO)
 
 
 func _build_battle_stage() -> void:

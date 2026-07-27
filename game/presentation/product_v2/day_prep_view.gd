@@ -12,6 +12,9 @@ signal settings_requested
 
 const DESIGN_SIZE := Vector2(360.0, 640.0)
 const FONT: FontFile = preload("res://game/assets/fonts/Galmuri11-Bold.ttf")
+const ASSETS: GDScript = preload(
+	"res://game/presentation/presentation_assets.gd"
+)
 
 const TAB_OPERATORS: StringName = &"operators"
 const TAB_PATCHES: StringName = &"patches"
@@ -75,10 +78,6 @@ var _shift_panels: Array[Panel] = []
 var _shift_star_labels: Array[Label] = []
 var _shift_condition_labels: Array[Label] = []
 var _shift_buttons: Array[Button] = []
-var _report_panel: Panel
-var _report_badge: Label
-var _report_title: Label
-var _report_body: Label
 var _report_button: Button
 var _update_panel: Panel
 var _update_title: Label
@@ -100,6 +99,9 @@ var _offline_sheet_body: Label
 
 var _snapshot: Dictionary = {}
 var _report_key := ""
+var _report_unread := false
+var _report_pulse_elapsed := 0.0
+var _reduced_motion := false
 var _offline_handoff: Dictionary = {}
 
 
@@ -111,13 +113,23 @@ func _ready() -> void:
 	_fit_logical_root()
 
 
+func _process(delta_seconds: float) -> void:
+	_update_report_pulse(delta_seconds)
+
+
+func set_reduced_motion(enabled: bool) -> void:
+	_reduced_motion = enabled
+	_report_pulse_elapsed = 0.0
+	_update_report_pulse(0.0)
+
+
 func refresh(value: Dictionary) -> void:
 	if not _snapshot.is_empty() and value != _snapshot:
 		_patch_preview = {}
 	_snapshot = value.duplicate(true)
 	_version_label.text = "V%02d" % int(_snapshot.get("version", 1))
-	_bits_label.text = "◆ %d" % int(_snapshot.get("bits", 0))
-	_notes_label.text = "▣ %d" % int(_snapshot.get("patch_notes", 0))
+	_bits_label.text = "◆%d" % int(_snapshot.get("bits", 0))
+	_notes_label.text = "▣%d" % int(_snapshot.get("patch_notes", 0))
 	_refresh_offline_strip(_snapshot.get("offline", {}) as Dictionary)
 	_refresh_operators()
 	_refresh_patches()
@@ -147,7 +159,7 @@ func show_offline_handoff(value: Dictionary) -> void:
 		"elapsed_seconds",
 		value.get("absence_seconds", 0)
 	))
-	_offline_sheet_title.text = "주간 인수인계 · +%d BIT" % awarded
+	_offline_sheet_title.text = "주간 인수인계 · +%d 비트" % awarded
 	_offline_sheet_body.text = (
 		"자리를 비운 %s 동안 서버 정비 수입이 쌓였습니다.\n"
 		+ "수입은 저장된 뒤 한 번만 반영되며 야간 전투는 진행하지 않았습니다."
@@ -198,33 +210,39 @@ func _build_header() -> void:
 	_logical_root.add_child(header)
 	var eyebrow := _make_label(
 		Rect2(10.0, 7.0, 190.0, 15.0),
-		"DAY SHIFT · 주간 정비",
+		"주간근무 · 정비 시간",
 		9,
 		COLOR_CYAN
 	)
 	header.add_child(eyebrow)
 	var title := _make_label(
-		Rect2(10.0, 25.0, 190.0, 25.0),
-		"다음 야간을 준비합니다",
+		Rect2(10.0, 25.0, 174.0, 25.0),
+		"다음 밤을 준비합니다",
 		15,
 		COLOR_TEXT
 	)
 	header.add_child(title)
-	_version_label = _make_label(Rect2(222.0, 7.0, 105.0, 15.0), "V01", 9, COLOR_MUTED)
-	_version_label.position.x = 198.0
-	_version_label.size.x = 82.0
+	_version_label = _make_label(Rect2(190.0, 6.0, 46.0, 15.0), "V01", 9, COLOR_MUTED)
 	_version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	header.add_child(_version_label)
-	_bits_label = _make_label(Rect2(190.0, 27.0, 55.0, 20.0), "◆ 30", 11, COLOR_YELLOW)
+	_bits_label = _make_label(Rect2(188.0, 24.0, 48.0, 16.0), "◆30", 9, COLOR_YELLOW)
 	_bits_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_bits_label.tooltip_text = "비트 · 요원 강화와 패치 교체에 사용"
 	header.add_child(_bits_label)
-	_notes_label = _make_label(Rect2(248.0, 27.0, 35.0, 20.0), "▣ 0", 11, COLOR_PURPLE)
+	_notes_label = _make_label(Rect2(188.0, 41.0, 48.0, 16.0), "▣0", 9, COLOR_PURPLE)
 	_notes_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_notes_label.tooltip_text = "패치노트 · 버전 업데이트 보상"
 	header.add_child(_notes_label)
+	_report_button = _make_button(Rect2(240.0, 8.0, 48.0, 48.0), "")
+	_report_button.name = "ReportButton"
+	_report_button.icon = ASSETS.ui_texture(&"diagnosis")
+	_report_button.expand_icon = true
+	_report_button.add_theme_constant_override("icon_max_width", 20)
+	_report_button.tooltip_text = "현장 보고서 · 아직 도착한 보고서가 없습니다."
+	_report_button.pressed.connect(_open_report_sheet)
+	header.add_child(_report_button)
 	var settings_button := _make_button(
-		Rect2(289.0, 8.0, 48.0, 48.0),
+		Rect2(290.0, 8.0, 48.0, 48.0),
 		"설정"
 	)
 	settings_button.name = "SettingsButton"
@@ -240,7 +258,7 @@ func _build_header() -> void:
 	_logical_root.add_child(offline_panel)
 	_offline_label = _make_label(
 		Rect2(10.0, 7.0, 328.0, 19.0),
-		"☀ 주간 수입 · 20분마다 1 BIT · 최대 36",
+		"☀ 주간 수입 · 20분마다 1비트 · 최대 36",
 		9,
 		COLOR_CYAN
 	)
@@ -251,14 +269,14 @@ func _build_header() -> void:
 func _build_tabs() -> void:
 	var tab_data := [
 		[TAB_OPERATORS, "요원 정비", "OperatorTabButton"],
-		[TAB_PATCHES, "패치 보드", "PatchTabButton"],
+		[TAB_PATCHES, "방어 설정", "PatchTabButton"],
 		[TAB_DUTY, "근무 기록", "DutyTabButton"],
 	]
 	for index: int in tab_data.size():
 		var row := tab_data[index] as Array
 		var tab_id := StringName(String(row[0]))
 		var button := _make_button(
-			Rect2(6.0 + float(index) * 117.0, 117.0, 114.0, 42.0),
+			Rect2(6.0 + float(index) * 117.0, 117.0, 114.0, 48.0),
 			String(row[1])
 		)
 		button.name = String(row[2])
@@ -317,7 +335,7 @@ func _build_operator_surface() -> void:
 	detail.add_child(_operator_detail_role)
 	_operator_detail_stats = _make_label(
 		Rect2(12.0, 83.0, 324.0, 46.0),
-		"HP 0  ·  DPS 0\n다음 강화 변화 계산 중",
+		"체력 0  ·  초당 공격 0\n다음 강화 변화 계산 중",
 		10,
 		COLOR_YELLOW
 	)
@@ -332,8 +350,8 @@ func _build_operator_surface() -> void:
 	_operator_detail_unlock.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail.add_child(_operator_detail_unlock)
 	_operator_upgrade_button = _make_button(
-		Rect2(12.0, 180.0, 324.0, 42.0),
-		"12 BIT · 강화"
+		Rect2(12.0, 174.0, 324.0, 48.0),
+		"12 비트 · 강화"
 	)
 	_operator_upgrade_button.name = "UpgradeButton"
 	_operator_upgrade_button.pressed.connect(_request_operator_upgrade)
@@ -378,7 +396,7 @@ func _build_patch_surface() -> void:
 
 	var patch_heading := _make_label(
 		Rect2(2.0, 80.0, 344.0, 17.0),
-		"패치 선택 · 장착 전에 이점과 비용 비교",
+		"방어 설정 선택 · 적용 전에 이점과 비용 비교",
 		9,
 		COLOR_MUTED
 	)
@@ -387,7 +405,7 @@ func _build_patch_surface() -> void:
 		var column := index % 3
 		var row := index / 3
 		var button := _make_button(
-			Rect2(float(column) * 117.0, 101.0 + float(row) * 48.0, 113.0, 43.0),
+			Rect2(float(column) * 117.0, 101.0 + float(row) * 48.0, 113.0, 44.0),
 			"패치"
 		)
 		button.name = "PatchCandidate%dButton" % index
@@ -452,7 +470,7 @@ func _build_duty_surface() -> void:
 	surface.add_child(scroll)
 	var content := Control.new()
 	content.name = "DutyScrollContent"
-	content.custom_minimum_size = Vector2(336.0, 708.0)
+	content.custom_minimum_size = Vector2(336.0, 570.0)
 	scroll.add_child(content)
 
 	for array_index: int in 2:
@@ -501,37 +519,8 @@ func _build_duty_surface() -> void:
 		panel.add_child(start_button)
 		_shift_buttons.append(start_button)
 
-	_report_panel = _make_panel(
-		Rect2(0.0, 256.0, 332.0, 128.0),
-		COLOR_PANEL,
-		COLOR_LINE
-	)
-	content.add_child(_report_panel)
-	_report_badge = _make_label(Rect2(10.0, 8.0, 42.0, 17.0), "NEW", 8, COLOR_YELLOW)
-	_report_panel.add_child(_report_badge)
-	_report_title = _make_label(
-		Rect2(57.0, 7.0, 264.0, 19.0),
-		"현장 보고서 없음",
-		11,
-		COLOR_TEXT
-	)
-	_report_panel.add_child(_report_title)
-	_report_body = _make_label(
-		Rect2(10.0, 32.0, 204.0, 82.0),
-		"야간근무 뒤 요원의 사실 보고가 남습니다.",
-		9,
-		COLOR_MUTED
-	)
-	_report_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_report_body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_report_panel.add_child(_report_body)
-	_report_button = _make_button(Rect2(222.0, 41.0, 99.0, 56.0), "보고서\n보기")
-	_report_button.name = "ReportButton"
-	_report_button.pressed.connect(_open_report_sheet)
-	_report_panel.add_child(_report_button)
-
 	_update_panel = _make_panel(
-		Rect2(0.0, 392.0, 332.0, 143.0),
+		Rect2(0.0, 256.0, 332.0, 143.0),
 		COLOR_PANEL,
 		COLOR_LINE
 	)
@@ -561,14 +550,14 @@ func _build_duty_surface() -> void:
 	_update_panel.add_child(_update_button)
 
 	var legacy_panel := _make_panel(
-		Rect2(0.0, 543.0, 332.0, 153.0),
+		Rect2(0.0, 407.0, 332.0, 153.0),
 		Color("1b1d34"),
 		Color("7563a8")
 	)
 	content.add_child(legacy_panel)
 	_legacy_title = _make_label(
 		Rect2(10.0, 9.0, 312.0, 20.0),
-		"레거시 빌드 캐시 · Lv.0 / 1",
+		"영구 공격 보너스 · Lv.0 / 1",
 		11,
 		COLOR_PURPLE
 	)
@@ -582,8 +571,8 @@ func _build_duty_surface() -> void:
 	_legacy_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	legacy_panel.add_child(_legacy_body)
 	_legacy_button = _make_button(
-		Rect2(10.0, 97.0, 312.0, 43.0),
-		"패치노트 1 · 캐시 활성화"
+		Rect2(10.0, 96.0, 312.0, 44.0),
+		"패치노트 1 · 영구 보너스 활성화"
 	)
 	_legacy_button.name = "LegacyCacheButton"
 	_legacy_button.pressed.connect(
@@ -601,6 +590,7 @@ func _build_sheets() -> void:
 	_sheet_backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	_sheet_backdrop.z_index = 20
 	_sheet_backdrop.visible = false
+	_sheet_backdrop.gui_input.connect(_on_sheet_backdrop_input)
 	_logical_root.add_child(_sheet_backdrop)
 
 	_report_sheet = _make_panel(
@@ -620,16 +610,19 @@ func _build_sheets() -> void:
 		COLOR_YELLOW
 	)
 	_report_sheet.add_child(_report_sheet_title)
-	_report_sheet_body = _make_label(
-		Rect2(14.0, 52.0, 296.0, 231.0),
-		"",
-		10,
-		COLOR_TEXT
-	)
+	var report_scroll := ScrollContainer.new()
+	report_scroll.name = "ReportScroll"
+	report_scroll.position = Vector2(14.0, 52.0)
+	report_scroll.size = Vector2(296.0, 230.0)
+	report_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_report_sheet.add_child(report_scroll)
+	_report_sheet_body = _make_label(Rect2(0.0, 0.0, 280.0, 220.0), "", 10, COLOR_TEXT)
+	_report_sheet_body.custom_minimum_size = Vector2(280.0, 220.0)
+	_report_sheet_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_report_sheet_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_report_sheet_body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_report_sheet.add_child(_report_sheet_body)
-	var report_close := _make_button(Rect2(14.0, 298.0, 296.0, 45.0), "확인")
+	_report_sheet_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	report_scroll.add_child(_report_sheet_body)
+	var report_close := _make_button(Rect2(14.0, 296.0, 296.0, 48.0), "확인")
 	report_close.name = "CloseReportButton"
 	report_close.pressed.connect(_hide_sheets)
 	_report_sheet.add_child(report_close)
@@ -659,11 +652,11 @@ func _build_sheets() -> void:
 	)
 	_version_sheet_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_version_sheet.add_child(_version_sheet_body)
-	var confirm := _make_button(Rect2(14.0, 357.0, 296.0, 43.0), "업데이트 실행")
+	var confirm := _make_button(Rect2(14.0, 355.0, 296.0, 44.0), "업데이트 실행")
 	confirm.name = "ConfirmVersionUpdateButton"
 	confirm.pressed.connect(_confirm_version_update)
 	_version_sheet.add_child(confirm)
-	var cancel := _make_button(Rect2(14.0, 405.0, 296.0, 38.0), "취소")
+	var cancel := _make_button(Rect2(14.0, 404.0, 296.0, 44.0), "취소")
 	cancel.name = "CancelVersionUpdateButton"
 	cancel.pressed.connect(_hide_sheets)
 	_version_sheet.add_child(cancel)
@@ -694,7 +687,7 @@ func _build_sheets() -> void:
 	_offline_sheet_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_offline_sheet_body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_offline_sheet.add_child(_offline_sheet_body)
-	var offline_close := _make_button(Rect2(14.0, 235.0, 296.0, 45.0), "인수인계 확인")
+	var offline_close := _make_button(Rect2(14.0, 232.0, 296.0, 48.0), "인수인계 확인")
 	offline_close.name = "CloseOfflineHandoffButton"
 	offline_close.pressed.connect(_hide_sheets)
 	_offline_sheet.add_child(offline_close)
@@ -710,13 +703,13 @@ func _refresh_offline_strip(offline: Dictionary) -> void:
 		offline.get("absence_seconds", 0)
 	))
 	if pending > 0:
-		_offline_label.text = "☀ 인수인계 +%d BIT · %s" % [
+		_offline_label.text = "☀ 인수인계 +%d비트 · %s" % [
 			pending,
 			_duration_text(elapsed),
 		]
 		_offline_label.add_theme_color_override("font_color", COLOR_GREEN)
 	else:
-		_offline_label.text = "☀ 주간 수입 · 20분마다 1 BIT · 최대 36"
+		_offline_label.text = "☀ 주간 수입 · 20분마다 1비트 · 최대 36"
 		_offline_label.add_theme_color_override("font_color", COLOR_CYAN)
 
 
@@ -791,7 +784,7 @@ func _refresh_operator_detail(row: Dictionary) -> void:
 	var next_hp := int(row.get("next_hp", hp))
 	var next_dps := int(row.get("next_dps", dps))
 	_operator_detail_stats.text = (
-		"HP %d → %d  ·  DPS %d → %d\n강화 수치는 소수점 없이 적용"
+		"체력 %d → %d  ·  초당 공격 %d → %d\n강화 수치는 소수점 없이 적용"
 		% [hp, next_hp, dps, next_dps]
 		if unlocked
 		else "해금 뒤 수치와 강화 비용을 확인할 수 있습니다."
@@ -804,7 +797,7 @@ func _refresh_operator_detail(row: Dictionary) -> void:
 	))
 	_operator_upgrade_button.disabled = not can_upgrade
 	_operator_upgrade_button.text = (
-		"%d BIT · 강화" % cost
+		"%d 비트 · 강화" % cost
 		if unlocked
 		else "요원 잠김"
 	)
@@ -855,7 +848,7 @@ func _refresh_patches() -> void:
 		))
 		var is_new := bool(row.get("new", row.get("is_new", false)))
 		button.text = (
-			("%s%s" % ["NEW · " if is_new else "", name])
+			("%s%s" % ["신규 · " if is_new else "", name])
 			if unlocked
 			else "%s\n[잠김]" % name
 		)
@@ -908,7 +901,7 @@ func _refresh_patch_preview() -> void:
 		_metric_line("예상 침입 수", before, after, ["enemies_leaked", "expected_leaks"], "개"),
 		_text_metric_line("보스 위험", before, after, ["boss_risk", "boss_risk_text"]),
 		_metric_line("비트 배율", before, after, ["bit_multiplier", "reward_multiplier"], "×"),
-		_metric_line("반복 급여", before, after, ["repeat_salary", "expected_salary"], " BIT"),
+		_metric_line("반복 급여", before, after, ["repeat_salary", "expected_salary"], " 비트"),
 	]))
 	var benefit := String(_patch_preview.get(
 		"benefit",
@@ -930,7 +923,7 @@ func _refresh_patch_preview() -> void:
 			and int(_snapshot.get("bits", 0)) >= cost
 	))
 	_patch_equip_button.text = (
-		"%d BIT · 이 슬롯에 교체" % cost
+		"%d 비트 · 이 슬롯에 교체" % cost
 		if cost > 0
 		else "이 슬롯에 장착"
 	)
@@ -994,42 +987,29 @@ func _refresh_report(report: Dictionary) -> void:
 	var rows := report.get("rows", []) as Array
 	var unread := not bool(report.get("read", report.get("is_read", true)))
 	var has_report := not _report_key.is_empty() or not rows.is_empty()
-	_report_badge.visible = has_report and unread
-	_report_title.position.x = 57.0 if _report_badge.visible else 10.0
-	_report_title.size.x = 264.0 if _report_badge.visible else 311.0
-	_report_title.text = (
-		String(report.get("title", "최신 현장 보고서"))
-		if has_report
-		else "현장 보고서 없음"
-	)
+	_report_unread = has_report and unread
 	var report_lines := _report_lines(rows)
-	_report_body.text = (
-		"\n".join(report_lines)
-		if not report_lines.is_empty()
-		else "야간근무 뒤 요원의 사실 보고가 남습니다."
-	)
 	_report_button.disabled = not has_report
-	_report_button.text = (
-		"보고서\n없음"
-		if not has_report
-		else ("새 보고서\n보기" if unread else "보고서\n다시 보기")
-	)
-	_report_panel.add_theme_stylebox_override(
-		"panel",
-		_panel_style(
-			Color("182b39") if unread else COLOR_PANEL,
-			COLOR_YELLOW if unread else COLOR_LINE
+	_report_button.tooltip_text = (
+		"현장 보고서 · 새 보고서가 도착했습니다."
+		if _report_unread
+		else (
+			"현장 보고서 · 눌러서 다시 확인합니다."
+			if has_report
+			else "현장 보고서 · 아직 도착한 보고서가 없습니다."
 		)
 	)
 	_report_sheet_title.text = String(report.get(
 		"title",
-		"현장 보고서 · 사실 확인 후 판단"
+		"현장 보고서 · 무슨 일이 있었나요?"
 	))
+	_report_sheet_title.text = _plain_language(_report_sheet_title.text)
 	_report_sheet_body.text = (
 		"\n\n".join(report_lines)
 		if not report_lines.is_empty()
 		else "표시할 현장 보고서가 없습니다."
 	)
+	_update_report_pulse(0.0)
 
 
 func _refresh_update(unlocks: Dictionary, records: Variant) -> void:
@@ -1044,7 +1024,7 @@ func _refresh_update(unlocks: Dictionary, records: Variant) -> void:
 		COLOR_GREEN if available else COLOR_TEXT
 	)
 	_update_body.text = (
-		"직접 실행하면 새 버전 준비금 30 BIT로 시작합니다.\n초기화·보존 항목을 먼저 확인합니다."
+		"직접 실행하면 새 버전 준비금 30비트로 시작합니다.\n초기화·보존 항목을 먼저 확인합니다."
 		if available
 		else "2차 야간근무 ★★★ 필요\n현재 ★%d / 3\n전투 중 자동 실행되지 않습니다."
 			% _shift_record_best_stars(records, 2)
@@ -1065,7 +1045,7 @@ func _refresh_legacy() -> void:
 	var notes := int(_snapshot.get("patch_notes", 0))
 	var cost := int(_snapshot.get("legacy_cache_cost", 1))
 	var bonus := float(_snapshot.get("legacy_cache_bonus", 0.0))
-	_legacy_title.text = "레거시 빌드 캐시 · Lv.%d / 1" % level
+	_legacy_title.text = "영구 공격 보너스 · Lv.%d / 1" % level
 	_legacy_body.text = (
 		"활성화 완료 · 다음 버전에도 유지되는 공격 보너스 +%d%%"
 			% roundi(bonus * 100.0)
@@ -1158,9 +1138,10 @@ func _request_patch_equip() -> void:
 
 
 func _open_report_sheet() -> void:
-	if _report_key.is_empty():
+	if _report_button.disabled:
 		return
-	field_report_read_requested.emit(_report_key)
+	if not _report_key.is_empty():
+		field_report_read_requested.emit(_report_key)
 	_show_sheet(_report_sheet)
 
 
@@ -1186,14 +1167,14 @@ func _open_version_sheet() -> void:
 			equipped_count += 1
 	_version_sheet_body.text = (
 		"[초기화]\n"
-		+ "· 보유 %d BIT → 준비금 30 BIT\n" % int(_snapshot.get("bits", 0))
+		+ "· 보유 %d비트 → 준비금 30비트\n" % int(_snapshot.get("bits", 0))
 		+ "· 요원 레벨: %s\n" % (
 			", ".join(operator_levels) if not operator_levels.is_empty() else "기본 레벨"
 		)
 		+ "· 장착 패치 %d개와 이번 버전 근무 기록\n\n" % equipped_count
 		+ "[보존]\n"
 		+ "· 발견한 요원·패치와 열린 슬롯\n"
-		+ "· 패치노트, 회차, 레거시 빌드 캐시\n\n"
+		+ "· 패치노트, 회차, 영구 공격 보너스\n\n"
 		+ "업데이트 보상으로 패치노트 1개를 받습니다."
 	)
 	_show_sheet(_version_sheet)
@@ -1215,6 +1196,41 @@ func _hide_sheets() -> void:
 	_report_sheet.visible = false
 	_version_sheet.visible = false
 	_offline_sheet.visible = false
+
+
+func _on_sheet_backdrop_input(event: InputEvent) -> void:
+	if (
+		event is InputEventMouseButton
+		and (event as InputEventMouseButton).pressed
+	) or (
+		event is InputEventScreenTouch
+		and (event as InputEventScreenTouch).pressed
+	):
+		_hide_sheets()
+
+
+func _update_report_pulse(delta_seconds: float) -> void:
+	if _report_button == null:
+		return
+	if not _report_unread:
+		_report_pulse_elapsed = 0.0
+		_report_button.self_modulate = Color.WHITE
+		return
+	if _reduced_motion:
+		_report_button.self_modulate = COLOR_YELLOW
+		return
+	_report_pulse_elapsed = fmod(
+		_report_pulse_elapsed + maxf(0.0, delta_seconds),
+		1.2
+	)
+	var pulse := (
+		sin((_report_pulse_elapsed / 1.2) * TAU - PI * 0.5) * 0.5
+		+ 0.5
+	)
+	_report_button.self_modulate = Color.WHITE.lerp(
+		COLOR_YELLOW,
+		0.25 + pulse * 0.75
+	)
 
 
 func _operator_row(operator_id: StringName) -> Dictionary:
@@ -1342,7 +1358,7 @@ func _metric_text(value: String) -> String:
 		"timeout":
 			return "시간초과"
 		"process_down":
-			return "전원 DOWN"
+			return "전원 쓰러짐"
 		"server_breach":
 			return "서버 침입"
 		"unknown":
@@ -1362,13 +1378,24 @@ func _report_lines(rows: Array) -> PackedStringArray:
 			var message := String(row.get("message", row.get("text", "")))
 			if message.is_empty():
 				message = String(row.get("summary", ""))
+			message = _plain_language(message)
 			result.append(
 				("%s · %s" % [speaker, message]) if not speaker.is_empty() else message
 			)
 		else:
-			result.append(String(value))
+			result.append(_plain_language(String(value)))
 		if result.size() >= 2:
 			break
+	return result
+
+
+func _plain_language(source: String) -> String:
+	var result := source.replace("보스 프로세스", "보스")
+	result = result.replace("프로세스 다운", "쓰러짐")
+	result = result.replace("WATCHDOG", "보스")
+	result = result.replace("DOWN", "쓰러짐")
+	result = result.replace("코어", "서버")
+	result = result.replace("BIT", "비트")
 	return result
 
 
