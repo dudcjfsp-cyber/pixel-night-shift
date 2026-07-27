@@ -137,6 +137,8 @@ var _field_report_read_key := ""
 var _field_report_rows: Array = []
 var _field_report_is_v2 := false
 var _product_night_paused := false
+var _product_night_overlay_paused := false
+var _product_night_resume_guard := false
 var _product_refresh_left := 0.0
 
 
@@ -328,10 +330,14 @@ func _process_product(delta_seconds: float) -> void:
 		return
 	var before_snapshot: Dictionary = _session.snapshot()
 	var phase_name := String(before_snapshot.get("phase_name", ""))
+	var skip_resume_tick := _product_night_resume_guard
+	_product_night_resume_guard = false
 	if (
 		phase_name == "night_active"
 		and _overlay_id == OVERLAY_NONE
 		and not _product_night_paused
+		and not _product_night_overlay_paused
+		and not skip_resume_tick
 	):
 		var before_state: Dictionary = _session.export_state()
 		if not _session.tick(_product_tick_delta(before_snapshot, delta_seconds)):
@@ -860,12 +866,21 @@ func _show_overlay(overlay_id: StringName, view: Control) -> void:
 	assert(view != null, "Overlay view cannot be null.")
 	_replace_host_child(_overlay_host, view)
 	_overlay_id = overlay_id
+	if _screen_id == SCREEN_NIGHT_ACTIVE:
+		_product_night_overlay_paused = true
 
 
 func _close_overlay() -> void:
+	var resumes_product_night := (
+		_product_night_overlay_paused
+		and _screen_id == SCREEN_NIGHT_ACTIVE
+	)
 	if _overlay_host != null:
 		_clear_host(_overlay_host)
 	_overlay_id = OVERLAY_NONE
+	_product_night_overlay_paused = false
+	if resumes_product_night:
+		_product_night_resume_guard = true
 
 
 func _replace_host_child(host: Control, child: Control) -> void:

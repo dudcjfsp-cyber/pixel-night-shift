@@ -197,6 +197,29 @@ func _test_exact_phase_resume() -> void:
 		"NIGHT must not gain offline progress"
 	)
 	_check_settings_target(night_app, "NIGHT resume")
+	_emit_button(night_app, "SettingsButton")
+	await _wait_frames(2)
+	var night_settings_snapshot := night_app.session_snapshot()
+	night_app.call("_process_product", 2.0)
+	_check(
+		_variants_match_approximately(
+			night_app.session_snapshot(),
+			night_settings_snapshot
+		),
+		"NIGHT settings overlay must freeze the session"
+	)
+	_check(
+		not night_app.handle_back_request(),
+		"Back must close NIGHT settings before leaving"
+	)
+	night_app.call("_process_product", 2.0)
+	_check(
+		_variants_match_approximately(
+			night_app.session_snapshot(),
+			night_settings_snapshot
+		),
+		"NIGHT settings close must discard the resume frame delta"
+	)
 	await _unmount(night_app)
 
 	var result_session: Variant = PRODUCT_SESSION_SCRIPT.new()
