@@ -31,6 +31,8 @@ var _save_status_label: Label
 var _reset_panel: PanelContainer
 var _normal_actions: VBoxContainer
 var _toggle_buttons: Dictionary = {}
+var _volume_sliders: Dictionary = {}
+var _volume_value_labels: Dictionary = {}
 var _manual_button: Button
 var _manual_available := true
 
@@ -256,11 +258,13 @@ func _add_volume_row(parent: VBoxContainer, caption: String, key: String, change
 	slider.custom_minimum_size = Vector2(104.0, UI.TOUCH_MIN)
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(slider)
+	_volume_sliders[key] = slider
 	var value_label: Label = UI.make_label("0%", UI.BODY_SIZE, UI.COLOR_INFO)
 	value_label.name = "%sValue" % key.to_pascal_case()
 	value_label.custom_minimum_size.x = 42.0
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(value_label)
+	_volume_value_labels[key] = value_label
 	slider.value_changed.connect(func(value: float) -> void:
 		var rounded := int(round(value))
 		_settings[key] = rounded
@@ -291,18 +295,14 @@ func _add_toggle_row(parent: VBoxContainer, caption: String, key: String, change
 
 
 func _render() -> void:
-	var music_slider := get_node_or_null("%MusicVolumePercentSlider") as HSlider
-	var sfx_slider := get_node_or_null("%SfxVolumePercentSlider") as HSlider
-	if music_slider != null:
-		music_slider.set_value_no_signal(float(_settings["music_volume_percent"]))
-	if sfx_slider != null:
-		sfx_slider.set_value_no_signal(float(_settings["sfx_volume_percent"]))
-	var music_value := find_child("MusicVolumePercentValue", true, false) as Label
-	var sfx_value := find_child("SfxVolumePercentValue", true, false) as Label
-	if music_value != null:
-		music_value.text = "%d%%" % int(_settings["music_volume_percent"])
-	if sfx_value != null:
-		sfx_value.text = "%d%%" % int(_settings["sfx_volume_percent"])
+	for key: String in ["music_volume_percent", "sfx_volume_percent"]:
+		var slider := _volume_sliders.get(key) as HSlider
+		var value_label := _volume_value_labels.get(key) as Label
+		var percent := int(_settings[key])
+		if slider != null:
+			slider.set_value_no_signal(float(percent))
+		if value_label != null:
+			value_label.text = "%d%%" % percent
 	for key: String in _toggle_buttons:
 		_render_toggle(key)
 	if _toggle_buttons.has("vibration_enabled"):
