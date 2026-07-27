@@ -146,7 +146,9 @@ func _test_schema_3_roundtrip() -> void:
 			"schema 3 restore must preserve 1x DAY playback exactly"
 		)
 	_check(repository.clear_records() == OK, "roundtrip records must be removed")
+	_check_result_json_roundtrip()
 	_check_playback_authority()
+	_check_fresh_day_meta_roundtrip()
 
 
 func _check_preserved(result: Variant, source_schema: int, label: String) -> void:
@@ -279,6 +281,89 @@ func _check_playback_authority() -> void:
 	)
 
 
+func _check_fresh_day_meta_roundtrip() -> void:
+	var legacy := _legacy_schema_2_fixture()
+	legacy["patch_notes"] = 2
+	legacy["legacy_cache_level"] = 0
+	var migrated := ProductV2SaveMigrator.migrate(2, legacy, SAVED_AT)
+	_check(migrated.is_valid(), "fresh DAY meta fixture must migrate")
+	if not migrated.is_valid():
+		return
+	var session: Variant = migrated.candidate
+	_check(
+		session.upgrade_operator(&"debugger"),
+		"fresh DAY operator upgrade must succeed"
+	)
+	_check(
+		session.equip_patch(0, &"frame_skip"),
+		"fresh DAY patch equip must succeed"
+	)
+	_check(
+		session.buy_legacy_cache(),
+		"fresh DAY legacy-cache purchase must succeed"
+	)
+	var exported := session.export_state() as Dictionary
+	var restored := ProductLoopSession.new()
+	var errors: PackedStringArray = restored.restore_state(exported)
+	_check(
+		errors.is_empty() and restored.export_state() == exported,
+		"fresh DAY meta mutations must keep the exported Lab loadout self-restorable"
+	)
+
+
+func _check_result_json_roundtrip() -> void:
+	var catalog: Variant = _one_star_result_catalog()
+	var session := ProductLoopSession.new(catalog, &"first_two")
+	_check(session.start_shift(1), "RESULT JSON fixture NIGHT must start")
+	_check(session.tick(300.0), "RESULT JSON fixture NIGHT must settle")
+	var source_result := (
+		session.snapshot().get("result", {}) as Dictionary
+	)
+	_check(
+		source_result.get("new_reward_stars", []) == [1],
+		"RESULT JSON fixture must earn exactly the first star tier"
+	)
+
+	var repository := SaveRepository.new(TEST_ROOT)
+	_check(repository.clear_records() == OK, "RESULT JSON fixture cleanup must succeed")
+	_check(
+		repository.save(session.export_state(), SAVED_AT, 0) == OK,
+		"RESULT session must save through schema 3 JSON"
+	)
+	var loaded := repository.load()
+	var restored := ProductV2SaveMigrator.migrate(
+		loaded.schema_version,
+		loaded.session_data,
+		loaded.saved_at_unix,
+		catalog
+	)
+	_check(
+		restored.is_valid(),
+		"JSON-loaded RESULT session must restore: %s"
+		% "; ".join(restored.errors)
+	)
+	if restored.is_valid():
+		var restored_result := (
+			restored.candidate.snapshot().get("result", {}) as Dictionary
+		)
+		var reward_stars := (
+			restored_result.get("new_reward_stars", []) as Array
+		)
+		var unlock_slots := (
+			(restored_result.get("new_unlocks", {}) as Dictionary).get(
+				"patch_slots", []
+			) as Array
+		)
+		_check(
+			reward_stars == [1]
+			and typeof(reward_stars[0]) == TYPE_INT
+			and not unlock_slots.is_empty()
+			and typeof(unlock_slots[0]) == TYPE_INT,
+			"RESULT numeric arrays must canonicalize JSON numbers to integers"
+		)
+	_check(repository.clear_records() == OK, "RESULT JSON records must be removed")
+
+
 func _easy_catalog() -> Variant:
 	var load_result: Variant = ProductV2Loader.load_default()
 	_check(load_result.is_valid(), "playback fixture content must load")
@@ -296,6 +381,16 @@ func _easy_catalog() -> Variant:
 		shift.boss.rollback_fraction = 0.01
 		shift.boss.debuff_start_seconds = 30.0
 		shift.boss.debuff_multiplier = 1.0
+	return catalog
+
+
+func _one_star_result_catalog() -> Variant:
+	var catalog: Variant = _easy_catalog()
+	for shift: Variant in catalog.shifts:
+		for wave_index: int in range(shift.waves.size()):
+			shift.waves[wave_index].hp_multiplier = (
+				1.0 if wave_index < 3 else 1_000_000.0
+			)
 	return catalog
 
 

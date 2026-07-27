@@ -68,6 +68,9 @@ func _exit_tree() -> void:
 
 
 func sync_snapshot(previous: Dictionary, current: Dictionary) -> void:
+	if _is_product_snapshot(current):
+		_sync_product_snapshot(previous, current)
+		return
 	if not _validate_snapshot(current, "current"):
 		return
 	if not _playback_available:
@@ -107,6 +110,95 @@ func sync_snapshot(previous: Dictionary, current: Dictionary) -> void:
 	var boss_event_cue := _latest_hybrid_boss_event_cue(previous, current)
 	if not boss_event_cue.is_empty():
 		play_cue(boss_event_cue)
+
+
+func _sync_product_snapshot(previous: Dictionary, current: Dictionary) -> void:
+	if not _validate_product_snapshot(current, "current"):
+		return
+	if not _playback_available:
+		return
+	_ensure_players()
+
+	var current_phase := String(current.get("phase_name", ""))
+	var current_night := current.get("night", {}) as Dictionary
+	var current_night_phase := String(current_night.get("phase_name", ""))
+	var music_key: StringName = &"maintenance"
+	if current_phase == "night_active":
+		music_key = (
+			&"watchdog"
+			if current_night_phase in ["boss_warning", "boss_active"]
+			else &"night"
+		)
+	_set_music(music_key)
+	if previous.is_empty() or not _is_product_snapshot(previous):
+		return
+	if not _validate_product_snapshot(previous, "previous"):
+		return
+
+	var previous_phase := String(previous.get("phase_name", ""))
+	var previous_night := previous.get("night", {}) as Dictionary
+	var previous_night_phase := String(previous_night.get("phase_name", ""))
+	if (
+		current_phase == "night_active"
+		and current_night_phase in ["boss_warning", "boss_active"]
+		and previous_night_phase not in ["boss_warning", "boss_active"]
+	):
+		play_cue(&"boss_warning")
+	elif previous_phase == "night_active" and current_phase == "shift_result":
+		var result := current.get("result", {}) as Dictionary
+		play_cue(&"stage_clear" if bool(result.get("success", false)) else &"ui_error")
+	elif previous_phase == "shift_result" and current_phase == "day_prep":
+		play_cue(&"maintenance_enter")
+
+	var previous_unlocks := previous.get("unlocks", {}) as Dictionary
+	var current_unlocks := current.get("unlocks", {}) as Dictionary
+	if (
+		bool(current_unlocks.get("version_update_available", false))
+		and not bool(previous_unlocks.get("version_update_available", false))
+	):
+		play_cue(&"update_ready")
+
+
+func _is_product_snapshot(snapshot: Dictionary) -> bool:
+	return String(snapshot.get("prototype", "")) == "product_v2_product_loop"
+
+
+func _validate_product_snapshot(snapshot: Dictionary, label: String) -> bool:
+	var phase_name := String(snapshot.get("phase_name", ""))
+	if phase_name not in ["day_prep", "night_active", "shift_result"]:
+		push_error(
+			"AudioDirector %s Product V2 snapshot has invalid phase_name."
+			% label
+		)
+		return false
+	if phase_name == "night_active":
+		if not (snapshot.get("night", {}) is Dictionary):
+			push_error(
+				"AudioDirector %s Product V2 snapshot night must be a Dictionary."
+				% label
+			)
+			return false
+		var night := snapshot.get("night", {}) as Dictionary
+		if String(night.get("phase_name", "")).is_empty():
+			push_error(
+				"AudioDirector %s Product V2 night phase is missing."
+				% label
+			)
+			return false
+	if not (snapshot.get("result", {}) is Dictionary):
+		push_error(
+			"AudioDirector %s Product V2 result must be a Dictionary."
+			% label
+		)
+		return false
+	if not (snapshot.get("unlocks", {}) is Dictionary):
+		push_error(
+			"AudioDirector %s Product V2 unlocks must be a Dictionary."
+			% label
+		)
+		return false
+	return true
+
 
 func play_cue(cue: StringName) -> void:
 	if not _sfx_enabled or not _playback_available:

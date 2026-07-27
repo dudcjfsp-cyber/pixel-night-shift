@@ -8,6 +8,21 @@ const KOREAN_FALLBACK_FONT: Font = preload(
 const POLICY: GDScript = preload("res://game/app/app_policy.gd")
 const MAIN_VIEW_SCRIPT: GDScript = preload("res://game/presentation/main_view.gd")
 const MAIN_VIEW_SCENE: PackedScene = preload("res://game/presentation/main.tscn")
+const PRODUCT_LOOP_SESSION_SCRIPT: GDScript = preload(
+	"res://game/app/product_v2/product_loop_session.gd"
+)
+const PRODUCT_V2_SAVE_MIGRATOR_SCRIPT: GDScript = preload(
+	"res://game/app/product_v2/product_v2_save_migrator.gd"
+)
+const PRODUCT_DAY_SCENE: PackedScene = preload(
+	"res://game/presentation/product_v2/day_prep_view.tscn"
+)
+const PRODUCT_NIGHT_SCENE: PackedScene = preload(
+	"res://game/presentation/product_v2/night_shift_view.tscn"
+)
+const PRODUCT_RESULT_SCENE: PackedScene = preload(
+	"res://game/presentation/product_v2/shift_result_view.tscn"
+)
 const BOOT_SCENE: PackedScene = preload(
 	"res://game/presentation/app_shell/views/boot_view.tscn"
 )
@@ -60,6 +75,9 @@ const SCREEN_OPERATIONS_ROOM: StringName = &"operations_room"
 const SCREEN_GAMEPLAY: StringName = &"gameplay"
 const SCREEN_SAVE_RECOVERY: StringName = &"save_recovery"
 const SCREEN_COMBAT_V2_RESULT: StringName = &"combat_v2_result"
+const SCREEN_DAY_PREP: StringName = &"day_prep"
+const SCREEN_NIGHT_ACTIVE: StringName = &"night_active"
+const SCREEN_SHIFT_RESULT: StringName = &"shift_result"
 
 const OVERLAY_NONE: StringName = &"none"
 const OVERLAY_OFFLINE_REPORT: StringName = &"offline_report"
@@ -70,6 +88,7 @@ const OVERLAY_ONBOARDING: StringName = &"onboarding"
 
 const AUDIO_REFRESH_SECONDS := 0.12
 const OPERATIONS_REFRESH_SECONDS := 0.25
+const PRODUCT_VIEW_REFRESH_SECONDS := 0.05
 
 var _save_repository: SaveRepository
 var _combat_v2_save_repository: CombatV2TestSaveRepository
@@ -88,6 +107,9 @@ var _overlay_host: Control
 var _screen_id: StringName = SCREEN_NONE
 var _overlay_id: StringName = OVERLAY_NONE
 var _gameplay_view: MAIN_VIEW_SCRIPT
+var _product_day_view: DayPrepView
+var _product_night_view: DefenseLabView
+var _product_result_view: ShiftResultView
 var _recovery_result: SaveLoadResult
 
 var _started := false
@@ -114,6 +136,8 @@ var _field_report_key := ""
 var _field_report_read_key := ""
 var _field_report_rows: Array = []
 var _field_report_is_v2 := false
+var _product_night_paused := false
+var _product_refresh_left := 0.0
 
 
 func configure_services(
@@ -197,6 +221,13 @@ func handle_back_request() -> bool:
 	if _screen_id == SCREEN_PROLOGUE:
 		_show_title(_title_has_saved_shift)
 		return false
+	if _screen_id in [
+		SCREEN_DAY_PREP,
+		SCREEN_NIGHT_ACTIVE,
+		SCREEN_SHIFT_RESULT,
+	]:
+		_save_progress("앱 이탈", false)
+		return true
 	if _screen_id in [SCREEN_GAMEPLAY, SCREEN_COMBAT_V2_RESULT]:
 		_show_operations_room()
 		_save_progress("현장에서 운영실로 이동")
@@ -227,7 +258,7 @@ func handle_application_resumed() -> void:
 			_save_status = "Combat V2 오프라인 진행 미지원 · 상태 보존"
 			_refresh_save_status_views()
 		else:
-			_apply_offline_progress(_background_started_at_unix)
+			_apply_product_offline_progress(_background_started_at_unix)
 
 
 func apply_safe_area(safe_rect: Rect2i, window_size: Vector2i) -> void:
@@ -269,6 +300,9 @@ func _install_ui_theme() -> void:
 func _process(delta_seconds: float) -> void:
 	if not _started or _backgrounded or _session == null:
 		return
+	if not _combat_v2_test_mode:
+		_process_product(delta_seconds)
+		return
 	_session.tick(delta_seconds)
 	if _combat_v2_test_mode and _screen_id == SCREEN_GAMEPLAY and _session.is_complete():
 		_save_progress("Combat V2 테스트 완료", false)
@@ -286,6 +320,66 @@ func _process(delta_seconds: float) -> void:
 	if _save_elapsed >= POLICY.PERIODIC_SAVE_SECONDS:
 		_save_elapsed = 0.0
 		_save_progress("주기 저장")
+
+
+func _process_product(delta_seconds: float) -> void:
+	if not is_finite(delta_seconds) or delta_seconds < 0.0:
+		push_error("Product V2 frame delta must be a non-negative finite value.")
+		return
+	var before_snapshot: Dictionary = _session.snapshot()
+	var phase_name := String(before_snapshot.get("phase_name", ""))
+	if (
+		phase_name == "night_active"
+		and _overlay_id == OVERLAY_NONE
+		and not _product_night_paused
+	):
+		var before_state: Dictionary = _session.export_state()
+		if not _session.tick(_product_tick_delta(before_snapshot, delta_seconds)):
+			_report_product_error("야간근무 진행이 거부되었습니다.")
+			_product_night_paused = true
+		else:
+			var after_snapshot: Dictionary = _session.snapshot()
+			if String(after_snapshot.get("phase_name", "")) != phase_name:
+				if _save_progress("근무 결과 확정", false) != OK:
+					if not _restore_product_state(before_state, "근무 결과 저장 실패"):
+						return
+					_product_night_paused = true
+					_refresh_product_surface()
+					return
+				_product_night_paused = false
+				_show_product_surface()
+				_sync_audio()
+				return
+
+	_product_refresh_left -= delta_seconds
+	_save_elapsed += delta_seconds
+	_audio_refresh_left -= delta_seconds
+	if _product_refresh_left <= 0.0:
+		_product_refresh_left = PRODUCT_VIEW_REFRESH_SECONDS
+		_refresh_product_surface()
+	if _audio_refresh_left <= 0.0:
+		_audio_refresh_left = AUDIO_REFRESH_SECONDS
+		_sync_audio()
+	if _save_elapsed < POLICY.PERIODIC_SAVE_SECONDS:
+		return
+	_save_elapsed = 0.0
+	if phase_name == "day_prep":
+		_account_product_day_income(false)
+	else:
+		_save_progress("주기 저장")
+
+
+func _product_tick_delta(snapshot: Dictionary, delta_seconds: float) -> float:
+	var playback_speed := clampi(int(snapshot.get("playback_speed", 1)), 1, 2)
+	if playback_speed == 1:
+		return delta_seconds
+	var night := snapshot.get("night", {}) as Dictionary
+	var night_phase := String(night.get("phase_name", ""))
+	return (
+		delta_seconds * float(playback_speed)
+		if night_phase in ["normal_active", "boss_active"]
+		else delta_seconds
+	)
 
 
 func _notification(what: int) -> void:
@@ -397,7 +491,7 @@ func _restore_primary(load_result: SaveLoadResult) -> void:
 		_show_save_recovery()
 		return
 
-	if not _persist_schema_2_migration(candidate, load_result):
+	if not _persist_schema_migration(candidate, load_result):
 		return
 	_session = null
 	_pending_session = candidate
@@ -411,24 +505,45 @@ func _restore_candidate(
 	candidate: Variant,
 	load_result: SaveLoadResult
 ) -> PackedStringArray:
-	if (
-		not _combat_v2_test_mode
-		and load_result.schema_version == SaveRepository.LEGACY_SCHEMA_VERSION
-	):
+	if not _combat_v2_test_mode:
+		return _restore_product_candidate(candidate, load_result)
+	if load_result.schema_version == SaveRepository.LEGACY_SCHEMA_VERSION:
 		return candidate.restore_schema1_state(load_result.session_data)
 	return candidate.restore_state(load_result.session_data)
 
 
-func _persist_schema_2_migration(
+func _restore_product_candidate(
+	candidate: Variant,
+	load_result: SaveLoadResult
+) -> PackedStringArray:
+	var migration_result: Variant = PRODUCT_V2_SAVE_MIGRATOR_SCRIPT.migrate(
+		load_result.schema_version,
+		load_result.session_data,
+		load_result.saved_at_unix
+	)
+	if not migration_result.errors.is_empty():
+		return migration_result.errors
+	if not migration_result.is_valid():
+		return PackedStringArray([
+			"Product V2 migration did not produce a validated session.",
+		])
+	return candidate.restore_state(migration_result.session_data)
+
+
+func _persist_schema_migration(
 	candidate: Variant,
 	load_result: SaveLoadResult
 ) -> bool:
-	if (
-		_combat_v2_test_mode
-		or load_result.schema_version != SaveRepository.LEGACY_SCHEMA_VERSION
-	):
+	var requires_migration := (
+		load_result.schema_version != SaveRepository.CURRENT_SCHEMA_VERSION
+	)
+	if _combat_v2_test_mode:
+		requires_migration = (
+			load_result.schema_version == SaveRepository.LEGACY_SCHEMA_VERSION
+		)
+	if not requires_migration:
 		return true
-	var save_error: Error = _save_repository.save(
+	var save_error: Error = _active_save_repository().save(
 		candidate.export_state(),
 		load_result.saved_at_unix,
 		load_result.last_gameplay_tab
@@ -450,7 +565,10 @@ func _show_migration_failure(
 	failure.last_gameplay_tab = load_result.last_gameplay_tab
 	failure.source_path = load_result.source_path
 	failure.errors = load_result.errors.duplicate()
-	failure.errors.append("Schema 1 migration save failed with error %d." % save_error)
+	failure.errors.append(
+		"Schema %d migration save failed with error %d."
+		% [load_result.schema_version, save_error]
+	)
 	_recovery_result = failure
 	_session = null
 	_pending_session = null
@@ -501,6 +619,9 @@ func _show_prologue(step: int = 0, replay: bool = false) -> void:
 
 
 func _show_operations_room() -> void:
+	if not _combat_v2_test_mode:
+		_show_product_surface()
+		return
 	_close_overlay()
 	var view := OPERATIONS_ROOM_SCENE.instantiate() as AppShellOperationsRoomView
 	assert(view != null, "Operations scene must instantiate as AppShellOperationsRoomView.")
@@ -514,6 +635,9 @@ func _show_operations_room() -> void:
 func _show_gameplay() -> void:
 	if _session == null:
 		push_error("Gameplay cannot open without an active GameSession.")
+		return
+	if not _combat_v2_test_mode:
+		_show_product_surface()
 		return
 	if _combat_v2_test_mode and _session.is_complete():
 		_show_combat_v2_result()
@@ -546,6 +670,112 @@ func _show_gameplay() -> void:
 	view.field_report_read.connect(_on_field_report_read)
 	_gameplay_view = view
 	_set_screen(SCREEN_GAMEPLAY, view)
+
+
+func _show_product_surface() -> void:
+	if _session == null:
+		push_error("Product V2 surface cannot open without an active session.")
+		return
+	_close_overlay()
+	var snapshot: Dictionary = _session.snapshot()
+	match String(snapshot.get("phase_name", "")):
+		"day_prep":
+			_show_product_day(snapshot)
+		"night_active":
+			_show_product_night(snapshot)
+		"shift_result":
+			_show_product_result(snapshot)
+		_:
+			_show_save_recovery_for_runtime_error(
+				"알 수 없는 Product V2 화면 상태입니다."
+			)
+
+
+func _show_product_day(snapshot: Dictionary) -> void:
+	var view := PRODUCT_DAY_SCENE.instantiate() as DayPrepView
+	assert(view != null, "Product V2 day scene must instantiate as DayPrepView.")
+	view.start_shift_requested.connect(_on_product_start_shift)
+	view.field_report_read_requested.connect(_on_product_report_read)
+	view.upgrade_operator_requested.connect(_on_product_upgrade_operator)
+	view.patch_preview_requested.connect(_on_product_patch_preview)
+	view.patch_equip_requested.connect(_on_product_equip_patch)
+	view.version_update_requested.connect(_on_product_version_update)
+	view.legacy_cache_purchase_requested.connect(_on_product_buy_legacy_cache)
+	view.settings_requested.connect(_show_settings)
+	_set_screen(SCREEN_DAY_PREP, view)
+	_product_day_view = view
+	view.refresh(snapshot)
+	_product_refresh_left = PRODUCT_VIEW_REFRESH_SECONDS
+
+
+func _show_product_night(snapshot: Dictionary) -> void:
+	var view := PRODUCT_NIGHT_SCENE.instantiate() as DefenseLabView
+	assert(view != null, "Product V2 night scene must instantiate as DefenseLabView.")
+	var shift_index := int(snapshot.get("active_shift_index", 1))
+	var speed_unlocked := _is_product_double_speed_unlocked(
+		snapshot,
+		shift_index
+	)
+	view.pause_requested.connect(_on_product_pause)
+	view.speed_requested.connect(_on_product_speed)
+	view.settings_requested.connect(_show_settings)
+	_set_screen(SCREEN_NIGHT_ACTIVE, view)
+	_product_night_view = view
+	view.set_product_mode(true, speed_unlocked)
+	view.refresh(snapshot.get("night", {}) as Dictionary)
+	view.configure(
+		_product_night_paused,
+		float(snapshot.get("playback_speed", 1)),
+		&"first_two",
+		shift_index,
+		_save_status
+	)
+	_product_refresh_left = PRODUCT_VIEW_REFRESH_SECONDS
+
+
+func _show_product_result(snapshot: Dictionary) -> void:
+	var view := PRODUCT_RESULT_SCENE.instantiate() as ShiftResultView
+	assert(view != null, "Product V2 result scene must instantiate as ShiftResultView.")
+	view.continue_to_day_requested.connect(_on_product_continue_to_day)
+	view.settings_requested.connect(_show_settings)
+	_set_screen(SCREEN_SHIFT_RESULT, view)
+	_product_result_view = view
+	view.refresh(snapshot)
+	_product_refresh_left = PRODUCT_VIEW_REFRESH_SECONDS
+
+
+func _refresh_product_surface() -> void:
+	if _session == null or _combat_v2_test_mode:
+		return
+	var snapshot: Dictionary = _session.snapshot()
+	var phase_name := StringName(String(snapshot.get("phase_name", "")))
+	if phase_name != _screen_id:
+		_show_product_surface()
+		return
+	match _screen_id:
+		SCREEN_DAY_PREP:
+			if _product_day_view != null:
+				_product_day_view.refresh(snapshot)
+		SCREEN_NIGHT_ACTIVE:
+			if _product_night_view != null:
+				var shift_index := int(snapshot.get("active_shift_index", 1))
+				_product_night_view.set_product_mode(
+					true,
+					_is_product_double_speed_unlocked(snapshot, shift_index)
+				)
+				_product_night_view.refresh(
+					snapshot.get("night", {}) as Dictionary
+				)
+				_product_night_view.configure(
+					_product_night_paused,
+					float(snapshot.get("playback_speed", 1)),
+					&"first_two",
+					shift_index,
+					_save_status
+				)
+		SCREEN_SHIFT_RESULT:
+			if _product_result_view != null:
+				_product_result_view.refresh(snapshot)
 
 
 func _show_combat_v2_result() -> void:
@@ -615,6 +845,12 @@ func _set_screen(screen_id: StringName, view: Control) -> void:
 	_screen_id = screen_id
 	if screen_id != SCREEN_GAMEPLAY:
 		_gameplay_view = null
+	if screen_id != SCREEN_DAY_PREP:
+		_product_day_view = null
+	if screen_id != SCREEN_NIGHT_ACTIVE:
+		_product_night_view = null
+	if screen_id != SCREEN_SHIFT_RESULT:
+		_product_result_view = null
 
 
 func _show_overlay(overlay_id: StringName, view: Control) -> void:
@@ -650,7 +886,7 @@ func _show_settings() -> void:
 		_save_has_error or _settings_has_error,
 		_is_vibration_supported()
 	)
-	view.set_manual_available(_session != null)
+	view.set_manual_available(_session != null and _combat_v2_test_mode)
 	view.close_requested.connect(_close_overlay)
 	view.music_volume_changed.connect(_on_music_volume_changed)
 	view.sfx_volume_changed.connect(_on_sfx_volume_changed)
@@ -760,7 +996,7 @@ func _on_title_continue_requested() -> void:
 		_save_status = "Combat V2 테스트 저장 복구됨 · 오프라인 진행 미지원"
 		_refresh_save_status_views()
 	else:
-		_apply_offline_progress(offline_baseline)
+		_apply_product_offline_progress(offline_baseline)
 	_audio_snapshot = {}
 	_sync_audio()
 
@@ -792,6 +1028,8 @@ func _finish_prologue() -> void:
 
 func _on_first_shift_requested() -> void:
 	var candidate: Variant = _make_session()
+	if not _combat_v2_test_mode:
+		candidate.account_day_income(_now_unix())
 	_reset_field_report_state()
 	_session = candidate
 	_pending_session = null
@@ -809,8 +1047,6 @@ func _on_first_shift_requested() -> void:
 		_show_operations_room()
 	else:
 		_show_gameplay()
-	if not _combat_v2_test_mode and not _settings.onboarding_completed:
-		_show_onboarding(0)
 
 
 func _on_gameplay_operations_requested() -> void:
@@ -821,6 +1057,159 @@ func _on_gameplay_operations_requested() -> void:
 
 func _on_session_changed() -> void:
 	_save_progress("현장 상태 변경")
+
+
+func _on_product_start_shift(shift_index: int) -> void:
+	if _execute_product_command(
+		func() -> bool: return _session.start_shift(shift_index),
+		"야간근무 시작"
+	):
+		_product_night_paused = false
+		_audio_director.play_cue(&"shift_authorized")
+
+
+func _on_product_upgrade_operator(operator_id: StringName) -> void:
+	if _execute_product_command(
+		func() -> bool: return _session.upgrade_operator(operator_id),
+		"요원 강화"
+	):
+		_audio_director.play_cue(&"operator_upgrade")
+
+
+func _on_product_patch_preview(
+	slot_index: int,
+	patch_id: StringName
+) -> void:
+	if _session == null or _product_day_view == null:
+		return
+	_product_day_view.set_patch_preview(
+		_session.get_patch_preview(slot_index, patch_id)
+	)
+
+
+func _on_product_equip_patch(
+	slot_index: int,
+	patch_id: StringName
+) -> void:
+	if _execute_product_command(
+		func() -> bool: return _session.equip_patch(slot_index, patch_id),
+		"패치 교체"
+	):
+		_audio_director.play_cue(&"patch_apply")
+		if _product_day_view != null:
+			_product_day_view.set_patch_preview(
+				_session.get_patch_preview(slot_index, patch_id)
+			)
+
+
+func _on_product_report_read(report_key: String) -> void:
+	_execute_product_command(
+		func() -> bool: return _session.mark_report_read(report_key),
+		"현장 보고서 확인"
+	)
+
+
+func _on_product_version_update() -> void:
+	if _execute_product_command(
+		func() -> bool: return _session.version_update(_now_unix()),
+		"버전 업데이트"
+	):
+		_audio_director.play_cue(&"version_update")
+
+
+func _on_product_buy_legacy_cache() -> void:
+	_execute_product_command(
+		func() -> bool: return _session.buy_legacy_cache(),
+		"레거시 빌드 캐시"
+	)
+
+
+func _on_product_continue_to_day() -> void:
+	if _execute_product_command(
+		func() -> bool: return _session.continue_to_day(_now_unix()),
+		"주간 정비 전환"
+	):
+		_product_night_paused = false
+
+
+func _on_product_pause() -> void:
+	if _screen_id != SCREEN_NIGHT_ACTIVE:
+		return
+	_product_night_paused = not _product_night_paused
+	_refresh_product_surface()
+
+
+func _on_product_speed() -> void:
+	if _session == null or _screen_id != SCREEN_NIGHT_ACTIVE:
+		return
+	var snapshot: Dictionary = _session.snapshot()
+	var current_speed := int(snapshot.get("playback_speed", 1))
+	var next_speed := 2 if current_speed == 1 else 1
+	_execute_product_command(
+		func() -> bool: return _session.set_playback_speed(next_speed),
+		"야간근무 배속"
+	)
+
+
+func _execute_product_command(
+	command: Callable,
+	save_reason: String
+) -> bool:
+	if _session == null or _combat_v2_test_mode:
+		return false
+	var before: Dictionary = _session.export_state()
+	var phase_before := String(_session.snapshot().get("phase_name", ""))
+	if not bool(command.call()):
+		_report_product_error(
+			String(_session.snapshot().get("last_error", "%s 실패" % save_reason))
+		)
+		_refresh_product_surface()
+		return false
+	if _save_progress(save_reason, false) != OK:
+		_restore_product_state(before, "%s 저장 실패" % save_reason)
+		_refresh_product_surface()
+		return false
+	var phase_after := String(_session.snapshot().get("phase_name", ""))
+	if phase_after != phase_before:
+		_show_product_surface()
+	else:
+		_refresh_product_surface()
+	_sync_audio()
+	return true
+
+
+func _restore_product_state(before: Dictionary, context: String) -> bool:
+	var restore_errors: PackedStringArray = _session.restore_state(before)
+	if restore_errors.is_empty():
+		return true
+	push_error("%s: %s" % [context, "; ".join(restore_errors)])
+	_show_save_recovery_for_runtime_error("%s 원복에 실패했습니다." % context)
+	return false
+
+
+func _report_product_error(message: String) -> void:
+	push_error("Product V2 command failed: %s" % message)
+	_save_status = "요청 거부 · %s" % message
+	if _audio_director != null:
+		_audio_director.play_cue(&"ui_error")
+
+
+func _is_product_double_speed_unlocked(
+	snapshot: Dictionary,
+	shift_index: int
+) -> bool:
+	for raw_record: Variant in snapshot.get("shift_records", []) as Array:
+		if (
+			raw_record is Dictionary
+			and int((raw_record as Dictionary).get("shift_index", 0)) == shift_index
+		):
+			return bool(
+				(raw_record as Dictionary).get(
+					"retry_speed_2x_unlocked",
+					false
+				)
+			)
+	return false
 
 
 func _on_active_tab_changed(tab_index: int) -> void:
@@ -871,7 +1260,7 @@ func _on_backup_restore_requested() -> void:
 	if promote_error != OK:
 		_set_recovery_view_error("백업 파일 복구 실패 (오류 %d)" % promote_error)
 		return
-	if not _persist_schema_2_migration(candidate, _recovery_result):
+	if not _persist_schema_migration(candidate, _recovery_result):
 		return
 	_session = candidate
 	_pending_session = null
@@ -880,7 +1269,7 @@ func _on_backup_restore_requested() -> void:
 	_last_saved_at_unix = _recovery_result.saved_at_unix
 	_show_operations_room()
 	if not _combat_v2_test_mode:
-		_apply_offline_progress(_recovery_result.saved_at_unix)
+		_apply_product_offline_progress(_recovery_result.saved_at_unix)
 
 
 func _on_recovery_retry_requested() -> void:
@@ -1146,6 +1535,58 @@ func _make_run_summary_data(before: Dictionary, after: Dictionary) -> Dictionary
 	}
 
 
+func _apply_product_offline_progress(baseline_unix: int) -> void:
+	if _session == null or _combat_v2_test_mode:
+		return
+	var snapshot: Dictionary = _session.snapshot()
+	var phase_name := String(snapshot.get("phase_name", ""))
+	if phase_name != "day_prep":
+		_save_status = (
+			"야간근무는 저장 지점에서 재개됩니다."
+			if phase_name == "night_active"
+			else "근무 결과는 저장된 상태로 유지됩니다."
+		)
+		_refresh_save_status_views()
+		return
+	_account_product_day_income(true, baseline_unix)
+
+
+func _account_product_day_income(
+	show_report: bool,
+	fallback_anchor_unix: int = 0
+) -> bool:
+	if _session == null or _combat_v2_test_mode:
+		return false
+	var snapshot: Dictionary = _session.snapshot()
+	if String(snapshot.get("phase_name", "")) != "day_prep":
+		return false
+	var before: Dictionary = _session.export_state()
+	var now_unix := _now_unix()
+	var offline := snapshot.get("offline", {}) as Dictionary
+	if (
+		int(offline.get("anchor_unix", 0)) == 0
+		and fallback_anchor_unix > 0
+		and fallback_anchor_unix <= now_unix
+	):
+		_session.account_day_income(fallback_anchor_unix)
+	var result: Dictionary = _session.account_day_income(now_unix)
+	if _session.export_state() == before:
+		_refresh_product_surface()
+		return true
+	if _save_progress("주간 방치 수입 반영", false) != OK:
+		_restore_product_state(before, "주간 방치 수입 저장 실패")
+		_refresh_product_surface()
+		return false
+	_refresh_product_surface()
+	if (
+		show_report
+		and int(result.get("awarded_bits", 0)) > 0
+		and _product_day_view != null
+	):
+		_product_day_view.show_offline_handoff(result)
+	return true
+
+
 func _apply_offline_progress(baseline_unix: int) -> void:
 	if _session == null:
 		return
@@ -1247,6 +1688,8 @@ func _save_progress(reason: String, reveal_pending_report: bool = true) -> Error
 func _refresh_save_status_views() -> void:
 	_refresh_operations_room()
 	_refresh_settings_view()
+	if not _combat_v2_test_mode:
+		_refresh_product_surface()
 	if _screen_id == SCREEN_GAMEPLAY and _gameplay_view != null:
 		_gameplay_view.set_save_warning(_save_status if _save_has_error else "")
 
@@ -1262,7 +1705,7 @@ func _capture_gameplay_tab() -> void:
 func _make_session() -> Variant:
 	if _combat_v2_test_mode:
 		return CombatV2IntegrationSession.new()
-	return GameSession.new()
+	return PRODUCT_LOOP_SESSION_SCRIPT.new()
 
 
 func _active_save_repository() -> Variant:
@@ -1423,7 +1866,7 @@ func _refresh_settings_view() -> void:
 			_save_has_error or _settings_has_error,
 			_is_vibration_supported()
 		)
-		view.set_manual_available(_session != null)
+		view.set_manual_available(_session != null and _combat_v2_test_mode)
 
 
 func _is_vibration_supported() -> bool:

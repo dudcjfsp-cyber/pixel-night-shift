@@ -406,17 +406,18 @@ static func _parse_id_array(
 	return result
 
 
-static func _validate_new_unlocks(
+static func _parse_new_unlocks(
 	data: Dictionary,
 	context: String,
 	errors: PackedStringArray
-) -> void:
+) -> Dictionary:
+	var error_count_before := errors.size()
 	_validate_keys(data, NEW_UNLOCK_KEYS, context, errors)
 	for key: String in NEW_UNLOCK_KEYS:
 		if typeof(data.get(key)) != TYPE_ARRAY:
 			errors.append("%s.%s: array is required" % [context, key])
-	if not errors.is_empty():
-		return
+	if errors.size() != error_count_before:
+		return {}
 	_parse_id_array(
 		data["operator_ids"] as Array,
 		"%s.operator_ids" % context,
@@ -432,6 +433,7 @@ static func _validate_new_unlocks(
 		errors
 	)
 	var seen_slots: Dictionary = {}
+	var normalized_slots: Array[int] = []
 	for index: int in (data["patch_slots"] as Array).size():
 		var raw_slot: Variant = (data["patch_slots"] as Array)[index]
 		if not _is_integer(raw_slot):
@@ -447,6 +449,12 @@ static func _validate_new_unlocks(
 			)
 			continue
 		seen_slots[slot] = true
+		normalized_slots.append(slot)
+	if errors.size() != error_count_before:
+		return {}
+	var result := data.duplicate(true)
+	result["patch_slots"] = normalized_slots
+	return result
 
 
 static func _parse_shift_records(
@@ -546,6 +554,7 @@ static func _parse_last_result(
 		and not TERMINAL_REASONS.has(String(data["terminal_reason"]))
 	):
 		errors.append("%s.terminal_reason: unknown terminal reason" % context)
+	var normalized_reward_stars: Array[int] = []
 	if typeof(data.get("new_reward_stars")) != TYPE_ARRAY:
 		errors.append("%s.new_reward_stars: array is required" % context)
 	else:
@@ -565,10 +574,12 @@ static func _parse_last_result(
 					% context
 				)
 			previous = star
+			normalized_reward_stars.append(star)
+	var normalized_new_unlocks: Dictionary = {}
 	if typeof(data.get("new_unlocks")) != TYPE_DICTIONARY:
 		errors.append("%s.new_unlocks: object is required" % context)
 	else:
-		_validate_new_unlocks(
+		normalized_new_unlocks = _parse_new_unlocks(
 			data["new_unlocks"] as Dictionary,
 			"%s.new_unlocks" % context,
 			errors
@@ -577,6 +588,8 @@ static func _parse_last_result(
 	if not errors.is_empty():
 		return {}
 	var restored := data.duplicate(true)
+	restored["new_reward_stars"] = normalized_reward_stars
+	restored["new_unlocks"] = normalized_new_unlocks
 	return restored
 
 

@@ -164,10 +164,7 @@ func upgrade_operator(operator_id: StringName) -> bool:
 	var candidate := _state.deep_clone()
 	candidate.bits -= cost
 	candidate.operator_levels[operator_id] = level + 1
-	_state = candidate
-	_refresh_forecast_cache()
-	_last_error = ""
-	return true
+	return _commit_day_meta_candidate(candidate)
 
 
 func equip_patch(slot_index: int, patch_id: StringName) -> bool:
@@ -187,10 +184,7 @@ func equip_patch(slot_index: int, patch_id: StringName) -> bool:
 	var candidate := _state.deep_clone()
 	candidate.bits -= cost
 	candidate.equipped_patch_ids[slot_index] = patch_id
-	_state = candidate
-	_refresh_forecast_cache()
-	_last_error = ""
-	return true
+	return _commit_day_meta_candidate(candidate)
 
 
 func get_patch_preview(slot_index: int, patch_id: StringName) -> Dictionary:
@@ -264,10 +258,7 @@ func buy_legacy_cache() -> bool:
 	var candidate := _state.deep_clone()
 	candidate.patch_notes -= balance.legacy_cache_cost
 	candidate.legacy_cache_level += 1
-	_state = candidate
-	_refresh_forecast_cache()
-	_last_error = ""
-	return true
+	return _commit_day_meta_candidate(candidate)
 
 
 func mark_report_read(report_key: String) -> bool:
@@ -638,15 +629,60 @@ func _validate_latest_result(
 				% result_key
 			)
 	for key: String in ["boss", "combat_metrics", "down_evidence", "qa_outcome"]:
-		if result.get(key) != night_snapshot.get(key):
+		if not _json_evidence_equal(result.get(key), night_snapshot.get(key)):
 			errors.append(
 				"product_loop.last_result.%s: does not match terminal evidence" % key
 			)
 	var expected_rows := ProductLoopRules.factual_report_rows(night_snapshot)
-	if loop_state.report_rows != expected_rows:
+	if not _json_evidence_equal(loop_state.report_rows, expected_rows):
 		errors.append(
 			"product_loop.report_rows: do not match the terminal factual evidence"
 		)
+
+
+func _json_evidence_equal(left: Variant, right: Variant) -> bool:
+	var left_type := typeof(left)
+	var right_type := typeof(right)
+	if (
+		left_type in [TYPE_INT, TYPE_FLOAT]
+		and right_type in [TYPE_INT, TYPE_FLOAT]
+	):
+		var left_number := float(left)
+		var right_number := float(right)
+		return (
+			is_finite(left_number)
+			and is_finite(right_number)
+			and left_number == right_number
+		)
+	if (
+		left_type in [TYPE_STRING, TYPE_STRING_NAME]
+		and right_type in [TYPE_STRING, TYPE_STRING_NAME]
+	):
+		return String(left) == String(right)
+	if left is Array and right is Array:
+		var left_array := left as Array
+		var right_array := right as Array
+		if left_array.size() != right_array.size():
+			return false
+		for index: int in left_array.size():
+			if not _json_evidence_equal(left_array[index], right_array[index]):
+				return false
+		return true
+	if left is Dictionary and right is Dictionary:
+		var left_dictionary := left as Dictionary
+		var right_dictionary := right as Dictionary
+		if left_dictionary.size() != right_dictionary.size():
+			return false
+		for raw_key: Variant in left_dictionary.keys():
+			if (
+				not right_dictionary.has(raw_key)
+				or not _json_evidence_equal(
+					left_dictionary[raw_key], right_dictionary[raw_key]
+				)
+			):
+				return false
+		return true
+	return left_type == right_type and left == right
 
 
 func _validate_active_loadout(
@@ -700,6 +736,17 @@ func _validate_active_loadout(
 
 func _restart_lab_with_current_loadout(shift_index: int) -> bool:
 	return _restart_lab_with_loadout(_state, shift_index)
+
+
+func _commit_day_meta_candidate(candidate: ProductLoopState) -> bool:
+	if candidate.last_result.is_empty() and not _restart_lab_with_loadout(
+		candidate, 1
+	):
+		return _reject(String(_defense_lab.snapshot().get("last_error", "")))
+	_state = candidate
+	_refresh_forecast_cache()
+	_last_error = ""
+	return true
 
 
 func _restart_lab_with_loadout(

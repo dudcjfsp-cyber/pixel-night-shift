@@ -2,6 +2,7 @@ class_name ShiftResultView
 extends Control
 
 signal continue_to_day_requested
+signal settings_requested
 
 const DESIGN_SIZE := Vector2(360.0, 640.0)
 const FONT: FontFile = preload("res://game/assets/fonts/Galmuri11-Bold.ttf")
@@ -170,13 +171,21 @@ func _build_ui() -> void:
 	)
 	_logical_root.add_child(result_panel)
 	_eyebrow = _make_label(
-		Rect2(14.0, 12.0, 320.0, 18.0),
+		Rect2(14.0, 12.0, 265.0, 18.0),
 		"NIGHT SHIFT 1 · 근무 결과",
 		9,
 		COLOR_CYAN
 	)
 	_eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_panel.add_child(_eyebrow)
+	var settings_button := _make_button(
+		Rect2(286.0, 9.0, 48.0, 48.0),
+		"설정"
+	)
+	settings_button.name = "SettingsButton"
+	settings_button.add_theme_font_size_override("font_size", 9)
+	settings_button.pressed.connect(func() -> void: settings_requested.emit())
+	result_panel.add_child(settings_button)
 	_title = _make_label(
 		Rect2(14.0, 38.0, 320.0, 32.0),
 		"야간근무 중단",

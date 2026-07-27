@@ -8,6 +8,7 @@ signal patch_preview_requested(slot_index: int, patch_id: StringName)
 signal patch_equip_requested(slot_index: int, patch_id: StringName)
 signal version_update_requested
 signal legacy_cache_purchase_requested
+signal settings_requested
 
 const DESIGN_SIZE := Vector2(360.0, 640.0)
 const FONT: FontFile = preload("res://game/assets/fonts/Galmuri11-Bold.ttf")
@@ -210,16 +211,26 @@ func _build_header() -> void:
 	)
 	header.add_child(title)
 	_version_label = _make_label(Rect2(222.0, 7.0, 105.0, 15.0), "V01", 9, COLOR_MUTED)
+	_version_label.position.x = 198.0
+	_version_label.size.x = 82.0
 	_version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	header.add_child(_version_label)
-	_bits_label = _make_label(Rect2(203.0, 27.0, 70.0, 20.0), "◆ 30", 12, COLOR_YELLOW)
+	_bits_label = _make_label(Rect2(190.0, 27.0, 55.0, 20.0), "◆ 30", 11, COLOR_YELLOW)
 	_bits_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_bits_label.tooltip_text = "비트 · 요원 강화와 패치 교체에 사용"
 	header.add_child(_bits_label)
-	_notes_label = _make_label(Rect2(278.0, 27.0, 49.0, 20.0), "▣ 0", 12, COLOR_PURPLE)
+	_notes_label = _make_label(Rect2(248.0, 27.0, 35.0, 20.0), "▣ 0", 11, COLOR_PURPLE)
 	_notes_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_notes_label.tooltip_text = "패치노트 · 버전 업데이트 보상"
 	header.add_child(_notes_label)
+	var settings_button := _make_button(
+		Rect2(289.0, 8.0, 48.0, 48.0),
+		"설정"
+	)
+	settings_button.name = "SettingsButton"
+	settings_button.add_theme_font_size_override("font_size", 9)
+	settings_button.pressed.connect(func() -> void: settings_requested.emit())
+	header.add_child(settings_button)
 
 	var offline_panel := _make_panel(
 		Rect2(6.0, 77.0, 348.0, 34.0),

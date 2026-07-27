@@ -4,6 +4,7 @@ extends Control
 signal pause_requested
 signal speed_requested
 signal preset_requested
+signal settings_requested
 signal shift_requested
 signal restart_requested
 
@@ -371,6 +372,7 @@ var _lab_button: Button
 var _pause_button: Button
 var _speed_button: Button
 var _preset_button: Button
+var _settings_button: Button
 var _product_shift_label: Label
 var _phase_label: Label
 var _timer_label: Label
@@ -453,12 +455,13 @@ func set_product_mode(
 		return
 	_lab_button.visible = not enabled
 	_preset_button.visible = not enabled
+	_settings_button.visible = enabled
 	_product_shift_label.visible = enabled
 	_restart_button.visible = not enabled
 	_pause_button.position = Vector2(7.0, 6.0) if enabled else Vector2(116.0, 6.0)
 	_pause_button.size = Vector2(104.0, 25.0) if enabled else Vector2(82.0, 25.0)
-	_speed_button.position = Vector2(228.0, 6.0) if enabled else Vector2(202.0, 6.0)
-	_speed_button.size = Vector2(113.0, 25.0) if enabled else Vector2(50.0, 25.0)
+	_speed_button.position = Vector2(220.0, 6.0) if enabled else Vector2(202.0, 6.0)
+	_speed_button.size = Vector2(68.0, 25.0) if enabled else Vector2(50.0, 25.0)
 	_speed_button.disabled = enabled and not _double_speed_unlocked
 	_terminal_overlay.visible = (
 		false if enabled else _terminal_overlay.visible
@@ -480,7 +483,11 @@ func refresh(value: Dictionary) -> void:
 	))
 
 	_phase_label.text = "%s  ·  %d★" % [_phase_display_name(phase_name), stars]
-	_timer_label.text = _format_time(phase_remaining)
+	_timer_label.text = "⏱ %.1f" % maxf(0.0, phase_remaining)
+	_timer_label.add_theme_color_override(
+		"font_color",
+		COLOR_RED if phase_name == "boss_active" else COLOR_YELLOW
+	)
 	_stability_label.text = "안정도 %d" % stability
 	_stability_label.add_theme_color_override(
 		"font_color",
@@ -541,8 +548,15 @@ func _build_ui() -> void:
 	_preset_button.name = "PresetButton"
 	_preset_button.pressed.connect(func() -> void: preset_requested.emit())
 	top_panel.add_child(_preset_button)
+	_settings_button = _make_button(Rect2(293.0, 4.0, 48.0, 48.0), "설정")
+	_settings_button.name = "SettingsButton"
+	_settings_button.flat = true
+	_settings_button.visible = false
+	_settings_button.add_theme_font_size_override("font_size", 8)
+	_settings_button.pressed.connect(func() -> void: settings_requested.emit())
+	top_panel.add_child(_settings_button)
 	_product_shift_label = _make_label(
-		Rect2(116.0, 6.0, 108.0, 25.0),
+		Rect2(114.0, 6.0, 100.0, 25.0),
 		"1차 야간",
 		11,
 		COLOR_CYAN
@@ -564,7 +578,7 @@ func _build_ui() -> void:
 	_stability_bar.value = 100.0
 	top_panel.add_child(_stability_bar)
 	_phase_label = _make_label(
-		Rect2(168.0, 35.0, 105.0, 19.0),
+		Rect2(168.0, 35.0, 56.0, 19.0),
 		"준비 · 0★",
 		11,
 		COLOR_YELLOW
@@ -572,8 +586,8 @@ func _build_ui() -> void:
 	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top_panel.add_child(_phase_label)
 	_timer_label = _make_label(
-		Rect2(278.0, 35.0, 62.0, 19.0),
-		"00:02.0",
+		Rect2(228.0, 35.0, 62.0, 19.0),
+		"⏱ 2.0",
 		11,
 		COLOR_TEXT
 	)
