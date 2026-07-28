@@ -2,22 +2,20 @@
 
 ## 문서 상태
 
-- 상태: 구현 완료된 V1 앱 셸 기준선 + Product V2 전환 계약
+- 상태: Product V2 앱 셸·schema 3 구현 권위
 - 대상 마일스톤: 앱 셸, 로컬 저장·복구·복귀와 Product V2 단계 전환
 - 기준 해상도: 세로 `360×640`
-- 현재 배포 본편: 20스테이지, schema 2
-- Product V2 목표: 주간·야간·결과, schema 3
+- 현재 본편: 주간·야간·결과, schema 3
+- Legacy V1: 20스테이지, schema 2 이관·회귀 기준
 
-> Product V2 전투는 [혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)를 따릅니다. 현재
-> V1은 schema 2를 계속 사용하고, Product V2 본편 승격 시 schema 1·2 기록을 schema 3
-> 후보로 명시적이고 원자적으로 전환합니다.
+> Product V2 전투는 [혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)를 따릅니다.
+> schema 1·2 기록은 schema 3 후보로 명시적이고 원자적으로 전환합니다.
 
 > 콜드 부트 타이틀과 첫 근무 프롤로그의 상세 계약은 [오프닝 경험 명세](OPENING_EXPERIENCE_SPEC.md)를 따릅니다. 저장 복구, 오프라인 진행, 현장 온보딩과 수명주기 계약은 이 문서가 계속 정의합니다.
 
 이 문서는 앱 실행부터 현장 진입, 복귀, 설정, 버전 업데이트, 저장 오류까지의 화면과 상태를
-한곳에서 정의한다. 아래 `Product V2 전환 계약`이 뒤의 V1 전용 와이어프레임과 오프라인
-전투 예시보다 우선한다. 뒤의 V1 내용은 현재 구현과 재사용할 셸 구조를 기록하기 위해
-남겨 둔다.
+한곳에서 정의한다. 아래 `Product V2 전환 계약`이 뒤의 Legacy V1 와이어프레임과
+오프라인 전투 예시보다 우선한다. 뒤의 V1 내용은 이관·회귀 이력으로 남겨 둔다.
 
 ## Product V2 전환 계약
 
@@ -27,7 +25,7 @@
 |---|---|
 | 타이틀, 프롤로그와 최초 저장 | `OPERATIONS_ROOM`의 자동 운영 요약을 기능형 `DAY_PREP`로 교체 |
 | `AppRoot`의 화면·tick·수명주기·오디오 소유권 | 하나의 `GAMEPLAY`를 `DAY_PREP/NIGHT_ACTIVE/SHIFT_RESULT`로 분리 |
-| 정확히 하나의 활성 `GameSession` | 20스테이지와 유지보수·자동 재도전 |
+| 정확히 하나의 활성 `ProductLoopSession` | 20스테이지와 유지보수·자동 재도전 |
 | `SaveRepository`의 원자적 주 저장·백업·복구 | 저장 봉투 버전을 schema 2에서 schema 3으로 올림 |
 | 설정과 접근성의 별도 저장 | 운영실·설정 중 전투 계속 |
 | 타이틀 복귀, 짧은 앱 전환과 포커스 단일 경로 | 오프라인에서 전투 시뮬레이터 `tick()` 호출 |
@@ -76,7 +74,7 @@ DAY_PREP + VERSION_UPDATE_CONFIRM → 원자적 저장 → RUN_SUMMARY → DAY_P
 | `NIGHT_ACTIVE` | 전투, 하위 상태와 타이머를 진행하지 않음 | 저장한 정확한 상태에서 재개 |
 | `SHIFT_RESULT` | 결과·급여·별·해금을 재계산하지 않음 | 같은 읽기 전용 결과 복원 |
 
-- `AppRoot`가 경과시간을 계산하고 도메인과 `GameSession`은 시스템 시계를 읽지 않는다.
+- `AppRoot`가 경과시간을 계산하고 도메인과 `ProductLoopSession`은 시스템 시계를 읽지 않는다.
 - 음수 경과는 0으로 처리하고 12시간 이후 수입은 만들지 않는다.
 - 같은 포커스 이탈이 여러 플랫폼 알림으로 들어와도 한 번만 적용한다.
 - 수입을 세션에 적용한 뒤 먼저 저장하고, 저장 성공 뒤에만 보고서를 보여준다.
@@ -97,19 +95,19 @@ DAY_PREP + VERSION_UPDATE_CONFIRM → 원자적 저장 → RUN_SUMMARY → DAY_P
 - Product V2 본편은 schema 3를 사용한다.
 - `SaveRepository`는 schema 봉투, 파일, 백업과 원자적 교체만 담당하고 세션 필드를
   해석하거나 변환하지 않는다.
-- 비활성 후보 `GameSession`이 schema 1·2 세션을 schema 3 후보로 변환하고 전체 내용을
-  검증한다.
+- `ProductV2SaveMigrator`가 비활성 Legacy `GameSession`으로 schema 1·2 원본을 먼저
+  검증하고, 변환한 schema 3 전체를 새 `ProductLoopSession` 후보로 검증한다.
 - `AppRoot`가 로드, 후보 변환·검증, schema 3 저장과 활성 세션 교체 순서를 조정한다.
 - schema 1·2의 회차, 메타 재화, 발견 요원·패치, 열린 슬롯과 영구 성장을 보존해
   `DAY_PREP` 후보를 만든다.
 - 기존 진행 중 전투를 Product V2 야간 중간 상태로 추측 변환하지 않는다.
-- schema 3은 마지막 읽기 전용 `last_shift_result`, 최신 현장 보고서 key·행과 읽음
+- schema 3은 마지막 읽기 전용 `last_result`, 최신 현장 보고서 key·행과 읽음
   상태를 저장한다. 결과를 다시 열거나 앱을 재실행해도 보상은 재지급되지 않고, 읽은
   보고서는 새 실패 key가 생기기 전까지 다시 알림 상태가 되지 않는다.
 - 후보 DTO 전체를 검증하고 schema 3 저장이 성공한 뒤에만 활성 세션을 교체한다.
 - 전환 실패는 기존 세션과 파일을 유지하고 명시적 저장 복구 화면으로 보낸다.
 
-## 현재 본편 V1에서 구현 완료된 제품 결정
+## Legacy V1에서 구현 완료된 제품 결정
 
 1. 정상 콜드 부트는 타이틀에서 시작합니다. 첫 실행은 `게임 시작` 뒤 5단계 프롤로그를 완료하거나 건너뛰고, 최초 저장 성공 뒤 현장의 플레이형 온보딩을 시작합니다.
 2. 정상 기록이 있는 완전 재실행은 타이틀의 `이어하기` 뒤 `야간 운영실`로 들어갑니다. 의미 있는 부재 결과가 있으면 그 위에 `야간 인수인계`를 한 번 표시합니다.
@@ -137,7 +135,7 @@ DAY_PREP + VERSION_UPDATE_CONFIRM → 원자적 저장 → RUN_SUMMARY → DAY_P
 
 기존 용어인 `야간근무 N회차`, `자동 운영`, `비트`, `패치노트`, `병목`, `진단`, `유지보수`, `감시견 프로세스`는 유지합니다.
 
-## 현재 본편 V1 화면 구조
+## Legacy V1 화면 구조
 
 ### 최상위 화면
 
@@ -169,7 +167,7 @@ ONBOARDING
 
 현장 실패 보고서와 자원 설명 말풍선은 `MainView` 내부의 게임플레이 표면입니다. 실패 보고서는 열려 있는 동안 배경을 어둡게 하고 하위 입력을 막는 모달이며, 자원 설명은 레이아웃과 입력을 바꾸지 않는 일시적 말풍선입니다. 둘은 위 앱 셸 오버레이 슬롯에 포함하지 않습니다.
 
-## 현재 본편 V1 실행 경로
+## Legacy V1 실행 경로
 
 ```text
 첫 설치
@@ -193,7 +191,7 @@ GAMEPLAY + VERSION_UPDATE_CONFIRM → 저장 성공 → RUN_SUMMARY → GAMEPLAY
 
 Android 시스템 스플래시 뒤 로컬 복원이 `300ms` 안에 끝나면 별도 부트 문구를 그리지 않습니다. 더 길어질 때만 `근무 기록 확인 중…`을 표시하며 가짜 진행률은 사용하지 않습니다. Web에서는 브라우저 탭이나 창의 포커스를 잃으면 짧은 앱 전환과 같은 백그라운드 경로를 사용합니다.
 
-## 현재 본편 V1 기능 와이어프레임
+## Legacy V1 기능 와이어프레임
 
 아래 배치는 실제 `360×640` 화면 안의 정보 우선순위를 정의합니다. 장식용 픽셀 아트는 와이어프레임 승인 뒤 추가합니다.
 
@@ -297,10 +295,10 @@ Android 시스템 스플래시 뒤 로컬 복원이 `300ms` 안에 끝나면 별
 - 비트·패치노트·스테이지 칩은 최소 `48px` 터치 영역을 사용합니다. 마우스를 올리거나 터치하면 의미를 설명하는 말풍선을 해당 아이콘 가까이에 표시합니다.
 - 자원 말풍선은 화면 좌우를 벗어나지 않도록 보정하고 아래 공간이 부족하면 아이콘 위에 표시합니다. 마우스가 벗어나면 닫히며 터치한 설명은 약 `2.8초` 뒤 닫힙니다.
 
-#### 현재 V1·Legacy·Product V2 현장 실패 보고서
+#### Legacy V1·Legacy Combat V2·Product V2 현장 실패 보고서
 
 - 보고서 아이콘은 항상 노출합니다. 아직 보고서가 없으면 아이콘 옆 말풍선으로 그 사실만 알립니다.
-- 현재 본편 V1에서는 유지보수 진입을 만든 보스 실패가 새 보고서를 만듭니다.
+- Legacy V1에서는 유지보수 진입을 만든 보스 실패가 새 보고서를 만듭니다.
 - Legacy Combat V2 격리 모드에서는 `normal_failure` 또는 `boss_failure`가 새 보고서를
   만듭니다.
 - Product V2에서는 서버 안정도 0, 보스 30초 시간초과 또는 보스전 전원 쓰러짐이 새
@@ -311,9 +309,9 @@ Android 시스템 스플래시 뒤 로컬 복원이 `300ms` 안에 끝나면 별
 - 카드는 읽기 전용입니다. 카드를 누르는 요원 강화 이동, 전투 명령, 숨은 보너스나 불이익은 없습니다.
 - 보고서는 현재 탭을 바꾸거나 요원 강화 목록의 레이아웃에 참여하지 않는 독립 모달입니다.
 - 모달은 좌우 `16px`, 상하 `48px` 안전 여백, `48px` 닫기 버튼과 내부 세로 스크롤을 사용합니다. 닫기 버튼 또는 어두운 바깥 영역의 클릭·터치로 닫습니다.
-- 현재 V1의 보고서 키·행·읽음 상태는 `AppRoot`가 앱 실행 중 캐시하고 모달 표현은
-  `MainView`가 소유합니다. Product V2 승격 뒤에는 위 schema 3 전환 계약에 따라 최신
-  보고서와 읽음 상태를 저장하되 화면은 여전히 읽기 전용으로만 표현합니다.
+- Legacy V1의 보고서 키·행·읽음 상태는 `AppRoot`가 앱 실행 중 캐시하고 모달 표현은
+  `MainView`가 소유합니다. 현재 Product V2는 위 schema 3 계약에 따라 최신 보고서와
+  읽음 상태를 저장하되 화면은 여전히 읽기 전용으로만 표현합니다.
 
 ### 5. 설정
 
@@ -436,7 +434,7 @@ Android 시스템 스플래시 뒤 로컬 복원이 `300ms` 안에 끝나면 별
 
 설명 카드는 강조 대상을 가리지 않도록 화면 위·아래를 바꾸며 배치합니다. 언제든 건너뛸 수 있고 설정에서 다시 볼 수 있습니다.
 
-## 현재 본편 V1 상태와 예외 처리
+## Legacy V1 상태와 예외 처리
 
 | 조건 | 표시 | 자동 운영 | 처리 원칙 |
 |---|---|---:|---|
@@ -517,17 +515,17 @@ Android 시스템 스플래시 뒤 로컬 복원이 `300ms` 안에 끝나면 별
 
 ```text
 AppRoot
- ├─ GameSession 1개
+ ├─ ProductLoopSession 1개
  ├─ AudioDirector 1개
  ├─ SaveRepository
  ├─ ScreenHost: 최상위 화면 1개
  └─ OverlayHost: 오버레이 최대 1개
 ```
 
-- `AppRoot`만 화면 전환, `GameSession.tick()`, 저장·복귀 시점, 오디오 생명주기를 관리합니다.
-- 각 화면은 다른 화면을 직접 열지 않고 `continue_requested`, `settings_requested`, `prestige_requested` 같은 의미 신호만 보냅니다.
-- `MainView.configure(session, audio_director)`를 트리에 추가하기 전에 한 번 호출합니다.
-- `MainView` 내부의 세션·오디오 생성과 전투 `tick()`은 제거합니다.
+- `AppRoot`만 화면 전환, `ProductLoopSession.tick()`, 저장·복귀 시점, 오디오 생명주기를 관리합니다.
+- 각 화면은 다른 화면을 직접 열지 않고 `night_requested`, `settings_requested`, `version_update_requested` 같은 의미 신호만 보냅니다.
+- Product V2 화면은 활성 세션과 오디오 참조를 트리 진입 전에 주입받습니다.
+- 화면 내부의 세션·오디오 생성과 전투 `tick()`은 금지합니다.
 - 현재 V1의 운영실·설정 중에는 `AppRoot`가 전투를 계속 진행합니다. Product V2에서는
   위 전환 계약에 따라 주간·결과에 배경 전투가 없고 야간 설정은 전투를 멈춥니다.
 - 백그라운드에서는 실시간 `tick()`을 멈춥니다.
@@ -550,8 +548,8 @@ SaveRepository.save(
     last_gameplay_tab: int
 ) -> Error
 
-GameSession.export_state() -> Dictionary
-GameSession.restore_state(data: Dictionary) -> PackedStringArray
+ProductLoopSession.export_state() -> Dictionary
+ProductLoopSession.restore_state(data: Dictionary) -> PackedStringArray
 ```
 
 - `snapshot()`은 화면 DTO이며 저장 데이터로 사용하지 않습니다.
@@ -575,7 +573,7 @@ GameSession.restore_state(data: Dictionary) -> PackedStringArray
 
 저장은 임시 파일 작성과 검증, 이전 주 저장의 백업 회전, 새 주 저장 교체 순서로 처리합니다. 상태 변경 명령 성공 직후, 주기 저장, 앱 일시정지 시점에 저장하되 종료 콜백만 믿지 않습니다.
 
-### 현재 본편 V1 오프라인 진행
+### Legacy V1 오프라인 진행
 
 - 도메인과 `GameSession`은 시스템 시계를 읽지 않습니다.
 - `AppRoot`가 현재 시각과 `saved_at_unix`의 차이를 계산합니다.
@@ -586,7 +584,7 @@ GameSession.restore_state(data: Dictionary) -> PackedStringArray
 - 적용 전·후 스냅숏 차이로 읽기 전용 인수인계 데이터를 만듭니다.
 - 결과 적용 시각과 세션을 먼저 저장한 뒤 보고서를 표시합니다.
 
-## 현재 본편 V1 구현 이력
+## Legacy V1 구현 이력
 
 아래 앱 셸 작업은 모두 완료됐습니다.
 
@@ -600,7 +598,7 @@ GameSession.restore_state(data: Dictionary) -> PackedStringArray
 8. 버전 업데이트 확인·완료 보고서와 플레이형 온보딩을 연결합니다.
 9. 와이어프레임 승인 뒤 운영실 전용 픽셀 에셋과 화면별 오디오를 제작합니다.
 
-## 현재 본편 V1 완료 조건
+## Legacy V1 완료 조건
 
 - 근무 기록이 없거나 정상 기록이면 타이틀, 손상 기록이면 복구 화면으로 정확히 분기합니다.
 - 첫 실행은 타이틀과 프롤로그 뒤 최초 저장에 성공해야 플레이형 온보딩에 들어갑니다.

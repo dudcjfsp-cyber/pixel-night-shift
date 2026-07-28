@@ -15,9 +15,9 @@
 - Use Godot 4.7 and typed GDScript.
 - Logical resolution is 360x640.
 - Keep domain simulation independent from scenes, nodes, files, clocks, and audio.
-- `GameSession` is the application boundary. Presentation sends commands to it and reads snapshots; presentation must not mutate domain state directly.
-- `AppRoot` is the composition, navigation, simulation-tick, lifecycle, save-timing, and audio-lifecycle owner. It owns exactly one active `GameSession`.
-- Persistence stays outside the domain. `GameSession` validates explicit save DTOs; the save repository owns files and the save envelope.
+- `ProductLoopSession` is the current application boundary. Presentation sends commands to it and reads snapshots; presentation must not mutate domain state directly. Legacy `GameSession` is retained only to validate and migrate schema 1·2 saves and for regression coverage.
+- `AppRoot` is the composition, navigation, simulation-tick, lifecycle, save-timing, and audio-lifecycle owner. It owns exactly one active `ProductLoopSession`.
+- Persistence stays outside the domain. `ProductLoopSession` validates explicit schema 3 save DTOs; `ProductV2SaveMigrator` coordinates legacy validation and candidate conversion; the save repository owns files and the save envelope.
 - Keep balance and content values in `game/content/` and validate external data at its loading boundary.
 - Avoid global event buses, multiple Autoload singletons, dependency-injection containers, and speculative abstractions.
 

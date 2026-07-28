@@ -62,7 +62,8 @@ Godot 4.7 Project Manager에서 `project.godot`을 가져와 실행합니다.
 - 타이틀·주간·야간·결과 오디오, 설정, 저장 복구와 플랫폼 수명주기
 - 결정론적 전투와 원자적 로컬 저장
 
-제품·수치 기준은 [Product V2 계획표](docs/PRODUCT_V2_PLAN.md), 전투 규칙은
+제품·수치 기준은 [Product V2 계획표](docs/PRODUCT_V2_PLAN.md), 다음 재미 검증은
+[Product V2.1 계획](docs/PRODUCT_V2_1_PLAN.md), 전투 규칙은
 [혼합 디펜스 명세](docs/COMBAT_HYBRID_SPEC.md), 앱 흐름과 저장 계약은
 [앱 셸 명세](docs/APP_SHELL_SPEC.md)를 따릅니다. 웹 수동 검증은
 [플레이테스트 계획](docs/PLAYTEST.md)에 기록합니다.

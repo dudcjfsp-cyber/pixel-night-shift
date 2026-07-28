@@ -1,30 +1,29 @@
-# Product V2 수직 슬라이스 범위
+# Product V2.0 수직 슬라이스 기준선
 
 ## 문서 상태
 
-- 상태: 현재 개발 마일스톤
+- 상태: 구현 완료, 외부 5인 검증 대기
 - 제품 기준: [Product V2 계획표](PRODUCT_V2_PLAN.md)
+- 현재 개발: [Product V2.1 재미 검증 계획](PRODUCT_V2_1_PLAN.md)
 - 전투 기준: [Product V2 혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)
 - 앱 기반: [앱 셸·Product V2 수명주기 명세](APP_SHELL_SPEC.md)
 
-최초 20스테이지 회색상자와 현재 배포 본편 V1은 완료된 기준선이다. V1 상세값은
-[V1 전투 동결 기준선](V1_COMBAT_BASELINE.md)에 보존한다. Product V2는 그 앱 셸과
-콘텐츠를 보존하면서 전투 순환을 `주간 방치 정비 → 야간 자동 디펜스 → 근무 결과`로
-교체한다.
+최초 20스테이지 회색상자와 V1은 완료된 역사 기준선이다. V1 상세값은
+[V1 전투 동결 기준선](V1_COMBAT_BASELINE.md)에 보존한다. 현재 기본 실행 경로는
+schema 3의 Product V2이며, 다음 변경은 V2.1 계획의 범위와 관문을 따른다.
 
 ## 세대 구분
 
 | 이름 | 범위와 상태 |
 |---|---|
 | 최초 회색상자 | 20스테이지, 단순 자동 전투, 저장·오프라인 이전의 완료된 역사 기준 |
-| 현재 본편 V1 | 20스테이지, 25초 보스, 유지보수·자동 재도전, schema 2를 사용하는 현재 배포 구현 |
+| Legacy V1 | 20스테이지, 25초 보스, 유지보수·자동 재도전, schema 2를 사용하는 보존 구현 |
 | Legacy Combat V2 | 일반 적 공격·6초 복구·긴급 재배포를 비교한 격리 실험 |
-| Product V2 | 버전당 야간 2회, 각 9+1웨이브, 주간 방치와 결과 화면을 사용하는 현재 목표 |
+| Product V2 | 버전당 야간 2회, 각 9+1웨이브, 주간 방치와 결과 화면을 사용하는 현재 본편 |
 | Defense Lab | Product V2 전투를 본편 승격 전에 검증하는 격리 프로토타입 |
 
-Defense Lab이 완료 기준을 통과하기 전에는 현재 본편의 기본 실행 경로와 저장 schema를
-바꾸지 않는다. 통과 뒤에는 Product V2를 유일한 권위 `GameSession`으로 승격하고 중복
-전투 분기를 정리한다.
+Defense Lab과 본편 승격은 완료됐다. 실제 제품 경계는 `ProductLoopSession`이며,
+`AppRoot`가 전환·tick·저장을 소유한다. Legacy 구현은 이관·회귀 검증용으로만 보존한다.
 
 ## 목표
 
@@ -67,7 +66,7 @@ Defense Lab이 완료 기준을 통과하기 전에는 현재 본편의 기본 �
 
 - Godot 4.7과 typed GDScript
 - 논리 해상도 `360×640`의 세로형 반응형 Web 빌드
-- `AppRoot → GameSession → domain/content` 의존 방향
+- `AppRoot → ProductLoopSession → product_v2 domain/content` 의존 방향
 - 결정론적 야간 전투와 콘텐츠 경계 검증
 - 원자적 로컬 저장·백업·복구
 - schema 1·2에서 schema 3으로의 명시적 원자적 전환
@@ -113,7 +112,7 @@ Defense Lab이 완료 기준을 통과하기 전에는 현재 본편의 기본 �
 - 일일 보상, 우편, 업적, 랭킹과 라이브 이벤트
 - 광고, 결제, 분석, 계정, 서버, 네트워크와 클라우드 저장
 - Android 네이티브 패키징과 스토어 배포
-- 본편 승격 전 진행하는 대규모 아트·오디오 확장
+- 대규모 아트·오디오 전체 교체
 - 검증 뒤에도 V1·Legacy·Product V2 전투 엔진을 영구 병행하는 구조
 
 제외 항목은 빈 서비스, 가짜 버튼, 선행 데이터 구조로 미리 만들지 않는다.
@@ -124,7 +123,7 @@ Defense Lab이 완료 기준을 통과하기 전에는 현재 본편의 기본 �
   마일스톤으로 명시적으로 이동한다.
 - 새로운 외부 의존성, 공개 API, 데이터 마이그레이션 방식과 배포 대상 변경은 별도 승인
   없이 도입하지 않는다.
-- Defense Lab 완료 전에는 본편 실행 경로, `GameSession`, `AppRoot`와 저장 schema를
-  변경하지 않는다.
+- Product V2 기능은 Legacy `GameSession`이 아니라 `ProductLoopSession`에 연결하며,
+  `AppRoot`와 저장 schema 변경은 별도 승인 없이 진행하지 않는다.
 - 실제 외부 테스트 5명 중 3명 이상이 야간에 `할 일이 없다`고 답하기 전에는 중간 관제
   지시를 Product V2 기본 규칙에 넣지 않는다.

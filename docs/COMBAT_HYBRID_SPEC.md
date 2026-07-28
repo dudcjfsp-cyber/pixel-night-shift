@@ -7,23 +7,21 @@
 - 기준 엔진: Godot 4.7, typed GDScript
 - 기준 화면: 세로 `360×640`
 - 제품 결정 원본: [Product V2 계획표](PRODUCT_V2_PLAN.md)
+- 다음 재미 검증: [Product V2.1 계획](PRODUCT_V2_1_PLAN.md)
 
-현재 배포 본편은 20스테이지, 스테이지 10·20의 25초 보스, 유지보수 파밍과 자동 재도전을
-사용한다. Product V2가 6단계에서 본편으로 승격되기 전까지 코드는 그 V1 동작을 유지한다.
-이 문서는 목표 전투를 정의하며 현재 코드 동작을 이미 완료된 것처럼 설명하지 않는다.
-현재 V1의 상세 회귀 기준은 [V1 전투 동결 기준선](V1_COMBAT_BASELINE.md)에 보존한다.
+현재 기본 실행 경로는 이 문서의 Product V2 전투와 schema 3를 사용한다. 20스테이지
+V1의 상세 회귀 기준은 [V1 전투 동결 기준선](V1_COMBAT_BASELINE.md)에 보존한다.
 
 ### 세대 구분
 
 | 이름 | 의미 |
 |---|---|
-| 현재 본편 V1 | 20스테이지 연속 전투와 25초 보스, 유지보수·자동 재도전을 사용하는 배포 구현 |
+| Legacy V1 | 20스테이지 연속 전투와 25초 보스, 유지보수·자동 재도전을 사용하는 보존 구현 |
 | Legacy Combat V2 | 일반 적 공격, 6초 복구와 긴급 재배포가 있는 격리 10스테이지 비교 실험 |
 | Product V2 | 이 문서가 정의하는 `DAY_PREP → NIGHT_ACTIVE → SHIFT_RESULT` 제품 |
-| Defense Lab | Product V2 전투를 본편 승격 전에 검증하는 격리 실행 경로 |
+| Defense Lab | Product V2 전투를 회귀 검증하는 격리 실행 경로 |
 
-Legacy Combat V2를 Product V2 엔진으로 승격하거나 현재 V1 시뮬레이터에 조건 분기를 계속
-추가하지 않는다.
+Legacy Combat V2나 V1 시뮬레이터에 Product V2 조건 분기를 추가하지 않는다.
 
 ## 목표
 
@@ -245,8 +243,8 @@ COUNTDOWN 2초
 
 ## 도메인과 콘텐츠 경계
 
-Product V2 전투는 현재 V1 `GameState`, `BattleSimulator`, `HybridBossSimulator`와 Legacy
-`CombatV2State`에 분기를 추가하지 않고 격리된 도메인으로 먼저 구현한다.
+Product V2 전투는 V1 `GameState`, `BattleSimulator`, `HybridBossSimulator`와 Legacy
+`CombatV2State`에 분기를 추가하지 않은 별도 도메인으로 구현돼 있다.
 
 ```text
 game/content/product_v2/
@@ -268,18 +266,17 @@ game/domain/product_v2/
 - 화면상의 적 위치는 저장하지 않고 웨이브 경과율에서 표시 계층이 계산한다.
 - 최근 사건은 표시와 보고서에 필요한 제한된 개수만 유지한다.
 
-Defense Lab 승인 전에는 `GameSession`, `AppRoot`, `project.godot`, V1 콘텐츠와 본편 저장
-schema를 변경하지 않는다.
+Defense Lab은 현재 본편과 분리된 회귀 실행 경로를 유지한다.
 
 ## 저장과 오프라인 경계
 
-2~3단계 Defense Lab은 본편 저장과 분리한다. 단계별 경계는 다음과 같다.
+Defense Lab은 본편 저장과 분리한다. 현재 경계는 다음과 같다.
 
 - 2단계는 도메인·콘텐츠를 실행기로 직접 검증하며 애플리케이션 세션이나 화면을 추가하지 않는다.
 - 3단계는 별도 `DefenseLabSession`과 격리된 테스트 저장을 사용한다. 실행 경로의 조정자만
   세션 `tick()`을 호출하고 화면은 명령을 전달하며 `snapshot()`만 읽는다.
-- 6단계 본편 승격 뒤 기존 `GameSession`이 Product V2 상태와 콘텐츠의 유일한 제품
-  애플리케이션 경계가 되고 schema 3를 사용한다.
+- `ProductLoopSession`이 Product V2 상태와 콘텐츠의 제품 애플리케이션 경계이며
+  schema 3를 사용한다. 기존 `GameSession`은 schema 1·2 이관 검증용이다.
 - 제품 경로에서는 `AppRoot`만 tick, 화면 전환, 수명주기, 저장 시점과 오디오
   생명주기를 소유한다.
 - `DAY_PREP`만 20분당 1비트, 최대 12시간·36비트의 오프라인 수입을 적용한다.
@@ -298,7 +295,7 @@ schema를 변경하지 않는다.
 4. 적별 침입 합계·웨이브 상한 40과 완료 3/6/10의 별
 5. 정확히 30초 처치 성공, 시간초과와 전원 DOWN 실패
 
-UI, 저장, 급여, 해금과 오프라인 수입은 각각 3~6단계에서 실제 경계가 생길 때 검증한다.
+UI, 저장, 급여, 해금과 오프라인 수입은 각 실제 경계에서 검증한다.
 내부 호출 순서나 모든 콘텐츠 조합을 위한 테스트를 만들지 않는다.
 
 ## 사람 플레이테스트 완료 기준
@@ -331,4 +328,4 @@ UI, 저장, 급여, 해금과 오프라인 수입은 각각 3~6단계에서 실�
 - 모집, 장비, 여러 재화, 일일 보상, 우편과 랭킹
 - 광고, 결제, 분석, 계정, 네트워크와 클라우드 저장
 - Android 패키징과 스토어 배포
-- 본편 승격 전 V1·Legacy·Product V2 엔진의 영구 병행
+- V1·Legacy·Product V2 엔진을 모두 제품 경로로 영구 병행

@@ -6,12 +6,12 @@
 - 기준 엔진: Godot 4.7, typed GDScript
 - 기준 화면: 세로 `360×640`
 - 상세 제품 결정: [Product V2 계획표](PRODUCT_V2_PLAN.md)
+- 다음 재미 검증: [Product V2.1 계획](PRODUCT_V2_1_PLAN.md)
 - 권위 전투 규칙: [Product V2 혼합 디펜스 전투 명세](COMBAT_HYBRID_SPEC.md)
 - 앱 셸·저장 기반: [앱 셸·Product V2 수명주기 명세](APP_SHELL_SPEC.md)
 
-현재 배포본은 아직 20스테이지 연속 자동 전투를 사용한다. 이 문서는 Defense Lab 검증 뒤
-승격할 Product V2의 목표 동작을 정의하며, 현재 구현 상태와 목표 상태를 섞어 설명하지
-않는다.
+현재 기본 실행 경로는 schema 3의 Product V2 본편이다. 20스테이지 V1과 Defense Lab은
+이관·회귀 비교용으로 보존한다.
 
 ## 한 문장 설명
 
